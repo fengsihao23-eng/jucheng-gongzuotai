@@ -19,7 +19,7 @@ MODULES = [
     # 人事 / 客服 / 产品 / 知识库
     "hr", "service", "tender", "kb",
     # MCP 配置
-    "mcp_config",
+    "mcp_config", "assistant",
 ]
 
 for _m in MODULES:

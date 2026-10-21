@@ -4,6 +4,8 @@ from app.integration.wecom.crypto import WeComCrypto
 
 
 def get_wecom() -> WeComProvider:
+    from app.core.integration_config import refresh
+    refresh()
     if settings.source_mode("wecom") == "live":
         from app.integration.wecom.live import LiveWeCom
         return LiveWeCom()
@@ -12,6 +14,8 @@ def get_wecom() -> WeComProvider:
 
 
 def get_crypto() -> WeComCrypto:
+    from app.core.integration_config import refresh
+    refresh()
     if settings.source_mode("wecom") == "live":
         return WeComCrypto(settings.wecom_callback_token, settings.wecom_callback_aes_key, settings.wecom_corp_id)
     from app.integration.wecom.mock import MOCK_AES_KEY, MOCK_CALLBACK_TOKEN, MOCK_CORP_ID

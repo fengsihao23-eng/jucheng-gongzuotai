@@ -26,6 +26,7 @@
         </div>
         <div class="jc-spacer" />
         <span class="jc-muted jc-small today">{{ today }}</span>
+        <el-button class="assistant-entry" @click="assistant.open()">接入助手</el-button>
         <el-popover placement="bottom-end" :width="360" trigger="click" @show="loadNotify">
           <template #reference>
             <button class="icon-btn" aria-label="消息通知">
@@ -71,6 +72,7 @@
         </router-view>
       </main>
     </div>
+    <IntegrationAssistant />
   </div>
 </template>
 
@@ -82,10 +84,13 @@ import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { MENU_GROUPS } from '@/config/menu'
 import { fromNow } from '@/utils/format'
+import IntegrationAssistant from '@/components/IntegrationAssistant.vue'
+import { useAssistant } from '@/store/assistant'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
+const assistant = useAssistant()
 const profile = computed(() => auth.profile)
 const mode = ref('mock')
 const unread = ref(0)

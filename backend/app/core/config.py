@@ -1,10 +1,18 @@
-"""全局配置。所有密钥只来自环境变量 / .env，不入库不入日志。"""
+"""全局配置。密钥来自环境变量 / .env / 服务器受限凭证文件，不入库不入日志。"""
+import json
+import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+
+INTEGRATION_KEYS = frozenset({
+    "wecom_corp_id", "wecom_agent_id", "wecom_secret", "wecom_callback_token", "wecom_callback_aes_key",
+    "lemoncloud_app_id", "lemoncloud_app_secret", "data_source_overrides",
+})
 
 
 class Settings(BaseSettings):
@@ -54,6 +62,7 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
+    llm_thinking_mode: Literal["", "enabled", "disabled"] = ""  # DeepSeek 可显式关闭思考；其他服务默认不传
 
     mcp_server_name: str = "jucheng-portal"
     mcp_rate_limit_per_min: int = 60
@@ -73,7 +82,26 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    value = Settings()
+    load_integration_settings(value)
+    return value
+
+
+def load_integration_settings(value: Settings) -> None:
+    """持久化目录与上传文件目录同卷；显式保存的接入配置优先于部署时的环境变量。"""
+    path = value.storage_dir.parent / "integrations.json"
+    if not path.exists():
+        return
+    try:
+        saved = json.loads(path.read_text())
+        if not isinstance(saved, dict) or not saved.keys() <= INTEGRATION_KEYS:
+            raise ValueError("invalid integration settings")
+        candidate = Settings.model_validate({**value.model_dump(), **saved})
+        for key in saved:
+            setattr(value, key, getattr(candidate, key))
+    except (OSError, ValueError, TypeError):
+        logging.getLogger("config").error("接入凭证文件无法读取或格式错误")
+        raise RuntimeError("接入凭证文件无法读取或格式错误") from None
 
 
 settings = get_settings()

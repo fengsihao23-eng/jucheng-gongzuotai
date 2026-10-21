@@ -135,7 +135,7 @@ def datasources(p: Principal = Admin):
     return ok({"global_mode": settings.data_source_mode, "overrides": settings.data_source_overrides,
                "sources": [{"key": k, "name": n, "mode": settings.source_mode(k), "credential_ready": c}
                            for k, (n, c) in srcs.items()],
-               "note": "模式通过环境变量 DATA_SOURCE_MODE / DATA_SOURCE_OVERRIDES 切换，重启生效；密钥仅存环境变量。"})
+               "note": "可通过接入助手验证并保存企业微信配置，即时生效；凭证仅保存在服务器受限文件中。其他数据源通过环境变量配置。"})
 
 
 @router.get("/jobs")

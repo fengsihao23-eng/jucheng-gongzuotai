@@ -1,6 +1,7 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="公共" title="WorkBuddy 接入" desc="工作台通过 MCP Server 把报表、台账、看板、知识库等能力提供给腾讯 WorkBuddy。按下面三步配置后，在 WorkBuddy 里说一句话即可调用。">
+      <el-button type="primary" @click="assistant.open('帮我接入 WorkBuddy')">让接入助手帮我配置</el-button>
       <el-button v-if="srv.is_admin" @click="syncTools">同步工具清单</el-button>
     </PageHeader>
 
@@ -131,6 +132,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { baseGrid } from '@/utils/chart'
+import { useAssistant } from '@/store/assistant'
+
+const assistant = useAssistant()
 
 const EXAMPLES = [
   { q: '生成本周各项目利润表', tool: 'fin.project_profit' },

@@ -15,6 +15,8 @@ from app.core.response import BizError, trace_id_var
 from app.core.security import create_jwt
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+# 企微等官方 GET 鉴权接口将密钥放在 query 中，禁止 httpx 的完整请求 URL 日志。
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("app")
 
 
@@ -44,6 +46,8 @@ app = FastAPI(title="聚成数智统一工作台", version="2.0.0", lifespan=lif
 
 @app.middleware("http")
 async def trace_and_renew(request: Request, call_next):
+    from app.core.integration_config import refresh
+    refresh()
     tid = request.headers.get("X-Trace-Id") or uuid.uuid4().hex[:16]
     trace_id_var.set(tid)
     t0 = time.perf_counter()
