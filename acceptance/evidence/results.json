@@ -1,0 +1,1391 @@
+{
+  "at": "2026-10-20T16:57:39.102Z",
+  "results": [
+    {
+      "id": "FR-01",
+      "title": "口令登录 + 企微 OAuth（Mock）免密登录",
+      "pass": true,
+      "evidence": [
+        {
+          "code": "ZB-01",
+          "name": "董事长/总经理"
+        }
+      ]
+    },
+    {
+      "id": "FR-01-03",
+      "title": "权限矩阵：财务仅见财务与公共菜单；普通员工看不到台账",
+      "pass": true,
+      "evidence": {
+        "出纳菜单": [
+          "portal",
+          "reports",
+          "expenses",
+          "flows",
+          "journal",
+          "kb",
+          "mcp"
+        ],
+        "普通员工菜单": [
+          "portal",
+          "kb",
+          "mcp"
+        ],
+        "出纳访问合同台账": 40301
+      }
+    },
+    {
+      "id": "FR-01-03",
+      "title": "数据范围：项目经理只看自己负责的项目",
+      "pass": true,
+      "evidence": {
+        "许浩可见项目": [
+          "JC-KP-2026-001",
+          "JC-XY-2026-001",
+          "JC-KP-2025-001"
+        ],
+        "访问他人项目": 40301
+      }
+    },
+    {
+      "id": "FR-07 / FR-05-04",
+      "title": "模拟企微合同审批通过 → 加密回调 → 合同台账自动登记（≤5s，3 次重复推送幂等）",
+      "pass": true,
+      "evidence": {
+        "sp_no": "20261021066961",
+        "回调响应": [
+          "success",
+          "success",
+          "success"
+        ],
+        "登记条数": "1",
+        "耗时ms": 237
+      }
+    },
+    {
+      "id": "FR-07 验收",
+      "title": "审批登记后看板签约额实时增加，企微推送已发出",
+      "pass": true,
+      "evidence": {
+        "当月签约前": "6160000.00",
+        "当月签约后": "7540000.00",
+        "推送": true
+      }
+    },
+    {
+      "id": "FR-05-05",
+      "title": "审批字段异常 → 进入人工待处理队列并告警",
+      "pass": true,
+      "evidence": {
+        "error": "字段「合同金额」金额无效：'待定'"
+      }
+    },
+    {
+      "id": "FR-07-03",
+      "title": "回调丢失 → 兜底对账任务补登",
+      "pass": true,
+      "evidence": {
+        "补登前": "0",
+        "补登后": "1",
+        "任务": "拉取 9 单，补登 1，重试 0"
+      }
+    },
+    {
+      "id": "FR-05-04 / 3.3",
+      "title": "报销审批带「所属项目」→ 自动归集到项目；缺项目 → 待归集池",
+      "pass": true,
+      "evidence": {
+        "带项目": "4|JC-XY-2026-001",
+        "缺项目": "2|"
+      }
+    },
+    {
+      "id": "FR-03 验收",
+      "title": "看板六板块与台账 SQL 抽样核对一致（回款/签约/商机/招标在建）",
+      "pass": true,
+      "evidence": {
+        "看板": {
+          "回款": "4860000.00",
+          "当月签约": "7540000.00",
+          "年度": "40080000.00",
+          "招标中": {
+            "bidding_count": 3,
+            "bidding_amount": "22100000.00",
+            "building_count": 6,
+            "building_contract_amount": "44830000.00",
+            "alert_count": 4,
+            "overdue_count": 3,
+            "due_soon_count": 1,
+            "alerts": [
+              {
+                "type": "overdue",
+                "project_code": "JC-XY-2026-001",
+                "project_name": "南沙区中小学数字校园建设",
+                "node_name": "到货验收",
+                "plan_date": "2026-09-09",
+                "days": -42
+              },
+              {
+                "type": "overdue",
+                "project_code": "JC-XY-2026-002",
+                "project_name": "东莞松山湖实验学校智慧校园",
+                "node_name": "采购",
+                "plan_date": "2026-09-18",
+                "days": -33
+              },
+              {
+                "type": "overdue",
+                "project_code": "JC-AF-2026-002",
+                "project_name": "宝安区中小学明厨亮灶及视频联网",
+                "node_name": "采购",
+                "plan_date": "2026-10-08",
+                "days": -13
+              },
+              {
+                "type": "due_soon",
+                "project_code": "JC-XY-2026-004",
+                "project_name": "江门新会区智慧教室推广",
+                "node_name": "终验",
+                "plan_date": "2026-10-27",
+                "days": 6
+              }
+            ],
+            "deadline_soon_count": 1,
+            "deadlines": [
+              {
+                "project_code": "JC-XY-2026-003",
+                "name": "顺德职业技术学院数字基座一期",
+                "customer_name": "顺德职业技术学院",
+                "budget_amount": "7500000.00",
+                "bid_deadline": "2026-11-04",
+                "days_left": 14,
+                "urgent": false,
+                "drill": {
+                  "path": "/projects/JC-XY-2026-003"
+                }
+              },
+              {
+                "project_code": "JC-AF-2026-003",
+                "name": "珠海高新区校园安全防控平台",
+                "customer_name": "珠海高新区社会事业局",
+                "budget_amount": "12000000.00",
+                "bid_deadline": "2026-11-08",
+                "days_left": 18,
+                "urgent": false,
+                "drill": {
+                  "path": "/projects/JC-AF-2026-003"
+                }
+              },
+              {
+                "project_code": "JC-YW-2026-001",
+                "name": "惠州市属学校安防运维",
+                "customer_name": "惠州市教育局",
+                "budget_amount": "2600000.00",
+                "bid_deadline": "2026-11-18",
+                "days_left": 28,
+                "urgent": false,
+                "drill": {
+                  "path": "/projects/JC-YW-2026-001"
+                }
+              }
+            ],
+            "drill": {
+              "bidding": {
+                "path": "/projects",
+                "query": {
+                  "status": "1"
+                }
+              },
+              "building": {
+                "path": "/projects",
+                "query": {
+                  "status": "2"
+                }
+              },
+              "alert": {
+                "path": "/projects",
+                "query": {
+                  "delayed": "1"
+                }
+              }
+            }
+          }
+        },
+        "SQL": {
+          "回款": "4860000.00",
+          "当月签约": "7540000.00",
+          "年度": "40080000.00",
+          "招标中": "3"
+        }
+      }
+    },
+    {
+      "id": "FR-03 验收",
+      "title": "延期标红规则：finish_date > plan_date 或计划日已过未完成",
+      "pass": true,
+      "evidence": {
+        "应标红未标红": "0"
+      }
+    },
+    {
+      "id": "FR-03-04",
+      "title": "「对比本月与上月回款完成率并给结论」",
+      "pass": true,
+      "evidence": "2026-10 回款完成率 69.4%，2026-09 为 94.2%，下降 24.7 个百分点。2026-10 尚未结束（时间进度 68%），当前达成 69.4%，进度超前；距目标还差 214.0 万元。"
+    },
+    {
+      "id": "FR-03-03",
+      "title": "晨报生成 + 企微推送（图片卡片 + 文字 + 看板链接）",
+      "pass": true,
+      "evidence": {
+        "任务": "晨报已推送 3 人：李明远、王婷、张振华",
+        "推送标题": "经营晨报 10-21",
+        "内容节选": "## 聚成数智 · 经营晨报（2026-10-21 周三）\n> **回款**：本月 486.0万 / 目标 700.0万，达成 <font color=\"warning\">69.4%</font>（时间进度 67.7%）\n> **签约**：今日 2 份 342.0万；本月 754.0万；年度累计 4,008.0万（同比"
+      }
+    },
+    {
+      "id": "7.1 验收",
+      "title": "同一报销单在「报销归集 → 日支出报表 → 周利润表」三处金额一致",
+      "pass": true,
+      "evidence": {
+        "日报含该单": true,
+        "周利润下钻含该单": true
+      }
+    },
+    {
+      "id": "FR-04 验收",
+      "title": "每日支出报表合计 == 数据库聚合；xlsx 可打开且含口径说明",
+      "pass": true,
+      "evidence": {
+        "报表": "5015.50",
+        "报销聚合": "5015.50",
+        "xlsx": true,
+        "文件": "每日支出报表_2026-10-20.xlsx"
+      }
+    },
+    {
+      "id": "FR-04-05",
+      "title": "一键更新：重算当日/本周/本月全部报表，30s 内",
+      "pass": true,
+      "evidence": {
+        "耗时ms": 575,
+        "结果": {
+          "total": 12,
+          "success": 12,
+          "failed": 0,
+          "cost_ms": 568,
+          "results": [
+            {
+              "report_type": "daily_expense",
+              "period": "2026-10-20",
+              "id": 26,
+              "version": 3,
+              "title": "每日支出报表 2026-10-20",
+              "cost_ms": 16,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "支出合计",
+                  "value": "5015.50",
+                  "kind": "money"
+                },
+                {
+                  "label": "报销支出",
+                  "value": "5015.50",
+                  "kind": "money"
+                },
+                {
+                  "label": "流水支出",
+                  "value": "0.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "笔数",
+                  "value": 3,
+                  "kind": "int"
+                },
+                {
+                  "label": "未核对流水",
+                  "value": 9,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "每日支出报表"
+            },
+            {
+              "report_type": "daily_expense",
+              "period": "2026-10-21",
+              "id": 27,
+              "version": 2,
+              "title": "每日支出报表 2026-10-21",
+              "cost_ms": 16,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "支出合计",
+                  "value": "15115.80",
+                  "kind": "money"
+                },
+                {
+                  "label": "报销支出",
+                  "value": "15115.80",
+                  "kind": "money"
+                },
+                {
+                  "label": "流水支出",
+                  "value": "0.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "笔数",
+                  "value": 13,
+                  "kind": "int"
+                },
+                {
+                  "label": "未核对流水",
+                  "value": 3,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "每日支出报表"
+            },
+            {
+              "report_type": "daily_bankflow",
+              "period": "2026-10-20",
+              "id": 28,
+              "version": 2,
+              "title": "每日银行流水报表 2026-10-20",
+              "cost_ms": 16,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "当日收入",
+                  "value": "513786.43",
+                  "kind": "money"
+                },
+                {
+                  "label": "当日支出",
+                  "value": "11916.80",
+                  "kind": "money"
+                },
+                {
+                  "label": "期末余额合计",
+                  "value": "8010726.33",
+                  "kind": "money"
+                },
+                {
+                  "label": "流水笔数",
+                  "value": 11,
+                  "kind": "int"
+                },
+                {
+                  "label": "当日未核对",
+                  "value": 11,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "每日银行流水报表"
+            },
+            {
+              "report_type": "daily_bankflow",
+              "period": "2026-10-21",
+              "id": 29,
+              "version": 1,
+              "title": "每日银行流水报表 2026-10-21",
+              "cost_ms": 13,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "当日收入",
+                  "value": "2186000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "当日支出",
+                  "value": "12205.80",
+                  "kind": "money"
+                },
+                {
+                  "label": "期末余额合计",
+                  "value": "10184520.53",
+                  "kind": "money"
+                },
+                {
+                  "label": "流水笔数",
+                  "value": 8,
+                  "kind": "int"
+                },
+                {
+                  "label": "当日未核对",
+                  "value": 5,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "每日银行流水报表"
+            },
+            {
+              "report_type": "weekly_profit",
+              "period": "2026-W42",
+              "id": 30,
+              "version": 2,
+              "title": "每周项目利润表 2026-W42（10-12~10-18）",
+              "cost_ms": 18,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "累计收入",
+                  "value": "69960000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "累计成本",
+                  "value": "48130443.70",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利",
+                  "value": "21829556.30",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利率",
+                  "value": "0.3120",
+                  "kind": "pct"
+                },
+                {
+                  "label": "本周成本",
+                  "value": "5832106.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "公共费用",
+                  "value": "22190.40",
+                  "kind": "money"
+                }
+              ],
+              "type_name": "每周项目利润表"
+            },
+            {
+              "report_type": "weekly_profit",
+              "period": "2026-W43",
+              "id": 31,
+              "version": 1,
+              "title": "每周项目利润表 2026-W43（10-19~10-25）",
+              "cost_ms": 17,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "累计收入",
+                  "value": "73380000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "累计成本",
+                  "value": "48238567.40",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利",
+                  "value": "25141432.60",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利率",
+                  "value": "0.3426",
+                  "kind": "pct"
+                },
+                {
+                  "label": "本周成本",
+                  "value": "108123.70",
+                  "kind": "money"
+                },
+                {
+                  "label": "公共费用",
+                  "value": "11164.00",
+                  "kind": "money"
+                }
+              ],
+              "type_name": "每周项目利润表"
+            },
+            {
+              "report_type": "project_operation",
+              "period": "2026-W42",
+              "id": 32,
+              "version": 2,
+              "title": "在建/运营项目报表 2026-W42（10-12~10-18）",
+              "cost_ms": 34,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "在建项目",
+                  "value": 6,
+                  "kind": "int"
+                },
+                {
+                  "label": "运营项目",
+                  "value": 4,
+                  "kind": "int"
+                },
+                {
+                  "label": "合同额",
+                  "value": "67500000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "累计回款",
+                  "value": "37010000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "回款率",
+                  "value": "0.5483",
+                  "kind": "pct"
+                },
+                {
+                  "label": "延期节点",
+                  "value": 3,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "在建/运营项目报表"
+            },
+            {
+              "report_type": "project_operation",
+              "period": "2026-W43",
+              "id": 33,
+              "version": 1,
+              "title": "在建/运营项目报表 2026-W43（10-19~10-25）",
+              "cost_ms": 26,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "在建项目",
+                  "value": 6,
+                  "kind": "int"
+                },
+                {
+                  "label": "运营项目",
+                  "value": 4,
+                  "kind": "int"
+                },
+                {
+                  "label": "合同额",
+                  "value": "70920000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "累计回款",
+                  "value": "38730000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "回款率",
+                  "value": "0.5461",
+                  "kind": "pct"
+                },
+                {
+                  "label": "延期节点",
+                  "value": 3,
+                  "kind": "int"
+                }
+              ],
+              "type_name": "在建/运营项目报表"
+            },
+            {
+              "report_type": "company_weekly",
+              "period": "2026-W42",
+              "id": 34,
+              "version": 2,
+              "title": "公司周报 2026-W42（10-12~10-18）",
+              "cost_ms": 77,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "本周签约",
+                  "value": "3240000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "本周回款",
+                  "value": "2030000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "当月回款达成",
+                  "value": "0.4486",
+                  "kind": "pct"
+                },
+                {
+                  "label": "新增商机",
+                  "value": 3,
+                  "kind": "int"
+                },
+                {
+                  "label": "周报提交率",
+                  "value": "0.8684",
+                  "kind": "pct"
+                },
+                {
+                  "label": "本周支出",
+                  "value": "3319919.30",
+                  "kind": "money"
+                }
+              ],
+              "type_name": "公司周报"
+            },
+            {
+              "report_type": "company_weekly",
+              "period": "2026-W43",
+              "id": 35,
+              "version": 1,
+              "title": "公司周报 2026-W43（10-19~10-25）",
+              "cost_ms": 65,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "本周签约",
+                  "value": "3420000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "本周回款",
+                  "value": "1720000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "当月回款达成",
+                  "value": "0.6943",
+                  "kind": "pct"
+                },
+                {
+                  "label": "新增商机",
+                  "value": 3,
+                  "kind": "int"
+                },
+                {
+                  "label": "周报提交率",
+                  "value": "0.1053",
+                  "kind": "pct"
+                },
+                {
+                  "label": "本周支出",
+                  "value": "37742.10",
+                  "kind": "money"
+                }
+              ],
+              "type_name": "公司周报"
+            },
+            {
+              "report_type": "company_monthly",
+              "period": "2026-09",
+              "id": 36,
+              "version": 2,
+              "title": "公司月报 2026年09月",
+              "cost_ms": 95,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "当月回款",
+                  "value": "6120000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "回款达成",
+                  "value": "0.9415",
+                  "kind": "pct"
+                },
+                {
+                  "label": "签约额",
+                  "value": "3400000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "营业收入(账务)",
+                  "value": "0.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利率(业务)",
+                  "value": "-3.6093",
+                  "kind": "pct"
+                },
+                {
+                  "label": "月报提交率",
+                  "value": "0.8947",
+                  "kind": "pct"
+                }
+              ],
+              "type_name": "公司月报"
+            },
+            {
+              "report_type": "company_monthly",
+              "period": "2026-10",
+              "id": 37,
+              "version": 1,
+              "title": "公司月报 2026年10月",
+              "cost_ms": 158,
+              "ok": true,
+              "summary": [
+                {
+                  "label": "当月回款",
+                  "value": "4860000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "回款达成",
+                  "value": "0.6943",
+                  "kind": "pct"
+                },
+                {
+                  "label": "签约额",
+                  "value": "7540000.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "营业收入(账务)",
+                  "value": "0.00",
+                  "kind": "money"
+                },
+                {
+                  "label": "毛利率(业务)",
+                  "value": "0.1938",
+                  "kind": "pct"
+                },
+                {
+                  "label": "月报提交率",
+                  "value": "0.0000",
+                  "kind": "pct"
+                }
+              ],
+              "type_name": "公司月报"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "FR-04-02",
+      "title": "周利润表毛利 == 共享口径服务；三张报表均可下载",
+      "pass": true,
+      "evidence": {
+        "weekly_profit": {
+          "files": [
+            "每周项目利润表_2026-W42.xlsx"
+          ],
+          "ok": true
+        },
+        "company_weekly": {
+          "files": [
+            "公司周报_2026-W42.docx",
+            "公司周报数据附表_2026-W42.xlsx"
+          ],
+          "ok": true
+        },
+        "company_monthly": {
+          "files": [
+            "公司月报_2026-09.xlsx",
+            "公司月报_2026-09.docx"
+          ],
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "FR-09 验收",
+      "title": "500+ 行流水解析 ≤10s；重复导入 0 重复记录",
+      "pass": true,
+      "evidence": {
+        "首次": {
+          "行数": 520,
+          "新增": 520,
+          "重复": 0,
+          "错误": 0,
+          "耗时ms": 165
+        },
+        "再次导入新增": 0
+      }
+    },
+    {
+      "id": "FR-09-03",
+      "title": "核对工作台给出匹配建议，确认后自动写日记账/回款",
+      "pass": true,
+      "evidence": {
+        "流水": "肇庆市端州区教育局 44000.00",
+        "建议": "肇庆市端州区教育局 · HT-2025-0003",
+        "置信": 100,
+        "日记账": "1",
+        "结果": {
+          "flow_id": 664,
+          "kind": "payment",
+          "match_status": 2,
+          "payment_id": 99,
+          "contract_no": "HT-2025-0003"
+        }
+      }
+    },
+    {
+      "id": "FR-05-06",
+      "title": "合同原件归档 → 解析付款条款生成回款计划",
+      "pass": true,
+      "evidence": {
+        "解析计划": "预付款:0.30,到货款:0.40,验收款:0.25,质保金:0.05",
+        "返回": 4
+      }
+    },
+    {
+      "id": "FR-10",
+      "title": "WorkBuddy 侧：initialize + 发现全部工具",
+      "pass": true,
+      "evidence": {
+        "协议": "2025-06-18",
+        "工具": [
+          "fin.daily_expense_report",
+          "fin.project_profit",
+          "fin.bank_flow_sync",
+          "oa.pending_approvals",
+          "crm.contract_register",
+          "board.executive_daily",
+          "board.compare",
+          "kb.search",
+          "kb.bid_check",
+          "hr.attendance_summary",
+          "proj.milestone_update",
+          "cs.ticket_register",
+          "market.weekly_report"
+        ]
+      }
+    },
+    {
+      "id": "FR-10 验收",
+      "title": "无 Token / 错 Token → 401 并审计；越权角色 → 拒绝并审计",
+      "pass": true,
+      "evidence": {
+        "无令牌": 401,
+        "错令牌": 401,
+        "市场专员调财务工具": "你的角色（市场专员）无权调用「项目利润表」",
+        "审计": "denied,unauthorized,unauthorized"
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "fin.daily_expense_report（chenjing）",
+      "pass": true,
+      "evidence": {
+        "摘要": "2026-10-20 支出合计 ¥5,015.50（报销 3 笔 ¥5,015.50，公户及项目成本 0 笔 ¥0.00）",
+        "文件": [
+          "每日支出报表_2026-10-20.xlsx"
+        ],
+        "链接可下载": true
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "fin.project_profit（chenjing）",
+      "pass": true,
+      "evidence": {
+        "摘要": "2026-W42 项目利润表：11 个项目，累计收入 ¥69,960,000，成本 ¥48,130,444，毛利 ¥21,829,556（毛利率 31.2%）",
+        "文件": [
+          "每周项目利润表_2026-W42.xlsx"
+        ],
+        "链接可下载": true
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "fin.bank_flow_sync（zhaoli）",
+      "pass": true,
+      "evidence": {
+        "摘要": "本次解析文件 0 个（新增 0 条、重复 0 条）；当前待核对流水 535 条（收 ¥23,104,874.32 / 支 ¥24,004,923.25），其中 15 条有匹配建议，请在工作台「流水核对」确认后自动记入日记账。",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "oa.pending_approvals（songjia）",
+      "pass": true,
+      "evidence": {
+        "摘要": "共 10 张审批单",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "crm.contract_register（songjia）",
+      "pass": true,
+      "evidence": {
+        "摘要": "新登记合同 0 份；当月签约 ¥7,540,000，年度累计 ¥40,080,000；1 张登记失败待人工处理：20261021842928 字段「合同金额」金额无效：'待定'",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "board.executive_daily（zhangzhenhua）",
+      "pass": true,
+      "evidence": {
+        "摘要": "## 聚成数智 · 经营晨报（2026-10-21 周三）\n> **回款**：本月 490.4万 / 目标 700.0万，达成 <font color=\"warning\">70.1%</font>（时间进度 67.7%）\n> **签约**：今日 2 份 342.0万；本月 754.0万；年度累计 4,008.0万（同比 82.2%）\n> **商机**：本周新增 3 个 1,050.0万；本月新增 9 个\n> **招标/在建**：招标中 ",
+        "文件": [
+          "morning-2026-10-21.png"
+        ]
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "board.compare（limingyuan）",
+      "pass": true,
+      "evidence": {
+        "摘要": "2026-10 回款完成率 70.1%，2026-09 为 94.2%，下降 24.1 个百分点。2026-10 尚未结束（时间进度 68%），当前达成 70.1%，进度超前；距目标还差 209.6 万元。",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "kb.search（zengli）",
+      "pass": true,
+      "evidence": {
+        "摘要": "找到 6 条相关内容：《年休假与请假管理制度》；《差旅费管理标准》；《售后服务方案模板》",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "kb.bid_check（xiekai）",
+      "pass": true,
+      "evidence": {
+        "摘要": "共发现 6 项偏离/风险，其中高风险 5 项：2.5 未提供「安防工程企业设计施工维护能力证书」；3.1-表1 负偏离：要求 亮度 ≥350cd/㎡，投标响应 300cd/㎡（★实质性条款）；4.1 负偏离：要求 工期 ≤60天，投标响应 75天（★实质性条款）；4.2 负偏离：要求 质保期 ≥3年，投标响应 2年（★实质性条款）；5.2 投标文件未见法定代表人/授权代表签字及单位盖章说明（签章页缺失）",
+        "文件": [
+          "合规检查整改清单_天河区育才实验学校智慧校园建设项目招标文件（采购需求）.xlsx"
+        ],
+        "链接可下载": true
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "hr.attendance_summary（caofang）",
+      "pass": true,
+      "evidence": {
+        "摘要": "2026-09 考勤核对：41 人，迟到 41 次、早退 9 次、缺卡 7 次、旷工 15 次；请假 10.75 天，加班 64.00 小时。\n异常较多：宋佳（5 次）、罗倩（4 次）、张振华（4 次）、肖羽（3 次）、赵丽（3 次）。\n跨表核对发现 2 项待核实（如潘慧：花名册在职，但本期 22 个工作日均无考勤记录）。\n人力摘要：在职 43 人 / 编制 50 人（满编率 86.0%），2026-09 入职 0 人、离职 0 人（离",
+        "文件": [
+          "考勤汇总_2026-09.xlsx"
+        ],
+        "链接可下载": true
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "proj.milestone_update（xuhao）",
+      "pass": true,
+      "evidence": {
+        "摘要": "南沙区中小学数字校园建设：3/5 节点已完成，当前节点 到货验收，延期 1 个",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "cs.ticket_register（yangyue）",
+      "pass": true,
+      "evidence": {
+        "摘要": "已登记工单 KF-202610-0015（湛江第一中学 · 显示设备 · 交互大屏）；相似历史工单 5 张；排查建议参考《班班通交互大屏无信号排查手册》https://lexiangla.com/teams/k100054/docs/kf6001",
+        "文件": []
+      }
+    },
+    {
+      "id": "FR-10 工具",
+      "title": "market.weekly_report（wujun）",
+      "pass": true,
+      "evidence": {
+        "摘要": "# 市场部重点项目周报（2026-W43：2026-10-19 ~ 2026-10-25）\n\n本期跟进重点项目 6 个，其中异常 2 个；完成节点 0 个，延期节点 2 个；本期新签合同 204.0 万，本期回款 172.0 万；重点项目累计合同 4,291.0 万，累计回款 2,609.0 万，回款率 60.8%。\n\n## 1. 广东海洋大学校园综合安防（JC-AF-2026-001）\n- 客户：广东海洋大学；项目经理：蒋涛；市场负责",
+        "文件": [
+          "市场部重点项目周报_2026-W43_v1.docx"
+        ],
+        "链接可下载": true
+      }
+    },
+    {
+      "id": "7.6",
+      "title": "MCP 对话更新项目节点并留痕（source=mcp）",
+      "pass": true,
+      "evidence": {
+        "节点": "到货验收",
+        "结果": "已更新 南沙区中小学数字校园建设「到货验收」为已完成（完成日 2026-10-21，较计划延期）",
+        "留痕": "mcp|complete"
+      }
+    },
+    {
+      "id": "7.4",
+      "title": "Excel 脏数据清洗正确率 ≥95%，异常行有明细",
+      "pass": true,
+      "evidence": {
+        "识别用途": "contract",
+        "统计": {
+          "total": 30,
+          "ok": 6,
+          "fixed": 18,
+          "duplicate": 3,
+          "error": 3,
+          "changed_cells": 66,
+          "header_row": 3,
+          "skipped_rows": [
+            {
+              "_row": 19,
+              "reason": "空行"
+            },
+            {
+              "_row": 35,
+              "reason": "备注/合计行：合计"
+            },
+            {
+              "_row": 36,
+              "reason": "备注/合计行：备注:本表为区域销售报送汇总,请营销管控部核对后导入台账。"
+            }
+          ],
+          "mapped_fields": 9,
+          "importable": 24,
+          "missing_required_fields": []
+        },
+        "映射": 10
+      }
+    },
+    {
+      "id": "7.5",
+      "title": "考勤异常核对 + 到期预警清单",
+      "pass": true,
+      "evidence": {
+        "预警": [
+          "朱怡 probation 2026-10-30",
+          "黄琪 contract 2026-11-02",
+          "姚瑶 probation 2026-11-04"
+        ]
+      }
+    },
+    {
+      "id": "7.7",
+      "title": "标书合规检查找出投标文件偏离，每条可追溯需求书原文",
+      "pass": true,
+      "evidence": [
+        "[高] 2.5 未提供「安防工程企业设计施工维护能力证书」",
+        "[高] 3.1-表1 负偏离：要求 亮度 ≥350cd/㎡，投标响应 300cd/㎡（★实质性条款）",
+        "[高] 4.1 负偏离：要求 工期 ≤60天，投标响应 75天（★实质性条款）",
+        "[高] 4.2 负偏离：要求 质保期 ≥3年，投标响应 2年（★实质性条款）",
+        "[高] 5.2 投标文件未见法定代表人/授权代表签字及单位盖章说明（签章页缺失）",
+        "[中] 3.2 负偏离：要求 亮度 ≥350cd/㎡，投标响应 300cd/㎡"
+      ]
+    },
+    {
+      "id": "7.8",
+      "title": "客服一句话登记：自动分类、相似工单、排查建议带出处",
+      "pass": true,
+      "evidence": {
+        "工单": "KF-202610-0016",
+        "分类": "门禁",
+        "相似": 5,
+        "建议含出处": true
+      }
+    },
+    {
+      "id": "FR-06",
+      "title": "知识库检索结果必带乐享出处链接",
+      "pass": true,
+      "evidence": [
+        "年休假与请假管理制度 → https://lexiangla.com/teams/k100054/docs/zd1002"
+      ]
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：董事长-工作台",
+      "pass": true,
+      "evidence": {
+        "标题": "夜深了，张振华",
+        "加载ms": 1336,
+        "截图": "screens/董事长-工作台.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：董事长-经营看板",
+      "pass": true,
+      "evidence": {
+        "标题": "经营看板",
+        "加载ms": 1346,
+        "截图": "screens/董事长-经营看板.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：董事长-大屏",
+      "pass": true,
+      "evidence": {
+        "标题": "聚成数智 · 经营大屏",
+        "加载ms": 1252,
+        "截图": "screens/董事长-大屏.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务经理-工作台",
+      "pass": true,
+      "evidence": {
+        "标题": "夜深了，陈静",
+        "加载ms": 1274,
+        "截图": "screens/财务经理-工作台.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务-报销归集",
+      "pass": true,
+      "evidence": {
+        "标题": "报销归集",
+        "加载ms": 1354,
+        "截图": "screens/财务-报销归集.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务-项目利润",
+      "pass": true,
+      "evidence": {
+        "标题": "项目利润",
+        "加载ms": 1397,
+        "截图": "screens/财务-项目利润.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务-报表中心",
+      "pass": true,
+      "evidence": {
+        "标题": "报表中心",
+        "加载ms": 1312,
+        "截图": "screens/财务-报表中心.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务-财务数据",
+      "pass": true,
+      "evidence": {
+        "标题": "财务数据",
+        "加载ms": 1323,
+        "截图": "screens/财务-财务数据.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：出纳-流水核对",
+      "pass": true,
+      "evidence": {
+        "标题": "流水核对",
+        "加载ms": 1408,
+        "截图": "screens/出纳-流水核对.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：出纳-日记账",
+      "pass": true,
+      "evidence": {
+        "标题": "出纳日记账",
+        "加载ms": 1300,
+        "截图": "screens/出纳-日记账.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：市场-重点项目跟进",
+      "pass": true,
+      "evidence": {
+        "标题": "重点项目跟进",
+        "加载ms": 1307,
+        "截图": "screens/市场-重点项目跟进.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：市场-竞品情报",
+      "pass": true,
+      "evidence": {
+        "标题": "竞品情报",
+        "加载ms": 1292,
+        "截图": "screens/市场-竞品情报.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：市场-项目复盘",
+      "pass": true,
+      "evidence": {
+        "标题": "项目复盘",
+        "加载ms": 1259,
+        "截图": "screens/市场-项目复盘.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：营销-合同台账",
+      "pass": true,
+      "evidence": {
+        "标题": "合同台账",
+        "加载ms": 1294,
+        "截图": "screens/营销-合同台账.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：营销-商机",
+      "pass": true,
+      "evidence": {
+        "标题": "商机信息",
+        "加载ms": 1328,
+        "截图": "screens/营销-商机.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：营销-业绩与运营",
+      "pass": true,
+      "evidence": {
+        "标题": "业绩与运营",
+        "加载ms": 1341,
+        "截图": "screens/营销-业绩与运营.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：营销-数据清洗",
+      "pass": true,
+      "evidence": {
+        "标题": "Excel 数据清洗助手",
+        "加载ms": 1264,
+        "截图": "screens/营销-数据清洗.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：项目经理-项目流程",
+      "pass": true,
+      "evidence": {
+        "标题": "项目流程",
+        "加载ms": 1268,
+        "截图": "screens/项目经理-项目流程.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：项目经理-项目详情",
+      "pass": true,
+      "evidence": {
+        "标题": "南沙区中小学数字校园建设",
+        "加载ms": 1310,
+        "截图": "screens/项目经理-项目详情.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：总办-汇报提交",
+      "pass": true,
+      "evidence": {
+        "标题": "汇报提交",
+        "加载ms": 1339,
+        "截图": "screens/总办-汇报提交.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：人事-人事中心",
+      "pass": true,
+      "evidence": {
+        "标题": "人事中心",
+        "加载ms": 1324,
+        "截图": "screens/人事-人事中心.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：产品-标书助手",
+      "pass": true,
+      "evidence": {
+        "标题": "标书助手",
+        "加载ms": 1292,
+        "截图": "screens/产品-标书助手.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：客服-工单",
+      "pass": true,
+      "evidence": {
+        "标题": "客服工单",
+        "加载ms": 1323,
+        "截图": "screens/客服-工单.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：员工-知识库",
+      "pass": true,
+      "evidence": {
+        "标题": "知识库",
+        "加载ms": 1266,
+        "截图": "screens/员工-知识库.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：财务-WorkBuddy接入",
+      "pass": true,
+      "evidence": {
+        "标题": "WorkBuddy 接入",
+        "加载ms": 1306,
+        "截图": "screens/财务-WorkBuddy接入.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI",
+      "title": "页面渲染：管理员-系统管理",
+      "pass": true,
+      "evidence": {
+        "标题": "系统管理",
+        "加载ms": 1427,
+        "截图": "screens/管理员-系统管理.png",
+        "错误": []
+      }
+    },
+    {
+      "id": "UI 权限",
+      "title": "市场专员直接访问 /profit 被拦截到 403",
+      "pass": true,
+      "evidence": "http://localhost:5180/403"
+    },
+    {
+      "id": "UI 登录",
+      "title": "登录页（未登录态）",
+      "pass": true,
+      "evidence": "screens/00-登录页.png"
+    }
+  ]
+}

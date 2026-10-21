@@ -1,0 +1,376 @@
+{
+ "target": "contract",
+ "header_row": 3,
+ "data_rows": 30,
+ "fields": [
+  "contract_no",
+  "project_code",
+  "customer_name",
+  "amount",
+  "sign_date",
+  "business_line",
+  "owner"
+ ],
+ "rows": [
+  {
+   "seq": 1,
+   "source_row": 4,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0801",
+    "project_code": "JC-XY-2026-001",
+    "customer_name": "广州市南沙区教育局",
+    "amount": "1360000.00",
+    "sign_date": "2026-03-12",
+    "business_line": "XY",
+    "owner": "吴骏"
+   }
+  },
+  {
+   "seq": 2,
+   "source_row": 5,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-XY-2026-002",
+    "customer_name": "东莞松山湖实验学校",
+    "amount": "1250000.00",
+    "sign_date": "2026-03-18",
+    "business_line": "XY",
+    "owner": "郑宇"
+   }
+  },
+  {
+   "seq": 3,
+   "source_row": 6,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0802",
+    "project_code": "JC-AF-2026-001",
+    "customer_name": "广东海洋大学",
+    "amount": "860000.00",
+    "sign_date": "2026-04-02",
+    "business_line": "AF",
+    "owner": "何洋"
+   }
+  },
+  {
+   "seq": 4,
+   "source_row": 7,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0803",
+    "project_code": "JC-AF-2026-002",
+    "customer_name": "深圳市宝安区教育局",
+    "amount": "935000.00",
+    "sign_date": "2026-04-15",
+    "business_line": "AF",
+    "owner": "郑宇"
+   }
+  },
+  {
+   "seq": 5,
+   "source_row": 8,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-KP-2026-001",
+    "customer_name": "广州市教育研究院",
+    "amount": "720000.00",
+    "sign_date": "2026-04-28",
+    "business_line": "KP",
+    "owner": "罗倩"
+   }
+  },
+  {
+   "seq": 6,
+   "source_row": 9,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0804",
+    "project_code": "JC-XY-2026-004",
+    "customer_name": "江门市新会区教育局",
+    "amount": "1180000.00",
+    "sign_date": "2026-05-09",
+    "business_line": "XY",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 7,
+   "source_row": 10,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0805",
+    "project_code": "JC-YW-2025-001",
+    "customer_name": "广州市天河区教育局",
+    "amount": "450000.00",
+    "sign_date": "2026-05-21",
+    "business_line": "YW",
+    "owner": "吴骏"
+   }
+  },
+  {
+   "seq": 8,
+   "source_row": 11,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-YW-2025-002",
+    "customer_name": "佛山市教育局",
+    "amount": "680000.00",
+    "sign_date": "2026-05-26",
+    "business_line": "YW",
+    "owner": "何洋"
+   }
+  },
+  {
+   "seq": 9,
+   "source_row": 12,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0806",
+    "project_code": "JC-AF-2026-004",
+    "customer_name": "中山市第一中学",
+    "amount": "540000.00",
+    "sign_date": "2026-06-03",
+    "business_line": "AF",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 10,
+   "source_row": 13,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0807",
+    "project_code": "JC-KP-2026-002",
+    "customer_name": "湛江市教育局",
+    "amount": "1026500.50",
+    "sign_date": "2026-06-16",
+    "business_line": "KP",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 11,
+   "source_row": 14,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0808",
+    "project_code": "JC-XY-2026-001",
+    "customer_name": "广州市南沙区教育局",
+    "amount": "2260000.00",
+    "sign_date": "2026-06-30",
+    "business_line": "XY",
+    "owner": "吴骏"
+   }
+  },
+  {
+   "seq": 12,
+   "source_row": 15,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0809",
+    "project_code": "JC-XY-2026-002",
+    "customer_name": "东莞松山湖实验学校",
+    "amount": "1630000.00",
+    "sign_date": "2026-07-08",
+    "business_line": "XY",
+    "owner": "郑宇"
+   }
+  },
+  {
+   "seq": 13,
+   "source_row": 16,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-AF-2026-001",
+    "customer_name": "广东海洋大学",
+    "amount": "1480000.00",
+    "sign_date": "2026-07-19",
+    "business_line": "AF",
+    "owner": "何洋"
+   }
+  },
+  {
+   "seq": 14,
+   "source_row": 17,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0810",
+    "project_code": "JC-AF-2026-002",
+    "customer_name": "深圳市宝安区教育局",
+    "amount": "395000.00",
+    "sign_date": "2026-08-02",
+    "business_line": "AF",
+    "owner": "郑宇"
+   }
+  },
+  {
+   "seq": 15,
+   "source_row": 18,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0811",
+    "project_code": "JC-KP-2026-001",
+    "customer_name": "广州市教育研究院",
+    "amount": "125000.00",
+    "sign_date": "2026-08-14",
+    "business_line": "KP",
+    "owner": "罗倩"
+   }
+  },
+  {
+   "seq": 16,
+   "source_row": 20,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0812",
+    "project_code": "JC-XY-2026-004",
+    "customer_name": "江门市新会区教育局",
+    "amount": "865000.00",
+    "sign_date": "2026-08-27",
+    "business_line": "XY",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 17,
+   "source_row": 21,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-YW-2025-001",
+    "customer_name": "广州市天河区教育局",
+    "amount": "310000.00",
+    "sign_date": "2026-09-03",
+    "business_line": "YW",
+    "owner": "吴骏"
+   }
+  },
+  {
+   "seq": 18,
+   "source_row": 22,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0813",
+    "project_code": "JC-YW-2025-002",
+    "customer_name": "佛山市教育局",
+    "amount": "1120000.00",
+    "sign_date": "2026-09-11",
+    "business_line": "YW",
+    "owner": "何洋"
+   }
+  },
+  {
+   "seq": 19,
+   "source_row": 23,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0814",
+    "project_code": "JC-AF-2026-004",
+    "customer_name": "中山市第一中学",
+    "amount": "286000.00",
+    "sign_date": "2026-09-25",
+    "business_line": "AF",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 20,
+   "source_row": 24,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0815",
+    "project_code": "JC-KP-2026-002",
+    "customer_name": "湛江市教育局",
+    "amount": "428000.00",
+    "sign_date": "2026-09-28",
+    "business_line": "KP",
+    "owner": "冯雪"
+   }
+  },
+  {
+   "seq": 21,
+   "source_row": 25,
+   "status": "ok",
+   "fields": {
+    "contract_no": "HT-2026-0816",
+    "project_code": "JC-XY-2026-001",
+    "customer_name": "广州市南沙区教育局",
+    "amount": "990000.00",
+    "sign_date": "2026-10-09",
+    "business_line": "XY",
+    "owner": "吴骏"
+   }
+  },
+  {
+   "seq": 22,
+   "source_row": 26,
+   "status": "fixed",
+   "fields": {
+    "contract_no": "HT-2026-0817",
+    "project_code": "JC-YW-2026-001",
+    "customer_name": "惠州市教育局",
+    "amount": "660000.00",
+    "sign_date": "2026-10-12",
+    "business_line": "YW",
+    "owner": "罗倩"
+   }
+  },
+  {
+   "seq": 23,
+   "source_row": 27,
+   "status": "fixed",
+   "fields": {
+    "contract_no": null,
+    "project_code": "JC-AF-2026-003",
+    "customer_name": "珠海高新区社会事业局",
+    "amount": "3860000.00",
+    "sign_date": "2026-10-15",
+    "business_line": "AF",
+    "owner": "何洋"
+   }
+  },
+  {
+   "seq": 24,
+   "source_row": 28,
+   "status": "duplicate"
+  },
+  {
+   "seq": 25,
+   "source_row": 29,
+   "status": "duplicate"
+  },
+  {
+   "seq": 26,
+   "source_row": 30,
+   "status": "duplicate"
+  },
+  {
+   "seq": 27,
+   "source_row": 31,
+   "status": "duplicate"
+  },
+  {
+   "seq": 28,
+   "source_row": 32,
+   "status": "error",
+   "issue_contains": "客户名称"
+  },
+  {
+   "seq": 29,
+   "source_row": 33,
+   "status": "error",
+   "issue_contains": "金额"
+  },
+  {
+   "seq": 30,
+   "source_row": 34,
+   "status": "error",
+   "issue_contains": "项目编码不存在"
+  }
+ ]
+}

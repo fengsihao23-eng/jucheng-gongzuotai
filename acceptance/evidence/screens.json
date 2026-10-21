@@ -1,0 +1,132 @@
+[
+  {
+    "name": "董事长-工作台",
+    "file": "screens/董事长-工作台.png",
+    "ms": 1336
+  },
+  {
+    "name": "董事长-经营看板",
+    "file": "screens/董事长-经营看板.png",
+    "ms": 1346
+  },
+  {
+    "name": "董事长-大屏",
+    "file": "screens/董事长-大屏.png",
+    "ms": 1252
+  },
+  {
+    "name": "财务经理-工作台",
+    "file": "screens/财务经理-工作台.png",
+    "ms": 1274
+  },
+  {
+    "name": "财务-报销归集",
+    "file": "screens/财务-报销归集.png",
+    "ms": 1354
+  },
+  {
+    "name": "财务-项目利润",
+    "file": "screens/财务-项目利润.png",
+    "ms": 1397
+  },
+  {
+    "name": "财务-报表中心",
+    "file": "screens/财务-报表中心.png",
+    "ms": 1312
+  },
+  {
+    "name": "财务-财务数据",
+    "file": "screens/财务-财务数据.png",
+    "ms": 1323
+  },
+  {
+    "name": "出纳-流水核对",
+    "file": "screens/出纳-流水核对.png",
+    "ms": 1408
+  },
+  {
+    "name": "出纳-日记账",
+    "file": "screens/出纳-日记账.png",
+    "ms": 1300
+  },
+  {
+    "name": "市场-重点项目跟进",
+    "file": "screens/市场-重点项目跟进.png",
+    "ms": 1307
+  },
+  {
+    "name": "市场-竞品情报",
+    "file": "screens/市场-竞品情报.png",
+    "ms": 1292
+  },
+  {
+    "name": "市场-项目复盘",
+    "file": "screens/市场-项目复盘.png",
+    "ms": 1259
+  },
+  {
+    "name": "营销-合同台账",
+    "file": "screens/营销-合同台账.png",
+    "ms": 1294
+  },
+  {
+    "name": "营销-商机",
+    "file": "screens/营销-商机.png",
+    "ms": 1328
+  },
+  {
+    "name": "营销-业绩与运营",
+    "file": "screens/营销-业绩与运营.png",
+    "ms": 1341
+  },
+  {
+    "name": "营销-数据清洗",
+    "file": "screens/营销-数据清洗.png",
+    "ms": 1264
+  },
+  {
+    "name": "项目经理-项目流程",
+    "file": "screens/项目经理-项目流程.png",
+    "ms": 1268
+  },
+  {
+    "name": "项目经理-项目详情",
+    "file": "screens/项目经理-项目详情.png",
+    "ms": 1310
+  },
+  {
+    "name": "总办-汇报提交",
+    "file": "screens/总办-汇报提交.png",
+    "ms": 1339
+  },
+  {
+    "name": "人事-人事中心",
+    "file": "screens/人事-人事中心.png",
+    "ms": 1324
+  },
+  {
+    "name": "产品-标书助手",
+    "file": "screens/产品-标书助手.png",
+    "ms": 1292
+  },
+  {
+    "name": "客服-工单",
+    "file": "screens/客服-工单.png",
+    "ms": 1323
+  },
+  {
+    "name": "员工-知识库",
+    "file": "screens/员工-知识库.png",
+    "ms": 1266
+  },
+  {
+    "name": "财务-WorkBuddy接入",
+    "file": "screens/财务-WorkBuddy接入.png",
+    "ms": 1306
+  },
+  {
+    "name": "管理员-系统管理",
+    "file": "screens/管理员-系统管理.png",
+    "ms": 1427
+  }
+]
