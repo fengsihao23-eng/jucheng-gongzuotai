@@ -1,14 +1,19 @@
 FROM node:22-bookworm-slim AS xiaoju-runtime
+ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /runtime
 COPY agent_runtime/package.json agent_runtime/package-lock.json ./
-RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund
+RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund --registry=$NPM_REGISTRY
 
 FROM python:3.13-slim
+# 国内构建可用 --build-arg 改镜像源（apt/pip），默认官方源
+ARG APT_MIRROR=
+ARG PIP_INDEX_URL=https://pypi.org/simple
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Shanghai
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk tzdata libstdc++6 && rm -rf /var/lib/apt/lists/*
+RUN if [ -n "$APT_MIRROR" ]; then sed -i "s|http://deb.debian.org/debian|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; fi \
+    && apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk tzdata libstdc++6 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i "$PIP_INDEX_URL" -r requirements.txt
 COPY . .
 COPY --from=xiaoju-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=xiaoju-runtime /runtime/node_modules ./agent_runtime/node_modules

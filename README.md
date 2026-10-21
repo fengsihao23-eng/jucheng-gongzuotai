@@ -69,12 +69,38 @@ cd acceptance && npm install && node e2e.mjs                            # 端到
 
 ## 生产部署
 
+目标环境：阿里云 ECS（4C8G，华南1 深圳）· Ubuntu/Debian · Docker Compose · 域名 `https://juchengcc.com`。
+
 ```bash
-cd frontend && npm run build
-cd deploy && echo "DB_PASSWORD=..." > .env && docker compose up -d --build
+cd frontend && npm run build          # 产出 frontend/dist
+SERVER=root@<ECS公网IP> ./deploy/deploy.sh --seed   # 首次部署（--seed 写入演示数据；更新部署去掉该参数）
 ```
 
-上线前：配置企业微信 / 乐享凭证并按数据源启用真实模式；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。证书放 `deploy/certs/`；企业微信后台回调地址配置为 `https://<域名>/api/v1/wecom/callback`。
+`deploy/` 下的部署物料：
+
+| 文件 | 用途 |
+|---|---|
+| `deploy.sh` | rsync 代码与 dist → `/opt/jucheng` → 安装环境变量 → `docker compose up -d --build` → 健康检查 |
+| `app.env` | 生产环境变量（含 SECRET_KEY / 大模型密钥，`600`，不入库），脚本安装为服务器 `backend/.env` |
+| `.env` | `DB_PASSWORD`，供 compose 注入 PostgreSQL |
+| `certs/fullchain.pem` `certs/privkey.pem` | `juchengcc.com` + `www.juchengcc.com` 证书（有效期至 2027-05-06，到期前替换） |
+| `nginx.conf` | 80→443 跳转、www→主域名跳转、SPA、`/api`、`/mcp` 反代 |
+
+服务器前置条件：安全组放行 22/80/443；域名 `juchengcc.com` 与 `www` 的 A 记录指向 ECS 公网 IP（备案需已通过，否则阿里云阻断 80/443）。
+
+日常运维：
+
+```bash
+cd /opt/jucheng/deploy
+docker compose ps                 # 状态
+docker compose logs -f api        # API/定时任务/MCP 日志
+docker compose restart api        # 重启
+docker compose exec -T api python -m scripts.seed   # 重建演示数据（清空业务表）
+```
+
+数据库每日 02:30 全量备份到 `deploy/backups/`，保留 7 天。
+
+上线前：配置企业微信 / 乐享凭证并按数据源启用真实模式；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。企业微信后台回调地址配置为 `https://juchengcc.com/api/v1/wecom/callback`。生产 `DATA_SOURCE_MODE=mock` + `PASSWORD_LOGIN_ENABLED=true` 期间按演示环境运行，切换真实数据源后建议关闭口令登录。
 
 ## 开发约定
 

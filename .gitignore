@@ -8,3 +8,9 @@ frontend/dist/
 .DS_Store
 acceptance/node_modules/
 backend/agent_runtime/node_modules/
+
+# 部署密钥与运行数据
+deploy/.env
+deploy/app.env
+deploy/certs/
+deploy/backups/
