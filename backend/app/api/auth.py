@@ -63,7 +63,7 @@ def profile(p: Principal) -> dict:
 def login_config(db: Session = Depends(get_db)):
     data = {"password_login": settings.password_login_enabled, "wecom_mode": settings.source_mode("wecom"),
             "corp_id": settings.wecom_corp_id, "agent_id": settings.wecom_agent_id, "demo_accounts": []}
-    if settings.source_mode("wecom") == "mock" and settings.environment != "prod":
+    if settings.source_mode("wecom") == "mock" and (settings.environment != "prod" or settings.demo_accounts_enabled):
         users = db.scalars(select(SysUser).where(SysUser.status == 1, SysUser.is_deleted.is_(False))
                            .order_by(SysUser.department_id, SysUser.id)).all()
         data["demo_accounts"] = [{"userid": u.wecom_userid, "name": u.name, "position": u.position,

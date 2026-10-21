@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # 口令登录（演示/内网）；live 环境建议关闭只走企微扫码
     password_login_enabled: bool = True
     demo_password: str = "Jc@2026"
+    # 登录页是否展示演示账号下拉：默认仅非 prod 可见，生产演示期可显式开启
+    demo_accounts_enabled: bool = False
 
     storage_dir: Path = BASE_DIR / "var" / "files"
     file_link_ttl_seconds: int = 3600  # PRD FR-10-04：临时链接 1h
