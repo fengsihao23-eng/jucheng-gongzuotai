@@ -5,7 +5,7 @@
         <div class="assistant-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5V2m8 3V2M5 8H2m3 8H2m20-8h-3m3 8h-3M8 22v-3m8 3v-3"/><rect x="5" y="5" width="14" height="14" rx="4"/><path d="M9 10h.01M15 10h.01M9 14c1.6 1.3 4.4 1.3 6 0" stroke-linecap="round"/></svg>
         </div>
-        <div><h2>小聚</h2><p>告诉我目标，我来检查环境、调用工具并完成接入。</p></div>
+        <div><h2>小聚</h2><p>查数据、办业务、出报表，告诉我你要完成的事。</p></div>
         <el-button text :disabled="working || saving" aria-label="关闭小聚" @click="assistant.visible = false"><el-icon><Close /></el-icon></el-button>
       </header>
 
@@ -21,7 +21,7 @@
           </div>
           <div class="assistant-intro">
             <b>从一句话开始</b>
-            <p>公司系统统一接入，员工按权限使用。我会直接完成能执行的步骤；企业密钥只需由公司管理员配置一次。</p>
+            <p>按你的账号权限处理财务、项目、合同、人事、客服等工作。支持上传资料、连续办理和下载结果；公司系统由管理员统一接入。</p>
             <span v-if="catalog.runtime?.available" class="execution-badge">执行引擎已就绪 · 支持自动接入</span>
             <div class="quick-prompts"><button v-for="q in prompts" :key="q" :disabled="busy" @click="ask(q)">{{ q }} <span>↗</span></button></div>
           </div>
@@ -56,7 +56,13 @@
             </div>
             <div v-if="!executing && !execution.outcomes?.length && ['failed', 'cancelled'].includes(execution.state)" class="execution-actions"><el-button size="small" @click="ask(lastInstruction)">重新执行</el-button></div>
           </section>
+          <section v-if="execution?.business_results?.length || execution?.business_actions?.length" class="business-output" aria-label="小聚业务结果">
+            <BusinessActionCard v-for="action in execution.business_actions" :key="action.id" :action="action" :disabled="busy" @decision="handleDecision" />
+            <BusinessResultCard v-for="(receipt, index) in execution.business_results" :key="receipt.result_id || index" :result="receipt" @navigate="navigate" />
+            <p v-for="(error, index) in execution.business_errors" :key="`error-${index}`" class="business-error">{{ error.message }}</p>
+          </section>
           <input ref="credentialInput" type="file" accept=".env,.json,.txt" hidden @change="importCredentialFile" />
+          <input ref="businessInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.docx,.pptx,.pdf,.txt,.md,.png,.jpg,.jpeg" multiple hidden @change="uploadBusinessFiles" />
           <el-button v-if="execution && !executing && active" class="manual-entry" text size="small" @click="manualMode = !manualMode">{{ manualMode ? '收起备用配置' : '展开备用配置' }}</el-button>
 
           <section v-if="active && (!automaticMode || manualMode)" class="setup-card" :aria-label="`${active.name}接入配置`">
@@ -101,8 +107,9 @@
       </div>
 
       <form class="assistant-composer" @submit.prevent="ask()">
-        <div class="composer-box"><textarea v-model="input" aria-label="向小聚描述需求" placeholder="例如：直接帮我接好 WorkBuddy" rows="2" :maxlength="1500" :disabled="busy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="busy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
-        <small>公司系统统一接入，员工无需填写企业密钥。</small>
+        <div v-if="attachments.length" class="composer-files"><el-tag v-for="file in attachments" :key="file.id" closable :disable-transitions="true" @close="attachments = attachments.filter((item) => item.id !== file.id)">{{ file.filename }}</el-tag></div>
+        <div class="composer-box"><el-button text :disabled="busy || !automaticMode" :loading="uploading" aria-label="上传业务文件" title="上传业务文件" @click="businessInput?.click()"><el-icon v-if="!uploading"><Paperclip /></el-icon></el-button><textarea v-model="input" aria-label="向小聚描述需求" placeholder="例如：登记客户工单，或生成本月财务报表" rows="2" :maxlength="1500" :disabled="busy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="busy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
+        <small>按账号权限办事 · 重要操作核对后提交 · 支持业务文件上传</small>
       </form>
     </section>
   </el-drawer>
@@ -110,17 +117,20 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { Close, Right, Top } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Close, Right, Top, Paperclip } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { useAuth } from '@/store/auth'
+import BusinessActionCard from '@/components/BusinessActionCard.vue'
+import BusinessResultCard from '@/components/BusinessResultCard.vue'
 
 const assistant = useAssistant()
 const auth = useAuth()
 const router = useRouter()
-const prompts = ['帮我接入 WorkBuddy', '检查所有连接', '报销在哪']
+const route = useRoute()
+const prompts = ['我有哪些待办审批', '生成今天的每日支出报表', '帮我接入 WorkBuddy', '小聚能替我办哪些事', '报销在哪']
 const catalog = ref({ connectors: [], tools_available: 0 })
 const loading = ref(false)
 const loadError = ref(false)
@@ -132,15 +142,18 @@ const executing = ref(false)
 const execution = ref(null)
 const pollError = ref(false)
 const manualMode = ref(false)
+const uploading = ref(false)
+const attachments = ref([])
+const businessInput = ref(null)
 const credentialInput = ref(null)
 const importingProvider = ref('')
 const lastInstruction = ref('')
 const automaticMode = computed(() => catalog.value.runtime?.available)
-const STATE_LABELS = { queued: '正在准备', running: '正在执行', stopping: '正在停止', succeeded: '已完成', partial: '部分完成', waiting_input: '等待公司授权或资料', waiting_admin: '等待公司管理员统一授权', failed: '未完成', cancelled: '已停止' }
-const TERMINAL = new Set(['succeeded', 'partial', 'waiting_input', 'waiting_admin', 'failed', 'cancelled'])
+const STATE_LABELS = { queued: '正在准备', running: '正在执行', stopping: '正在停止', succeeded: '已完成', partial: '部分完成', awaiting_confirmation: '等待你核对执行单', waiting_input: '等待授权或业务资料', waiting_admin: '等待公司管理员统一授权', failed: '未完成', cancelled: '已停止' }
+const TERMINAL = new Set(['succeeded', 'partial', 'awaiting_confirmation', 'waiting_input', 'waiting_admin', 'failed', 'cancelled'])
 let pollTimer
 let pollGeneration = 0
-const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || executing.value)
+const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || executing.value || uploading.value)
 const input = ref('')
 const messages = ref([])
 const activeKey = ref('')
@@ -152,7 +165,7 @@ const workConfig = ref(null)
 const workToken = ref('')
 const workTest = ref(null)
 const scrollArea = ref(null)
-const drawerWidth = 'min(580px, 100vw)'
+const drawerWidth = 'min(720px, 100vw)'
 const localAddress = computed(() => {
   try { return ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(new URL(catalog.value.public_base_url).hostname) } catch { return false }
 })
@@ -175,7 +188,7 @@ function selectProvider(key) {
   active.value?.fields?.forEach((f) => { form[f.key] = f.secret ? '' : f.value })
   scrollDown()
 }
-async function ask(text = input.value) {
+async function ask(text = input.value, resume = false) {
   const message = text.trim()
   if (!message || busy.value) return
   if (secretPattern.test(message)) {
@@ -185,6 +198,9 @@ async function ask(text = input.value) {
     return
   }
   input.value = ''
+  const history = messages.value.slice(-12).map((item) => ({ role: item.role, content: item.text.slice(0, 6000) }))
+  const previousId = execution.value?.id
+  const continuing = resume || /继续|接着|刚才|上面|这个|这张|这些|这项|该项目|该工单|改为|改成|确认|根据上述/.test(message)
   messages.value.push({ role: 'user', text: message })
   lastInstruction.value = message
   chatting.value = true
@@ -192,7 +208,8 @@ async function ask(text = input.value) {
   scrollDown()
   try {
     if (automaticMode.value) {
-      execution.value = await api.post('/assistant/tasks', { message, context: context.value }, { silent: true })
+      execution.value = await api.post('/assistant/tasks', { message, context: context.value, history, attachment_ids: attachments.value.map((file) => file.id), current_page: route.fullPath, resume_task_id: continuing ? previousId : null }, { silent: true })
+      attachments.value = []
       assistant.activeTaskId = execution.value.id
       executing.value = true
       pollGeneration++
@@ -235,6 +252,29 @@ async function cancelExecution() {
   if (!execution.value?.id) return
   await api.post(`/assistant/tasks/${execution.value.id}/cancel`, {})
 }
+async function uploadBusinessFiles(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (busy.value || !files.length) return
+  if (files.length + attachments.value.length > 20) { ElMessage.warning('一次最多上传 20 个文件'); return }
+  if (files.some((file) => file.size > 50 * 1024 * 1024)) { ElMessage.warning('每个文件不能超过 50MB'); return }
+  uploading.value = true
+  try { for (const file of files) attachments.value.push(await api.upload('/assistant/business/files', file, {}, { silent: true })) }
+  catch (error) { ElMessage.error(error.message || '文件上传未完成，请重试') }
+  finally { uploading.value = false }
+}
+async function handleDecision(decision, approved) {
+  if (!execution.value?.id) return
+  const id = execution.value.id
+  try { execution.value = await api.get(`/assistant/tasks/${id}`, null, { silent: true }) }
+  catch { ElMessage.warning('暂时无法刷新执行回执，请重新打开小聚查看'); return }
+  if (decision?.result) messages.value.push({ role: 'assistant', text: `${decision.action.title}：已按确认单执行，业务回执已生成。` })
+  else if (decision) messages.value.push({ role: 'assistant', text: '已取消这项操作。' })
+  if (approved && decision?.result?.ok && messages.value.some((item) => item.role === 'user')) {
+    await ask('我已在界面确认执行单，请先核对已执行回执，继续完成刚才任务的剩余步骤；已完成的操作不要重复提交。', true)
+  }
+  scrollDown()
+}
 function openAuthorization(url) {
   if (['https://work.weixin.qq.com/', 'https://www.ningmengyun.com/'].includes(url)) window.open(url, '_blank', 'noopener,noreferrer')
 }
@@ -266,6 +306,7 @@ function clearSensitive() {
   result.value = null
   activeKey.value = ''
   input.value = ''
+  attachments.value = []
 }
 function navigate(path) { assistant.visible = false; router.push(path) }
 async function copy(text) {
@@ -323,10 +364,10 @@ watch(() => assistant.visible, async (visible) => {
   if (automaticMode.value && !executing.value && !execution.value) {
     try {
       const tasks = await api.get('/assistant/tasks', null, { silent: true })
-      const unfinished = tasks.find((task) => !TERMINAL.has(task.state))
+      const unfinished = tasks.find((task) => !TERMINAL.has(task.state) || task.state === 'awaiting_confirmation')
       if (unfinished) {
-        execution.value = unfinished; assistant.activeTaskId = unfinished.id; executing.value = true
-        pollGeneration++; pollExecution(unfinished.id, pollGeneration)
+        execution.value = unfinished; assistant.activeTaskId = unfinished.id
+        if (!TERMINAL.has(unfinished.state)) { executing.value = true; pollGeneration++; pollExecution(unfinished.id, pollGeneration) }
       }
     } catch { /* 状态恢复失败不阻止用户发起新任务 */ }
   }
@@ -377,5 +418,6 @@ onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); assistant.vis
 .step-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--jc-brand); flex-shrink: 0; margin-top: 5px; }.succeeded > .step-dot { background: var(--jc-up); }.pending > .step-dot { background: var(--jc-warn); }
 .execution-outcome { margin-top: 16px; padding: 13px; border: 1px solid var(--jc-line-2); border-radius: 7px; background: var(--jc-surface-2); font-size: 12px; line-height: 1.8; }.execution-outcome p { margin: 8px 0; }.execution-outcome code { display: block; font-size: 10px; overflow-wrap: anywhere; }.pending-list { margin: 8px 0; padding-left: 18px; color: var(--jc-ink-3); }
 .execution-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }.execution-actions .el-button { margin-left: 0; }.manual-entry { margin: 0 0 10px; }
+.business-output { margin-bottom: 18px; }.business-error { color: var(--jc-down); font-size: 12px; line-height: 1.8; }.composer-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }.composer-files :deep(.el-tag__content) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 480px) { .assistant-header, .assistant-scroll, .assistant-composer { padding-left: 16px; padding-right: 16px; }.setup-card { padding: 15px; }.section-label > span { display: none; } }
 </style>

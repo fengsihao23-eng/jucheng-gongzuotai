@@ -19,6 +19,7 @@ from app.core.config import BASE_DIR, settings
 from app.core.db import SessionLocal
 from app.core.deps import build_principal
 from app.core.security import hash_token, new_access_token
+from app.core.response import BizError
 from app.models import SysUser
 from app.services import assistant_service as connectors
 
@@ -35,6 +36,18 @@ def spec(name, description, properties=None, required=None):
 
 
 TOOL_SPECS = [
+    spec("list_business_capabilities", "查找当前账号能真实执行的全部业务功能。财务、合同商机、项目、市场、人事、客服、标书、知识库、系统管理均可；按 query/area 缩小范围。", {
+        "query": {"type": "string", "default": ""}, "area": {"type": "string", "default": ""}}),
+    spec("describe_business_operation", "读取业务功能的完整参数、文件字段、默认值和是否需要确认。执行前先读取，不能猜测字段或记录编号。", {
+        "operation_id": {"type": "string"}}, ["operation_id"]),
+    spec("execute_business_operation", "真实调用当前工作台业务服务。查询、报表和可撤回登记直接执行；重要操作先产生具体执行单，尚未写入，必须等待用户点击确认。", {
+        "operation_id": {"type": "string"}, "request": {"type": "object", "properties": {
+            "path": {"type": "object", "additionalProperties": True}, "query": {"type": "object", "additionalProperties": True},
+            "body": {"anyOf": [{"type": "object", "additionalProperties": True}, {"type": "array", "items": {}}, {"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"}]},
+            "files": {"type": "object", "additionalProperties": True}}, "additionalProperties": False}}, ["operation_id"]),
+    spec("read_business_action", "核对本人执行单的当前状态与实际回执。不能通过此工具批准、伪造确认或再次提交已执行操作。", {
+        "action_id": {"type": "string"}}, ["action_id"]),
+    spec("read_business_result", "读取本人业务执行回执与文件，不重复提交业务操作。", {"result_id": {"type": "string"}}, ["result_id"]),
     spec("inspect_environment", "检查当前接入状态、本机 WorkBuddy 配置和可用 CLI。接入任务首先调用此工具。"),
     spec("discover_credentials", "自动读取现有环境、接入文件和 MCP 中的企业凭证。只返回来源与缺失项，不返回密钥。", {
         "provider": {"type": "string", "enum": ["wecom", "lemoncloud"]}}, ["provider"]),
@@ -111,11 +124,47 @@ def import_values(provider: str, content: bytes) -> dict:
 
 
 class XiaoJuTools:
-    def __init__(self, user_id: int, allow_writes=True):
+    def __init__(self, user_id: int, allow_writes=True, task_id="", workflow_id="", intent=""):
         self.user_id = user_id
         self.allow_writes = allow_writes
         self.outcomes = []
         self.links = []
+        self.task_id, self.workflow_id, self.intent = task_id, workflow_id, intent
+        self._business = None
+        self.business_errors = []
+
+    @property
+    def business(self):
+        if self._business is None:
+            from app.services.xiaoju_business import BusinessExecutor
+            self._business = BusinessExecutor(self.user_id, self.task_id, self.workflow_id, self.intent, not self.allow_writes)
+        return self._business
+
+    def list_business_capabilities(self, query="", area=""):
+        return self.business.discover(query, area)
+
+    def describe_business_operation(self, operation_id):
+        return self.business.describe(operation_id)
+
+    def execute_business_operation(self, operation_id, request=None):
+        result = self.business.execute(operation_id, request)
+        self.business_errors = [item for item in self.business_errors if item.get("operation_id") != operation_id]
+        return result
+
+    def read_business_action(self, action_id):
+        from app.services.xiaoju_business import read_action
+        action = read_action(action_id, self.user_id)
+        result = self.read_business_result(action["result_id"]) if action.get("result_id") else None
+        if action["state"] == "pending":
+            if not any(item["id"] == action_id for item in self.business.actions): self.business.actions.append(action)
+            self.business.confirmation_pending = True
+        return {"ok": True, "action": action, "result": result, "requires_confirmation": action["state"] == "pending"}
+
+    def read_business_result(self, result_id):
+        from app.services.xiaoju_business import read_result
+        result = read_result(result_id, self.user_id)
+        if not any(item["result_id"] == result_id for item in self.business.results): self.business.results.append(result)
+        return result
 
     def _record(self, value):
         self.outcomes = [old for old in self.outcomes if old["provider"] != value["provider"]]
@@ -133,15 +182,23 @@ class XiaoJuTools:
                 user = db.get(SysUser, self.user_id)
                 if not user or user.status != 1 or user.is_deleted:
                     return {"ok": False, "message": "账号已停用"}
-                if not build_principal(user).is_admin and name not in {"inspect_environment", "connect_enterprise", "find_page", "prepare_personal_workbuddy"}:
+                if not build_principal(user).is_admin and name not in {"inspect_environment", "connect_enterprise", "find_page", "prepare_personal_workbuddy", "list_business_capabilities", "describe_business_operation", "execute_business_operation", "read_business_action", "read_business_result"}:
                     return {"ok": False, "message": "此操作需要公司管理员权限"}
             result = getattr(self, name)(**args)
             # 即使工具返回意外字段，也不允许凭证穿过进程边界。
             return safe_value(result)
+        except BizError as exc:
+            result = {"ok": False, "code": exc.code, "message": redact(exc.message), "operation_id": args.get("operation_id"), "status": "failed"}
+            if "business" in name:
+                self.business_errors.append(result)
+            return result
         except (ValueError, TypeError):
             result = {"ok": False, "message": "工具参数或接入文件格式不正确，原有配置已保留"}
         except Exception:
             result = {"ok": False, "message": "执行工具暂未完成，配置未被标记为接通；不能据此推断外部账号或模型出错"}
+        if "business" in name:
+            result.update(status="failed", operation_id=args.get("operation_id"), message="业务操作未完成，请核对当前记录与参数后继续；尚未核实的写入不会自动重复提交")
+            self.business_errors.append(result)
         if name in {"install_workbuddy", "connect_enterprise", "prepare_personal_workbuddy"}:
             result.update(provider="wecom" if args.get("provider") == "wecom" else "lemoncloud" if args.get("provider") == "lemoncloud" else "workbuddy", status="failed")
             self._record(result)

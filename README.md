@@ -48,9 +48,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 | 客服部 | 客服工单 | 一句话登记、相似工单、排查建议、归因报告 |
 | 公共 | 知识库 / WorkBuddy 接入 / 系统管理 | 乐享检索、MCP 令牌与工具注册表、角色字典任务审计 |
 
-## WorkBuddy 接入
+## 小聚业务 Agent 与 WorkBuddy 接入
 
-任意页面顶部的「小聚」使用 Pi 核心与 DeepSeek，能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，也能自动发现和验证企业微信、柠檬云凭证。支持范围与授权边界见 `docs/INTEGRATION_ASSISTANT.md`。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
+任意页面顶部的「小聚」使用 Pi 核心与 DeepSeek，可按当前账号权限执行现有工作台的 241 个业务动作（227 个业务 API、13 个 MCP 工具和附件预览），覆盖财务、合同、项目、人事、客服、标书等 21 个模块。支持上传业务文件、连续对话、实际写入、报表下载及操作回执；记账、删除、权限调整、对外通知会生成具体执行单，点击确认后提交。业务范围及验证见 [小聚业务能力说明](docs/XIAOJU_BUSINESS.md)。
+
+小聚也能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，自动发现和验证企业微信、柠檬云凭证。接入范围见 [接入说明](docs/INTEGRATION_ASSISTANT.md)。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
 
 面向公司员工：企业系统由管理员统一授权一次，员工通过小聚按各自权限使用，无需各自提供企业密钥。员工个人 WorkBuddy 授权由小聚自动生成、自检并提供完整配置下载；不能把网站服务器当成员工的电脑，首次客户端导入仍需在客户端完成。
 
@@ -59,9 +61,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 ## 测试与验收
 
 ```bash
-cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 176 项
+cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 246 项
 cd acceptance && npm install && node e2e.mjs                            # 端到端 68 项，需服务在运行
 ```
+
+小聚真实模型业务验收：在独立测试库启动端口 18100 的 API，运行 `cd acceptance && node xiaoju-business.mjs`。不能连接实际业务库；流程会创建演示工单和合同。
 
 ## 生产部署
 

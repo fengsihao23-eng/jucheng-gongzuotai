@@ -1,4 +1,4 @@
-"""小聚：Pi 自主执行任务，以及兼容现有配置表单。"""
+"""小聚：业务执行、文件与回执、重要操作确认，以及公司系统接入。"""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -11,7 +11,7 @@ from app.core.deps import Principal, client_ip, get_principal
 from app.core.response import BizError, forbidden, ok
 from app.services import assistant_service as service
 
-router = APIRouter(prefix="/assistant", tags=["接入助手"])
+router = APIRouter(prefix="/assistant", tags=["小聚"])
 
 
 @router.get("/catalog")
@@ -33,9 +33,18 @@ def catalog(p: Principal = Depends(get_principal), db: Session = Depends(get_db)
     return ok({**info, "runtime": runtime_info()})
 
 
+class HistoryTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=6000)
+
+
 class ChatBody(BaseModel):
     message: str = Field(min_length=1, max_length=1500)
     context: list[Literal["workbuddy", "wecom", "lemoncloud"]] = Field(default_factory=list, max_length=3)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=12)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=20)
+    resume_task_id: str | None = None
+    current_page: str = Field(default="", max_length=250)
 
 
 @router.post("/chat")
@@ -46,7 +55,46 @@ def chat(body: ChatBody, p: Principal = Depends(get_principal)):
 @router.post("/tasks")
 def create_task(body: ChatBody, p: Principal = Depends(get_principal)):
     from app.services.xiaoju_service import create
-    return ok(create(body.message, body.context, p.id))
+    return ok(create(body.message, body.context, p.id, history=[turn.model_dump() for turn in body.history],
+                     attachment_ids=body.attachment_ids, resume_task_id=body.resume_task_id, current_page=body.current_page))
+
+
+@router.get("/business/capabilities")
+def business_capabilities(query: str = "", area: str = "", p: Principal = Depends(get_principal)):
+    from app.services.xiaoju_business import BusinessExecutor
+    return ok(BusinessExecutor(p.id).discover(query, area))
+
+
+@router.post("/business/files")
+async def upload_business_file(file: UploadFile = File(...), p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_business_state as state
+    content = await file.read(state.MAX_FILE + 1)
+    return ok(state.upload(p.id, file.filename or "业务文件", content, file.content_type))
+
+
+@router.get("/business/results/{result_id}")
+def business_result(result_id: str, full: bool = False, p: Principal = Depends(get_principal)):
+    from app.services.xiaoju_business import read_result
+    return ok(read_result(result_id, p.id, full=full))
+
+
+@router.get("/business/actions/{action_id}")
+def business_action(action_id: str, p: Principal = Depends(get_principal)):
+    from app.services.xiaoju_business import read_action
+    return ok(read_action(action_id, p.id))
+
+
+class ActionDecision(BaseModel):
+    approve: bool
+
+
+@router.post("/business/actions/{action_id}/confirm")
+def confirm_business_action(action_id: str, body: ActionDecision, p: Principal = Depends(get_principal)):
+    from app.services.xiaoju_business import confirm
+    from app.services.xiaoju_service import record_confirmation
+    result = confirm(action_id, p.id, body.approve)
+    record_confirmation(result["action"], result["result"], p.id)
+    return ok(result)
 
 
 @router.get("/workbuddy-config/{config_id}")

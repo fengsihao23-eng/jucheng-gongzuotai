@@ -34,21 +34,29 @@ async function run(init) {
   models.setProvider(deepseekProvider())
   const template = models.getModel('deepseek', 'deepseek-flash')
   const model = { ...template, id: init.model, baseUrl: init.baseUrl.replace(/\/chat\/completions\/?$/, '') }
+  let waitingForConfirmation = false
   const tools = init.tools.map((spec) => ({
     ...spec, label: spec.description.split('。')[0], executionMode: 'sequential',
     execute: async (_toolCallId, args) => {
       const id = String(++sequence)
       const result = await new Promise((resolve) => { pending.set(id, resolve); send({ type: 'tool_call', id, name: spec.name, args }) })
-      return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} }
+      if (result.requires_confirmation) waitingForConfirmation = true
+      return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {}, terminate: result.requires_confirmation === true }
     },
   }))
   let turns = 0
   agent = new Agent({
-    initialState: { model, systemPrompt: init.system, thinkingLevel: 'off', tools },
+    initialState: { model, systemPrompt: init.system, thinkingLevel: 'off', tools,
+      messages: (init.history || []).map((message) => message.role === 'user'
+        ? { role: 'user', content: message.content, timestamp: Date.now() }
+        : { role: 'assistant', content: [{ type: 'text', text: message.content }], api: model.api, provider: model.provider, model: model.id,
+            stopReason: 'stop', timestamp: Date.now(), usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }) },
     toolExecution: 'sequential',
     getApiKey: () => init.apiKey,
     streamFn: (m, context, options) => models.streamSimple(m, context, { ...options, maxTokens: 1800, maxRetries: 1 }),
-    finishTurn: () => (++turns >= 10 ? { action: 'end' } : undefined),
+    beforeToolCall: async () => waitingForConfirmation ? { block: true, reason: '必须等待本人确认业务执行单，不能继续依赖此变更的操作', terminate: true } : undefined,
+    finishTurn: () => (waitingForConfirmation || ++turns >= 20 ? { action: 'end' } : undefined),
   })
   await agent.prompt(init.message)
   const last = [...agent.state.messages].reverse().find((m) => m.role === 'assistant')
