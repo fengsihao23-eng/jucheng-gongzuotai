@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_thinking_mode: Literal["", "enabled", "disabled"] = ""  # DeepSeek 可显式关闭思考；其他服务默认不传
 
+    # 小聚：Pi 核心在独立 Node 进程运行；主机接入能力仅向平台管理员开放。
+    assistant_host_access: bool = False
+    assistant_host_home: Path = Path.home()
+    assistant_node_bin: str = "node"
+    assistant_task_timeout_seconds: int = 180
+
     mcp_server_name: str = "jucheng-portal"
     mcp_rate_limit_per_min: int = 60
     mcp_allowed_hosts: str = ""  # 额外允许的 Host（反代域名），逗号分隔

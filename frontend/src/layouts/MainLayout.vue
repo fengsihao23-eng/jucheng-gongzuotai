@@ -26,7 +26,7 @@
         </div>
         <div class="jc-spacer" />
         <span class="jc-muted jc-small today">{{ today }}</span>
-        <el-button class="assistant-entry" @click="assistant.open()">接入助手</el-button>
+        <el-button class="assistant-entry" @click="assistant.open()">小聚</el-button>
         <el-popover placement="bottom-end" :width="360" trigger="click" @show="loadNotify">
           <template #reference>
             <button class="icon-btn" aria-label="消息通知">

@@ -1,77 +1,99 @@
-# 站内接入助手
+# 小聚 · 自主接入 Agent
 
-从任意工作台页面顶部点击「接入助手」，或在「WorkBuddy 接入」页面点击「让接入助手帮我配置」。
+工作台右上角点击「小聚」，直接描述目标。公司员工均通过 Pi 核心执行任务，企业接入由管理员统一授权一次；员工直接复用公司配置，并按自己的权限使用页面和个人 WorkBuddy 授权。
 
-可以直接说：
+示例：直接帮我接好 WorkBuddy 并验证连接 / 自动连接企业微信，先读取已有配置 / 柠檬云也接上 / 检查所有连接状态，不修改配置。
 
-- 帮我接入 WorkBuddy
-- 帮我接入企业微信
-- 柠檬云怎么授权
-- 检查所有连接
-- 报销在哪 / 流水怎么核对
+## 执行核心
 
-## 当前能力
+官方 `@earendil-works/pi-agent-core@1.3.0` 和 `@earendil-works/pi-ai@1.3.0` 负责多轮工具调用与状态管理。Python FastAPI 负责账号权限、主机工具、凭证保管和任务持久化。模型使用 DeepSeek V4.1 Flash（`deepseek-flash`）。没有委托到用户全局 Pi CLI 的其他模型账号。
 
-| 系统 | 助手能执行 | 仍需完成 |
-|---|---|---|
-| WorkBuddy | 生成个人令牌与 MCP JSON、执行本服务的 initialize / tools/list 自检、复制或下载配置 | 在 WorkBuddy 的 MCP 配置中合并 JSON 并查看客户端连接状态；已有令牌时需确认重置 |
-| 企业微信自建应用 | 检查企业身份、Secret 与 AgentID；生成回调密钥；验证通过后保存凭证并启用真实接口 | 企业微信后台的回调 URL 验证、可信 IP / 可信域名、应用可见范围、审批与通讯录权限 |
-| 柠檬云财税开放平台 | 调用官方基础授权接口验证 App ID / App Secret、保存凭证 | 用户与账套授权；现有财务同步适配器的真实接口与字段联调。此步骤保留演示模式，不触发真实财务同步 |
+API Key 只经独立进程 stdin 传入，不放在命令行、任务文件或 GitHub。npm lockfile 固定依赖；Docker 构建自动安装 Node 和 Pi 核心。本地开发安装一次：
 
-柠檬云当前财务适配器 `app/integration/lemoncloud/live.py` 使用待联调的桥接协议，与财税开放平台和财税能力平台的官方协议不同。助手不会因为基础授权成功就启用该适配器。`nmy.cn` 财税能力平台也不是本次配置表单所连接的平台。
+```bash
+cd backend/agent_runtime
+npm ci --ignore-scripts
+```
 
-「演示模式」「真实模式 · 待检测」「待客户端导入」描述不同状态，不能把保存、鉴权、自检和业务接通视作同一件事。当前不自动判断外部客户端已导入或企业微信后台已验证回调。
-
-## 对话与执行
-
-聊天接口只识别意图并给出接入卡片或有权限的页面链接，不执行配置写入。表单的「只检测」不改变配置；「验证并启用 / 验证并保存」验证成功后才写入。
-
-未配置模型也可识别常用接入指令和操作导航。如果服务器已有 `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，无法由内置指令识别的请求可交给模型分类，最长等待 12 秒。模型只能返回受限的系统标识或页面路径，写操作仍由后端独立鉴权。聊天不具备通用业务问答或任意执行能力。
-
-### DeepSeek V4.1 Flash
-
-在服务器的 `backend/.env` 中配置，实际 API Key 不提交到 GitHub：
+服务器 `backend/.env` 示例（实际文件不提交）：
 
 ```dotenv
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-flash
-LLM_API_KEY=<服务器实际密钥>
+LLM_API_KEY=<实际密钥>
 LLM_THINKING_MODE=disabled
+ASSISTANT_HOST_ACCESS=true
 ```
 
-官方的 V4.1 Flash API 模型标识为 `deepseek-flash`。接入助手使用 JSON 输出，并显式关闭 DeepSeek 默认开启的思考模式，避免短分类请求的输出预算被思考过程耗尽。其他模型服务可将 `LLM_THINKING_MODE` 留空。修改环境配置后重启 API 进程。
+公司统一部署默认关闭主机能力，不依赖某位员工的个人电脑。只有管理员明确配置当前主机、且执行环境与 WorkBuddy 所在电脑一致时才启用主机能力。云端容器不能通过网页访问用户电脑文件，未连接本机执行环境时会明确报告未完成，不会把配置写到服务器后声称已连接用户客户端。
 
-参考：[DeepSeek 模型说明](https://deepseek.com/en/news/deepseek-v4-1-flash/)、[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)。
+## 自动接入
 
-## 凭证与持久化
+| 系统 | 小聚实际执行 | 尚需真实外部权限的部分 |
+|---|---|---|
+| 管理员本机 WorkBuddy | 生成或复用个人令牌；合并 `~/.workbuddy/mcp.json`；备份旧文件；实际请求公开端点进行 MCP 握手与工具发现 | 配置已写入并验证可达，与客户端已加载不同；必要时刷新 WorkBuddy 的 MCP 面板 |
+| 企业微信 | 自动发现凭证；生成回调密钥；验证企业身份与 AgentID；保存并启用真实 API | 管理后台的回调 URL 验证、可信 IP/域名与业务权限必须得到企业授权 |
+| 柠檬云 | 自动发现凭证；验证财税开放平台基础授权并保存 | 账套授权及现有桥接适配器的官方接口联调尚需完成；不把应用授权当作真实财务同步 |
 
-- 企业级接入配置和连接检测仅允许 `ADMIN-01` 平台管理员。其他员工可生成自己账号的 WorkBuddy 配置。
-- 企业凭证使用独立表单；不进入模型上下文、聊天历史或数据库。审计仅记录字段名和结果，不记录值。
-- 服务器配置保存到 `STORAGE_DIR` 的父目录下的 `integrations.json`，权限为 `0600`；采用文件锁和原子替换。启动时恢复，请求和数据源初始化时检查更新，支持部署中的多个 API worker。
-- Docker Compose 的默认 `STORAGE_DIR=/data/files` 对应 `/data/integrations.json`，位于已有持久化卷中。迁移或备份环境时需安全保存此文件；它不包含在 PostgreSQL 备份中。
-- 已保存配置优先于部署环境中相同的接入配置。企业微信仅覆盖自身的数据源模式，其他来源不受影响。
-- GET 鉴权接口的 URL 含凭证，禁用 httpx 的 INFO 请求日志。平台错误不原样回显。
-- WorkBuddy 令牌仍沿用现有机制：数据库只存哈希，明文仅在当前面板显示；配置卡片中的临时内容在关闭时清除。
+可直接调用已安装接入 CLI 的 `--help` 和 `--version`，配置由文件和 API 工具执行。不会把未验证的 `pi status` 等字符串作为命令，以免 CLI 将其解析成另一场模型对话。
 
-## 官方协议依据
+重复接入 WorkBuddy 时，匹配本地令牌与当前账号哈希后复用；发生握手、文件或审计错误时恢复原文件及令牌。「只检查」任务在执行器内禁止配置写入。
 
-- [WorkBuddy MCP 配置](https://www.workbuddy.ai/docs/zh/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)
-- [企业微信开发文档](https://developer.work.weixin.qq.com/document/path/91039)
-- [柠檬云财税开放平台](https://open.ningmengyun.com/)：`GET /api/OAuth2/AccessToken?appId=...&appSecret=...`
-- [柠檬云财税能力平台认证](https://opendocs.nmy.cn/doc-8806534)：这是不同的平台，不适用于上述财税开放平台表单。
+员工个人 WorkBuddy 接入由小聚自动生成或复用个人授权、实际自检并提供已填好的配置下载。令牌按账号在服务器 AES-GCM 加密保存，不进入模型或任务日志；下载只对本人有效且一小时过期。首次客户端导入仍需在客户端完成，不能把网站服务器当成员工电脑。
+
+员工连接企业微信或柠檬云时，直接复用公司的统一配置，不读取或索取企业密钥；公司尚未授权则显示「等待公司管理员统一授权」。
+
+## 自动读取与最少人工介入
+
+读取已知来源：当前环境和生效配置、用户导入的接入文件、项目根的 `.env` / `.env.local` / `integration-credentials.env` / `.wecom.env` / `.lemoncloud.env`、后端接入文件以及 WorkBuddy MCP 的 env 字段。
+
+- Pi 只收到来源标识、字段名称和缺失项；凭证值留在 Python。
+- 缺企业授权时，只列出具体缺项，提供官方入口及「读取已有接入文件」。
+- 导入 `.env` 或 JSON 后自动继续验证，不必逐项抄写所有字段。
+- 多份不同账号的凭证需要选择来源，避免混用不同企业。
+- 回调密钥可由小聚生成，但必须与企业后台保持一致。
+- 没有真实授权时，不会发送消息、同步财务或显示已接通。
+
+备用配置表单在任务下方展开，不是自动接入的必经步骤。
+
+## 执行记录和权限
+
+任务显示实际工具步骤，可停止；关闭面板后继续运行，重新打开可以恢复进行中的任务。默认最长 180 秒、24 次工具调用，工具逐项执行。
+
+- 任务：`STORAGE_DIR` 父目录的 `xiaoju/tasks/`，按账号隔离；不保存聊天指令原文或密钥。
+- 导入凭证：`xiaoju/credentials/<user-id>/`；企业生效配置：`integrations.json`；文件均为 `0600`。
+- 每次工具调用重新检查账号状态与角色；公司配置、主机读写和 CLI 仅管理员可执行。员工可使用共享连接、个人授权及有权限的页面，不能读取或停止他人任务。
+- 接入结果由工具事实生成，不能用模型文字或无关 CLI 错误代替实际检测。
+- 聊天疑似密钥在发送到模型前拦截；第三方响应不原样回显凭证。
+
+Docker 的 `/data` 已有持久化卷，迁移时需安全保管上述文件，它们不属于 PostgreSQL 数据库备份。
 
 ## 验证
 
 ```bash
 cd backend
-TEST_DB=jucheng_test_assistant .venv/bin/python -m pytest tests/test_assistant.py tests/test_platform.py tests/test_mcp.py -q
-
+TEST_DB=jucheng_test_xiaoju .venv/bin/python -m pytest tests -q
 cd ../frontend
-VITE_OUT_DIR=/tmp/jc_build_assistant npm run build
+VITE_OUT_DIR=/tmp/jc_build_xiaoju npm run build
 ```
 
-外部鉴权用 `httpx.MockTransport` 测试成功、错误与无令牌的返回；MCP 使用真实应用的 ASGI 握手。正式接入仍需管理员提供实际企业凭证并完成外部平台配置。
+浏览器测试需连接独立测试库及临时 `ASSISTANT_HOST_HOME` 的 API：
 
-浏览器流程：启动指向独立测试库的 API 后，运行 `cd acceptance && API=http://localhost:18100 WEB=http://localhost:5180 node assistant.mjs`。覆盖配置生成、自检、JSON 下载、凭证清除、企业管理员权限、页面导航与手机宽度布局。不要让此测试连接实际业务库，它会重置测试账号的 MCP 令牌。
+```bash
+cd acceptance
+API=http://127.0.0.1:18100 node xiaoju.mjs
+API=http://127.0.0.1:18100 node assistant.mjs
+```
 
-本次验证：全量后端测试 204 项通过，浏览器流程检查 13 项通过，前端生产构建通过。DeepSeek V4.1 Flash 已使用实际 API 验证模型可用性和意图分类；企业微信、柠檬云的实际企业凭证尚未提供，未将这些企业接入标记为已完成。
+主流程测试使用真实 Pi 核心、DeepSeek、CLI 和 MCP 握手；备用流程测试覆盖表单、下载、普通员工权限和手机布局。
+
+当前验证：230 项后端测试、18 项自主执行与员工流程检查、13 项备用流程检查通过；前端与 Docker 构建通过。企业微信和柠檬云尚未配置公司的真实授权，柠檬云财务同步仍需按账套的官方接口联调，不能据此声称公司系统已经全部接通。
+
+## 官方资料
+
+- [Pi 官方仓库与 MIT 许可](https://github.com/earendil-works/pi)
+- [Pi SDK](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
+- [DeepSeek V4.1 Flash](https://deepseek.com/en/news/deepseek-v4-1-flash/)
+- [WorkBuddy MCP](https://www.workbuddy.ai/docs/zh/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)
+- [企业微信开发文档](https://developer.work.weixin.qq.com/document/path/91039)
+- [柠檬云财税开放平台](https://open.ningmengyun.com/)

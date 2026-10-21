@@ -14,6 +14,8 @@ os.environ["DATA_SOURCE_MODE"] = "mock"
 os.environ["DATA_SOURCE_OVERRIDES"] = ""
 os.environ["STORAGE_DIR"] = os.path.join(tempfile.gettempdir(), f"{TEST_DB}_var", "files")
 os.environ["LLM_API_KEY"] = ""
+os.environ["ASSISTANT_HOST_ACCESS"] = "false"
+os.environ["ASSISTANT_HOST_HOME"] = os.path.join(tempfile.gettempdir(), f"{TEST_DB}_host")
 
 subprocess.run(["createdb", TEST_DB], capture_output=True)
 

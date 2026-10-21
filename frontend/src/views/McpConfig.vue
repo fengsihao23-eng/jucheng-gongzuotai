@@ -1,7 +1,7 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="公共" title="WorkBuddy 接入" desc="工作台通过 MCP Server 把报表、台账、看板、知识库等能力提供给腾讯 WorkBuddy。按下面三步配置后，在 WorkBuddy 里说一句话即可调用。">
-      <el-button type="primary" @click="assistant.open('帮我接入 WorkBuddy')">让接入助手帮我配置</el-button>
+    <PageHeader eyebrow="公共" title="WorkBuddy 接入" desc="通过 MCP 把工作台能力提供给 WorkBuddy。点击「让小聚自动接入」，即可自动读取本机环境、写入配置并验证连接。">
+      <el-button type="primary" @click="assistant.open('直接帮我接好 WorkBuddy')">让小聚自动接入</el-button>
       <el-button v-if="srv.is_admin" @click="syncTools">同步工具清单</el-button>
     </PageHeader>
 

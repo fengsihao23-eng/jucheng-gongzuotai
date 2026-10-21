@@ -1,12 +1,12 @@
 <template>
-  <el-drawer v-model="assistant.visible" class="integration-assistant" :size="drawerWidth" :with-header="false" :close-on-click-modal="!busy" :close-on-press-escape="!busy" @closed="clearSensitive">
-    <section class="assistant-shell" aria-label="接入助手">
+  <el-drawer v-model="assistant.visible" class="integration-assistant" :size="drawerWidth" :with-header="false" :close-on-click-modal="!working && !saving" :close-on-press-escape="!working && !saving" @closed="clearSensitive">
+    <section class="assistant-shell" aria-label="小聚">
       <header class="assistant-header">
         <div class="assistant-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 5V2m8 3V2M5 8H2m3 8H2m20-8h-3m3 8h-3M8 22v-3m8 3v-3"/><rect x="5" y="5" width="14" height="14" rx="4"/><path d="M9 10h.01M15 10h.01M9 14c1.6 1.3 4.4 1.3 6 0" stroke-linecap="round"/></svg>
         </div>
-        <div><h2>接入助手</h2><p>告诉我你想连接什么，我带你完成配置。</p></div>
-        <el-button text :disabled="busy" aria-label="关闭接入助手" @click="assistant.visible = false"><el-icon><Close /></el-icon></el-button>
+        <div><h2>小聚</h2><p>告诉我目标，我来检查环境、调用工具并完成接入。</p></div>
+        <el-button text :disabled="working || saving" aria-label="关闭小聚" @click="assistant.visible = false"><el-icon><Close /></el-icon></el-button>
       </header>
 
       <div ref="scrollArea" class="assistant-scroll" aria-live="polite">
@@ -21,19 +21,45 @@
           </div>
           <div class="assistant-intro">
             <b>从一句话开始</b>
-            <p>我会检查当前配置，给你下一步的操作入口。涉及企业授权时，会请管理员补充必要凭证。</p>
+            <p>公司系统统一接入，员工按权限使用。我会直接完成能执行的步骤；企业密钥只需由公司管理员配置一次。</p>
+            <span v-if="catalog.runtime?.available" class="execution-badge">执行引擎已就绪 · 支持自动接入</span>
             <div class="quick-prompts"><button v-for="q in prompts" :key="q" :disabled="busy" @click="ask(q)">{{ q }} <span>↗</span></button></div>
           </div>
 
           <div v-for="(item, i) in messages" :key="i" class="assistant-message" :class="item.role">
-            <span class="message-label">{{ item.role === 'user' ? '你' : '接入助手' }}</span>
+            <span class="message-label">{{ item.role === 'user' ? '你' : '小聚' }}</span>
             <div class="message-content">{{ item.text }}</div>
             <div v-if="item.links?.length" class="message-links"><el-button v-for="link in item.links" :key="link.path" @click="navigate(link.path)">{{ link.label }} <el-icon><Right /></el-icon></el-button></div>
             <div v-if="item.providers?.length > 1" class="message-links"><el-button v-for="key in item.providers" :key="key" size="small" :disabled="busy" @click="selectProvider(key)">{{ connectorName(key) }}</el-button></div>
           </div>
-          <div v-if="chatting" class="assistant-thinking" role="status">正在检查可用操作…</div>
+          <div v-if="chatting" class="assistant-thinking" role="status">小聚正在准备执行…</div>
 
-          <section v-if="active" class="setup-card" :aria-label="`${active.name}接入配置`">
+          <section v-if="execution" class="execution-card" aria-label="小聚执行进度">
+            <div class="execution-heading"><b>{{ STATE_LABELS[execution.state] || '正在执行' }}</b><el-button v-if="executing" text size="small" @click="cancelExecution">停止执行</el-button></div>
+            <ol class="execution-steps"><li v-for="(step, i) in execution.steps" :key="i" :class="step.state"><span class="step-dot" /><div><b>{{ step.label }}</b><p v-if="step.message">{{ step.message }}</p></div><small>{{ step.state === 'running' ? '执行中' : step.state === 'succeeded' ? '已完成' : '待处理' }}</small></li></ol>
+            <p v-if="!execution.steps?.length" class="jc-muted jc-small">小聚正在分析任务并选择工具。</p>
+            <p v-if="pollError" class="jc-small jc-muted">连接暂时中断，正在重新获取执行进度…</p>
+            <div v-for="outcome in execution.outcomes" :key="outcome.provider" class="execution-outcome">
+              <div class="jc-row between"><b>{{ connectorName(outcome.provider) }}</b><span class="jc-small">{{ STATE_LABELS[outcome.status] }}</span></div>
+              <p>{{ outcome.message }}</p>
+              <p v-if="outcome.tools_count !== undefined" class="jc-small">已验证 {{ outcome.tools_count }} 个工具 · {{ outcome.changed ? '已写入配置' : '复用现有配置' }}</p>
+              <code v-if="outcome.config_path">{{ outcome.config_path }}</code>
+              <p v-if="outcome.missing?.length" class="jc-small jc-muted">尚缺：{{ outcome.missing.join('、') }}</p>
+              <ol v-if="outcome.pending?.length" class="jc-small pending-list"><li v-for="s in outcome.pending" :key="s">{{ s }}</li></ol>
+              <div v-if="!executing && outcome.status !== 'succeeded'" class="execution-actions">
+                <el-button v-if="outcome.download_url" type="primary" size="small" @click="downloadPersonalConfig(outcome.download_url)">下载已配好的个人连接</el-button>
+                <el-button v-if="outcome.login_url" size="small" @click="openAuthorization(outcome.login_url)">打开授权入口</el-button>
+                <el-button v-if="catalog.is_admin && ['wecom', 'lemoncloud'].includes(outcome.provider)" size="small" @click="chooseCredentialFile(outcome.provider)">读取已有接入文件</el-button>
+                <el-button v-if="outcome.status !== 'waiting_admin' || catalog.is_admin" size="small" @click="ask(`继续完成 ${connectorName(outcome.provider)} 接入`)">继续执行</el-button>
+                <el-button v-for="source in outcome.sources || []" :key="source.id" size="small" @click="ask(`继续完成 ${connectorName(outcome.provider)} 接入，使用来源 ${source.id}（${source.label}）`)">{{ source.label }}</el-button>
+              </div>
+            </div>
+            <div v-if="!executing && !execution.outcomes?.length && ['failed', 'cancelled'].includes(execution.state)" class="execution-actions"><el-button size="small" @click="ask(lastInstruction)">重新执行</el-button></div>
+          </section>
+          <input ref="credentialInput" type="file" accept=".env,.json,.txt" hidden @change="importCredentialFile" />
+          <el-button v-if="execution && !executing && active" class="manual-entry" text size="small" @click="manualMode = !manualMode">{{ manualMode ? '收起备用配置' : '展开备用配置' }}</el-button>
+
+          <section v-if="active && (!automaticMode || manualMode)" class="setup-card" :aria-label="`${active.name}接入配置`">
             <div class="setup-heading"><div><span class="section-label">接入操作</span><h3>{{ active.name }}</h3></div><a :href="active.docs" target="_blank" rel="noopener noreferrer">官方说明 ↗</a></div>
             <p class="setup-summary">{{ active.summary }}</p>
 
@@ -75,8 +101,8 @@
       </div>
 
       <form class="assistant-composer" @submit.prevent="ask()">
-        <div class="composer-box"><textarea v-model="input" aria-label="向接入助手描述需求" placeholder="例如：帮我接入企业微信" rows="2" :maxlength="1500" :disabled="busy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="busy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
-        <small>请将 Secret、Token 等凭证填入配置卡片。</small>
+        <div class="composer-box"><textarea v-model="input" aria-label="向小聚描述需求" placeholder="例如：直接帮我接好 WorkBuddy" rows="2" :maxlength="1500" :disabled="busy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="busy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
+        <small>公司系统统一接入，员工无需填写企业密钥。</small>
       </form>
     </section>
   </el-drawer>
@@ -102,7 +128,19 @@ const chatting = ref(false)
 const working = ref(false)
 const testing = ref(false)
 const saving = ref(false)
-const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value)
+const executing = ref(false)
+const execution = ref(null)
+const pollError = ref(false)
+const manualMode = ref(false)
+const credentialInput = ref(null)
+const importingProvider = ref('')
+const lastInstruction = ref('')
+const automaticMode = computed(() => catalog.value.runtime?.available)
+const STATE_LABELS = { queued: '正在准备', running: '正在执行', stopping: '正在停止', succeeded: '已完成', partial: '部分完成', waiting_input: '等待公司授权或资料', waiting_admin: '等待公司管理员统一授权', failed: '未完成', cancelled: '已停止' }
+const TERMINAL = new Set(['succeeded', 'partial', 'waiting_input', 'waiting_admin', 'failed', 'cancelled'])
+let pollTimer
+let pollGeneration = 0
+const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || executing.value)
 const input = ref('')
 const messages = ref([])
 const activeKey = ref('')
@@ -142,21 +180,83 @@ async function ask(text = input.value) {
   if (!message || busy.value) return
   if (secretPattern.test(message)) {
     input.value = ''
-    messages.value.push({ role: 'assistant', text: '这条内容可能含有密钥，请使用接入卡片中的凭证输入框。内容未发送。' })
+    messages.value.push({ role: 'assistant', text: '这条内容可能含有密钥，内容未发送。公司密钥请由管理员通过接入文件管理。' })
     scrollDown()
     return
   }
   input.value = ''
   messages.value.push({ role: 'user', text: message })
+  lastInstruction.value = message
   chatting.value = true
+  manualMode.value = false
   scrollDown()
   try {
+    if (automaticMode.value) {
+      execution.value = await api.post('/assistant/tasks', { message, context: context.value }, { silent: true })
+      assistant.activeTaskId = execution.value.id
+      executing.value = true
+      pollGeneration++
+      pollExecution(assistant.activeTaskId, pollGeneration)
+      return
+    }
     const r = await api.post('/assistant/chat', { message, context: context.value }, { silent: true })
     messages.value.push({ role: 'assistant', text: r.message, links: r.links, providers: r.providers })
     if (r.providers?.length) { context.value = r.providers; selectProvider(r.providers[0]) }
     else { activeKey.value = ''; Object.keys(form).forEach((k) => delete form[k]) }
-  } catch { messages.value.push({ role: 'assistant', text: '暂时无法处理这条请求，请稍后重试。' }) }
+  } catch (error) { messages.value.push({ role: 'assistant', text: error.message || '小聚暂时无法处理这条请求，请稍后重试。' }) }
   finally { chatting.value = false; messages.value = messages.value.slice(-24); scrollDown() }
+}
+async function pollExecution(id, generation) {
+  if (generation !== pollGeneration) return
+  try {
+    const task = await api.get(`/assistant/tasks/${id}`, null, { silent: true })
+    if (generation !== pollGeneration) return
+    execution.value = task
+    pollError.value = false
+    if (TERMINAL.has(task.state)) {
+      executing.value = false
+      assistant.activeTaskId = ''
+      const providers = [...new Set((task.outcomes || []).map((r) => r.provider))]
+      if (providers.length) { context.value = providers; selectProvider(providers[0]) }
+      messages.value.push({ role: 'assistant', text: task.message, links: task.links })
+      messages.value = messages.value.slice(-24)
+      await loadCatalog()
+      scrollDown()
+      return
+    }
+    pollTimer = setTimeout(() => pollExecution(id, generation), 700)
+  } catch {
+    if (generation !== pollGeneration) return
+    pollError.value = true
+    pollTimer = setTimeout(() => pollExecution(id, generation), 2500)
+  }
+}
+async function cancelExecution() {
+  if (!execution.value?.id) return
+  await api.post(`/assistant/tasks/${execution.value.id}/cancel`, {})
+}
+function openAuthorization(url) {
+  if (['https://work.weixin.qq.com/', 'https://www.ningmengyun.com/'].includes(url)) window.open(url, '_blank', 'noopener,noreferrer')
+}
+function chooseCredentialFile(provider) {
+  importingProvider.value = provider
+  credentialInput.value?.click()
+}
+async function downloadPersonalConfig(url) {
+  if (/^\/assistant\/workbuddy-config\/[a-f0-9]{32}$/.test(url)) await api.download(url, null, 'mcp.json')
+}
+async function importCredentialFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || busy.value) return
+  if (file.size > 65536) { ElMessage.warning('请使用不超过 64KB 的接入文件'); return }
+  saving.value = true
+  const provider = importingProvider.value
+  try {
+    await api.upload('/assistant/credentials/import', file, { provider })
+    saving.value = false
+    await ask(`继续完成 ${connectorName(provider)} 接入，读取我刚导入的文件`)
+  } finally { saving.value = false }
 }
 function clearSensitive() {
   Object.keys(form).forEach((k) => delete form[k])
@@ -220,14 +320,24 @@ async function configure(persist) {
 watch(() => assistant.visible, async (visible) => {
   if (!visible) return
   await loadCatalog()
+  if (automaticMode.value && !executing.value && !execution.value) {
+    try {
+      const tasks = await api.get('/assistant/tasks', null, { silent: true })
+      const unfinished = tasks.find((task) => !TERMINAL.has(task.state))
+      if (unfinished) {
+        execution.value = unfinished; assistant.activeTaskId = unfinished.id; executing.value = true
+        pollGeneration++; pollExecution(unfinished.id, pollGeneration)
+      }
+    } catch { /* 状态恢复失败不阻止用户发起新任务 */ }
+  }
   if (assistant.initialMessage && !loadError.value) {
     const message = assistant.initialMessage
     assistant.initialMessage = ''
     await ask(message)
   }
 })
-watch(() => auth.profile?.id, () => { clearSensitive(); messages.value = []; context.value = []; assistant.visible = false })
-onBeforeUnmount(() => { assistant.visible = false; clearSensitive() })
+watch(() => auth.profile?.id, () => { pollGeneration++; clearTimeout(pollTimer); executing.value = false; execution.value = null; assistant.activeTaskId = ''; clearSensitive(); messages.value = []; context.value = []; assistant.visible = false })
+onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); assistant.visible = false; clearSensitive() })
 </script>
 
 <style>
@@ -258,5 +368,14 @@ onBeforeUnmount(() => { assistant.visible = false; clearSensitive() })
 .workbuddy-output { margin-top: 22px; }.output-heading { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }.output-heading span { color: var(--jc-ink-3); font-size: 10px; }.workbuddy-output pre { padding: 13px; margin: 11px 0; border-radius: 7px; background: #202637; color: #e9e5dc; font: 11px/1.7 Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }.workbuddy-output > p { line-height: 1.8; }
 .connection-result { margin-top: 20px; padding: 13px; border: 1px solid var(--jc-line); border-radius: 8px; font-size: 12px; line-height: 1.8; }.connection-result > b { font-weight: 500; }.connection-result > p { margin-bottom: 0; }.connection-result.success { border-left: 3px solid var(--jc-up); }.connection-result.failure { border-left: 3px solid var(--jc-down); }.connection-result ul, .connection-result ol { padding-left: 19px; margin: 9px 0 0; }.pending-steps { border-top: 1px solid var(--jc-line-2); margin-top: 12px; padding-top: 12px; }.pending-steps strong { font-weight: 500; }
 .assistant-composer { padding: 17px 24px 20px; border-top: 1px solid var(--jc-line); background: var(--jc-surface); }.composer-box { display: flex; align-items: flex-end; gap: 10px; border: 1px solid var(--jc-line); border-radius: 10px; padding: 12px; }.composer-box:focus-within { border-color: var(--jc-brand); }.composer-box textarea { flex: 1; min-width: 0; resize: none; outline: none; border: 0; background: transparent; color: var(--jc-ink); font: inherit; font-size: 13px; line-height: 1.7; }.composer-box textarea::placeholder { color: var(--jc-ink-3); }.composer-box .el-button { width: 32px; min-width: 32px; height: 32px; padding: 0; border-radius: 7px; }.assistant-composer > small { display: block; font-size: 10px; color: var(--jc-ink-3); margin-top: 9px; }.assistant-load-error { text-align: center; padding: 40px 0; color: var(--jc-ink-3); }
+.execution-badge { display: inline-block; margin-bottom: 14px; padding: 3px 8px; border-radius: 4px; background: var(--jc-up-bg); color: var(--jc-up); font-size: 11px; }
+.execution-card { padding: 18px; border: 1px solid var(--jc-line); border-radius: 10px; margin: 18px 0; }
+.execution-heading { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.execution-steps { list-style: none; padding: 0; margin: 15px 0 0; }
+.execution-steps > li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; font-size: 12px; border-bottom: 1px solid var(--jc-line-2); }
+.execution-steps b { font-weight: 500; }.execution-steps p { margin: 5px 0 0; color: var(--jc-ink-3); line-height: 1.7; }.execution-steps small { margin-left: auto; white-space: nowrap; color: var(--jc-ink-3); font-size: 10px; }
+.step-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--jc-brand); flex-shrink: 0; margin-top: 5px; }.succeeded > .step-dot { background: var(--jc-up); }.pending > .step-dot { background: var(--jc-warn); }
+.execution-outcome { margin-top: 16px; padding: 13px; border: 1px solid var(--jc-line-2); border-radius: 7px; background: var(--jc-surface-2); font-size: 12px; line-height: 1.8; }.execution-outcome p { margin: 8px 0; }.execution-outcome code { display: block; font-size: 10px; overflow-wrap: anywhere; }.pending-list { margin: 8px 0; padding-left: 18px; color: var(--jc-ink-3); }
+.execution-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }.execution-actions .el-button { margin-left: 0; }.manual-entry { margin: 0 0 10px; }
 @media (max-width: 480px) { .assistant-header, .assistant-scroll, .assistant-composer { padding-left: 16px; padding-right: 16px; }.setup-card { padding: 15px; }.section-label > span { display: none; } }
 </style>

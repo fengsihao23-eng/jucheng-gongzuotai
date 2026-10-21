@@ -87,6 +87,8 @@ def chat(message: str, context: list[str], p: Principal) -> dict:
     # 不向模型转发疑似凭证，也不将聊天原文写入任何持久化记录。
     if SECRET_PATTERN.search(message):
         return {"message": "这条内容可能包含密钥。请使用接入卡片中的凭证输入框，聊天区不接收凭证。", "providers": [], "links": []}
+    if any(text in message for text in ("你叫什么", "你是谁", "你的名字")):
+        return {"message": "我是小聚，可以帮你自动检查和接入工作系统，也能帮你找到工作台里的操作入口。", "providers": [], "links": []}
     text = message.lower()
     providers = []
     for key, aliases in {"workbuddy": ("workbuddy", "work buddy", "workbudy", "腾讯助手"),

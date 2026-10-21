@@ -50,7 +50,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 ## WorkBuddy 接入
 
-任意页面顶部的「接入助手」支持直接描述接入需求，生成并检测个人 MCP 配置，也能引导管理员验证企业微信和柠檬云凭证。支持范围、授权步骤与持久化说明见 `docs/INTEGRATION_ASSISTANT.md`。
+任意页面顶部的「小聚」使用 Pi 核心与 DeepSeek，能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，也能自动发现和验证企业微信、柠檬云凭证。支持范围与授权边界见 `docs/INTEGRATION_ASSISTANT.md`。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
+
+面向公司员工：企业系统由管理员统一授权一次，员工通过小聚按各自权限使用，无需各自提供企业密钥。员工个人 WorkBuddy 授权由小聚自动生成、自检并提供完整配置下载；不能把网站服务器当成员工的电脑，首次客户端导入仍需在客户端完成。
 
 登录工作台 →「WorkBuddy 接入」→ 生成个人令牌 → 复制配置片段到 WorkBuddy。端点 `https://<域名>/mcp`，鉴权 `Authorization: Bearer <令牌>`。13 个工具见该页「工具注册表」，管理员可在线启停与授权。
 
@@ -68,7 +70,7 @@ cd frontend && npm run build
 cd deploy && echo "DB_PASSWORD=..." > .env && docker compose up -d --build
 ```
 
-上线前：配置企业微信 / 乐享凭证并按数据源启用真实模式；企业微信也可使用接入助手验证后启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。证书放 `deploy/certs/`；企业微信后台回调地址配置为 `https://<域名>/api/v1/wecom/callback`。
+上线前：配置企业微信 / 乐享凭证并按数据源启用真实模式；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。证书放 `deploy/certs/`；企业微信后台回调地址配置为 `https://<域名>/api/v1/wecom/callback`。
 
 ## 开发约定
 

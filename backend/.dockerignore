@@ -6,3 +6,4 @@ var/
 __pycache__/
 *.pyc
 .pytest_cache/
+agent_runtime/node_modules/
