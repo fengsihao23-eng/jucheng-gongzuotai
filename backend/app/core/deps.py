@@ -74,12 +74,16 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
     user = db.get(SysUser, int(payload["sub"]))
     if not user or user.is_deleted or user.status != 1:
         raise BizError(40101, "账号不可用")
+    from app.core.config import settings
+    if settings.environment == "prod" and payload.get("authv") != 2:
+        raise BizError(40102, "登录保护已更新，请重新登录")
     if payload.get("pwdv") is not None:
         if payload["pwdv"] != password_version(user.password_hash): raise BizError(40102, "账号密码已更新，请重新登录")
     else:
         # Legacy demo sessions cannot access a newly connected personal account.
         from app.services.wecom_cli_service import binding
-        if binding(user.id): raise BizError(40102, "个人连接已更新，请重新登录")
+        if binding(user.id) or (user.preferences or {}).get("company_directory"):
+            raise BizError(40102, "账号连接已更新，请重新登录")
     p = build_principal(user)
     request.state.principal = p
     request.state.jwt_exp = payload["exp"]

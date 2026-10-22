@@ -9,9 +9,9 @@ from app.core.config import settings
 from app.core.db import get_db, get_or_404
 from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.permissions import MENUS, ROLE_DEFS
-from app.core.response import BizError, not_found, ok, page_data
+from app.core.response import BizError, bad_request, not_found, ok, page_data
 from app.jobs import registry
-from app.models import LogOperation, SyncJobLog, SyncWecomApproval, SysDict, SysRole, SysUser, SysUserRole
+from app.models import LogOperation, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
 from app.services import dispatch_service, user_service
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
@@ -19,12 +19,15 @@ Admin = Depends(require_menu("admin"))
 
 
 @router.get("/users")
-def users(keyword: str = "", dept: str = "", page: int = 1, page_size: int = 50, p: Principal = Admin,
+def users(keyword: str = "", dept: str = "", source: str = "", page: int = 1, page_size: int = 50, p: Principal = Admin,
           db: Session = Depends(get_db)):
     q = select(SysUser).where(SysUser.is_deleted.is_(False))
     if keyword:
         q = q.where(or_(SysUser.name.contains(keyword), SysUser.wecom_userid.contains(keyword)))
     rows = db.scalars(q.order_by(SysUser.department_id, SysUser.id)).all()
+    directory_total = sum(bool((u.preferences or {}).get("company_directory")) for u in rows)
+    if source == "directory": rows = [u for u in rows if (u.preferences or {}).get("company_directory")]
+    elif source == "local": rows = [u for u in rows if not (u.preferences or {}).get("company_directory")]
     if dept:
         rows = [u for u in rows if u.dept_code == dept]
     total = len(rows)
@@ -32,8 +35,11 @@ def users(keyword: str = "", dept: str = "", page: int = 1, page_size: int = 50,
     items = [{"id": u.id, "userid": u.wecom_userid, "name": u.name, "dept_code": u.dept_code,
               "dept_name": u.department.name if u.department else None, "position": u.position,
               "status": u.status, "roles": [r.role_code for r in u.roles], "last_login_at": u.last_login_at,
+              "mobile": u.mobile, "email": u.email,
+              "source": "公司通讯录" if (u.preferences or {}).get("company_directory") else "已归档演示" if (u.preferences or {}).get("archived_demo_userid") else "本地账号",
               "has_mcp_token": bool(u.access_token)} for u in rows]
-    return ok(page_data(items, total, page, page_size))
+    return ok(page_data(items, total, page, page_size, directory_total=directory_total,
+                       departments=[{"code": d.dept_code, "name": d.name} for d in db.scalars(select(SysDepartment).order_by(SysDepartment.name))]))
 
 
 @router.put("/users/{user_id}/roles")
@@ -218,6 +224,24 @@ def audit(action: str = "", user_id: int | None = None, page: int = 1, page_size
 
 
 @router.post("/addressbook/sync")
-def addressbook_sync(p: Principal = Admin, db: Session = Depends(get_db)):
+def addressbook_sync(preview_id: str | None = Body(default=None, embed=True), p: Principal = Admin, db: Session = Depends(get_db)):
+    """先读取公司通讯录预览，核对真实人员与演示账号归档清单，再提交 preview_id 确认同步。"""
+    from app.services import company_directory_service as directory
+    if preview_id: return ok(directory.confirm(db, p, preview_id))
+    if settings.environment == "prod" or settings.source_mode("wecom") == "live":
+        raise bad_request("请先预览公司通讯录，再使用 preview_id 确认导入；尚未修改任何员工账号")
     entry = registry.run_job("wecom_addressbook_sync", trigger="manual", force=True)
     return ok({"status": entry.status, "message": entry.message, "error": entry.error_msg})
+
+
+@router.get("/addressbook/status")
+def company_directory_status(p: Principal = Admin, db: Session = Depends(get_db)):
+    from app.services.company_directory_service import status
+    return ok(status(db))
+
+
+@router.get("/addressbook/preview")
+def preview_addressbook(p: Principal = Admin, db: Session = Depends(get_db)):
+    """只读取真实公司通讯录并准备预览，不创建、更新或停用员工账号。"""
+    from app.services.company_directory_service import preview
+    return ok(preview(db, p))

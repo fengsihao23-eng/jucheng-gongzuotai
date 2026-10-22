@@ -1,24 +1,33 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="公共" title="系统管理" desc="账号角色、口径字典、数据源模式、定时任务、审批自动登记队列与操作审计。">
-      <el-button :loading="syncing" @click="syncAddressbook">同步企微通讯录</el-button>
+      <el-button type="primary" :loading="syncing" @click="syncAddressbook">预览并同步公司人员</el-button>
     </PageHeader>
 
     <el-tabs v-model="tab">
       <!-- 账号与角色 -->
       <el-tab-pane label="账号与角色" name="users">
-        <Panel :padding="false">
+        <Panel title="公司人员接入" sub="从公司授权的通讯录读取真实人员，预览后确认建档。">
+          <div class="jc-row between"><p class="directory-message">{{ directory.message }}</p><StatusPill :text="directory.ready ? '公司应用已配置' : '等待公司授权'" :tone="directory.ready ? 'up' : 'info'" /></div>
+          <p class="jc-muted jc-small">{{ directory.scope_note }} 新成员默认普通员工权限，业务角色可在下表分配。</p>
+          <div class="jc-row"><el-button size="small" @click="connectDirectory">配置公司应用</el-button><el-button size="small" @click="copyDirectoryGuide">复制授权清单</el-button><span v-if="users.directory_total" class="jc-muted jc-small">已建档 {{ users.directory_total }} 名公司成员</span></div>
+        </Panel>
+        <Panel class="mt-16" :padding="false">
           <template #extra>
             <el-input v-model="uf.keyword" placeholder="姓名 / 账号" clearable size="small" style="width: 180px" @change="loadUsers(1)" />
             <el-select v-model="uf.dept" placeholder="部门" clearable size="small" style="width: 130px" @change="loadUsers(1)">
-              <el-option v-for="d in DEPTS" :key="d[0]" :label="d[1]" :value="d[0]" />
+              <el-option v-for="d in departmentOptions" :key="d[0]" :label="d[1]" :value="d[0]" />
             </el-select>
+            <el-select v-model="uf.source" placeholder="账号来源" clearable size="small" style="width: 140px" @change="loadUsers(1)"><el-option label="公司通讯录" value="directory" /><el-option label="本地 / 演示" value="local" /></el-select>
           </template>
           <el-table :data="users.items">
             <el-table-column label="姓名" width="110" prop="name" />
-            <el-table-column label="企微账号" width="140"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
+            <el-table-column label="账号 / UserID" width="140"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
+            <el-table-column label="来源" width="100" prop="source" />
             <el-table-column label="部门" width="110" prop="dept_name" />
             <el-table-column label="职位" width="130" prop="position" />
+            <el-table-column label="手机" width="140"><template #default="{ row }">{{ row.mobile || '未返回' }}</template></el-table-column>
+            <el-table-column label="工作邮箱" width="190"><template #default="{ row }">{{ row.email || '未返回' }}</template></el-table-column>
             <el-table-column label="角色" min-width="260">
               <template #default="{ row }">
                 <el-select v-model="row.roles" multiple size="small" style="width: 100%" @change="setRoles(row)">
@@ -169,6 +178,29 @@
       </el-tab-pane>
     </el-tabs>
 
+    <el-dialog v-model="connectionDialog" title="接入公司员工通讯录" width="min(560px, 95vw)" :close-on-click-modal="!connecting" :show-close="!connecting">
+      <p class="jc-muted jc-small">填写一次公司应用凭证，即可自动验证应用、读取部门和员工、生成账号变更预览。回调密钥会自动生成。</p>
+      <el-form label-position="top" @submit.prevent="connectAndPreview">
+        <el-form-item label="企业 ID（CorpID）"><el-input v-model="connectionForm.wecom_corp_id" placeholder="我的企业 → 企业信息中的企业 ID" :disabled="connecting" /></el-form-item>
+        <el-form-item label="应用 AgentID"><el-input v-model="connectionForm.wecom_agent_id" placeholder="公司自建应用详情中的 AgentID" :disabled="connecting" /></el-form-item>
+        <el-form-item label="应用 Secret"><el-input v-model="connectionForm.wecom_secret" type="password" show-password autocomplete="off" :placeholder="secretConfigured ? '已配置；留空使用已保存凭证' : '在企业微信查看后粘贴到这里'" :disabled="connecting" /></el-form-item>
+      </el-form>
+      <el-alert v-if="connectionResult" :title="connectionResult.message" :type="connectionResult.ok ? 'success' : 'error'" :closable="false" show-icon />
+      <p v-if="connectionResult?.error_code === 60020" class="jc-small">企业微信返回了可信 IP 限制，请将 {{ connectionResult.server_ip || '当前服务器的出口公网 IP' }} 加入该应用的企业可信 IP，保留已有 IP 后重试。</p>
+      <p class="jc-muted jc-small">Secret 仅通过本站接口验证并保存到服务器受限文件，不进入小聚对话和操作日志。员工无需重复配置。</p>
+      <template #footer><el-button :disabled="connecting" @click="connectionDialog = false">取消</el-button><el-button type="primary" :loading="connecting" @click="connectAndPreview">验证并读取员工预览</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="directoryDialog" title="预览公司通讯录" width="min(1050px, 95vw)" :close-on-click-modal="!syncing" :show-close="!syncing">
+      <template v-if="directoryPreview">
+        <p>本次读取 {{ directoryPreview.counts.members }} 名成员、{{ directoryPreview.counts.departments }} 个组织节点；新增 {{ directoryPreview.counts.create }}、更新 {{ directoryPreview.counts.update }}、冲突跳过 {{ directoryPreview.counts.conflict }}。</p>
+        <ul class="jc-muted jc-small directory-warnings"><li v-for="note in directoryPreview.warnings" :key="note">{{ note }}</li></ul>
+        <el-table :data="directoryPreview.members" max-height="340"><el-table-column label="处理" width="90"><template #default="{ row }">{{ { create: '新建', update: '更新', conflict: '待核对' }[row.action] }}</template></el-table-column><el-table-column prop="name" label="姓名" width="110" /><el-table-column prop="userid" label="企业 UserID" min-width="150" /><el-table-column prop="department_name" label="部门" min-width="130" /><el-table-column prop="position" label="岗位" min-width="120" /><el-table-column label="企业状态" width="100"><template #default="{ row }">{{ { 1: '已激活', 2: '禁用', 4: '待激活', 5: '退出' }[row.status] }}</template></el-table-column><el-table-column prop="reason" label="说明" min-width="220" /></el-table>
+        <details v-if="directoryPreview.retire_demo_users?.length" class="directory-archive"><summary>确认时归档 {{ directoryPreview.retire_demo_users.length }} 个演示账号，保留原业务引用和管理员</summary><p>{{ directoryPreview.retire_demo_users.map((user) => `${user.name}（${user.userid}）`).join('、') }}</p></details>
+      </template>
+      <template #footer><el-button :disabled="syncing" @click="directoryDialog = false">取消</el-button><el-button type="primary" :loading="syncing" @click="confirmDirectory">确认导入公司人员</el-button></template>
+    </el-dialog>
+
     <!-- 字典编辑 -->
     <el-dialog v-model="dictDlg" title="编辑字典项" width="640px">
       <el-form label-width="80px">
@@ -231,7 +263,16 @@ const APR_OPTS = [{ label: '全部', value: -1 }, { label: '待人工', value: 2
 const route = useRoute()
 const tab = ref(route.query.tab || 'users')
 const users = ref({ items: [], total: 0 })
-const uf = reactive({ keyword: '', dept: '', page: 1 })
+const uf = reactive({ keyword: '', dept: '', source: '', page: 1 })
+const directory = ref({ ready: false, message: '正在读取公司通讯录状态' })
+const directoryPreview = ref(null)
+const directoryDialog = ref(false)
+const connectionDialog = ref(false)
+const connecting = ref(false)
+const connectionResult = ref(null)
+const connectionForm = reactive({ wecom_corp_id: '', wecom_agent_id: '', wecom_secret: '' })
+const secretConfigured = ref(false)
+const departmentOptions = computed(() => users.value.departments?.map((d) => [d.code, d.name]) || DEPTS)
 const roles = ref({ roles: [], menus: {} })
 const dicts = ref([])
 const curType = ref('payment_target')
@@ -302,15 +343,68 @@ async function retry(row) {
 }
 async function syncAddressbook() {
   syncing.value = true
-  try { const r = await api.post('/admin/addressbook/sync'); ElMessage.success(r.message || '同步完成'); loadUsers() } finally { syncing.value = false }
+  try {
+    directory.value = await api.get('/admin/addressbook/status')
+    if (!directory.value.ready) { ElMessage.info(directory.value.message); return }
+    directoryPreview.value = await api.get('/admin/addressbook/preview')
+    directoryDialog.value = true
+  } finally { syncing.value = false }
+}
+async function confirmDirectory() {
+  if (!directoryPreview.value || syncing.value) return
+  syncing.value = true
+  try {
+    const result = await api.post('/admin/addressbook/sync', { preview_id: directoryPreview.value.preview_id })
+    ElMessage.success(result.message); directoryDialog.value = false; uf.source = 'directory'
+    await loadUsers(1); await loadRoles(); directory.value = await api.get('/admin/addressbook/status')
+  } finally { syncing.value = false }
+}
+async function connectDirectory() {
+  connectionResult.value = null
+  connectionDialog.value = true
+  const catalog = await api.get('/assistant/catalog')
+  const fields = catalog.connectors.find((c) => c.key === 'wecom')?.fields || []
+  for (const key of ['wecom_corp_id', 'wecom_agent_id']) {
+    connectionForm[key] = fields.find((f) => f.key === key)?.value || ''
+  }
+  if (/^[1-9]\d{0,11}$/.test(String(route.query.agent_id || ''))) connectionForm.wecom_agent_id = String(route.query.agent_id)
+  secretConfigured.value = fields.find((f) => f.key === 'wecom_secret')?.configured || false
+  connectionForm.wecom_secret = ''
+}
+async function connectAndPreview() {
+  if (connecting.value) return
+  if (!connectionForm.wecom_corp_id.trim() || !connectionForm.wecom_agent_id.trim() || (!connectionForm.wecom_secret.trim() && !secretConfigured.value)) {
+    ElMessage.warning('请补充企业 ID、AgentID 和应用 Secret'); return
+  }
+  connecting.value = true
+  connectionResult.value = null
+  try {
+    const result = await api.post('/assistant/connectors/wecom/configure', { values: { ...connectionForm }, save: true }, { silent: true })
+    connectionResult.value = result
+    if (!result.saved) return
+    connectionForm.wecom_secret = ''
+    secretConfigured.value = true
+    directory.value = await api.get('/admin/addressbook/status')
+    directoryPreview.value = await api.get('/admin/addressbook/preview', {}, { silent: true })
+    connectionDialog.value = false
+    directoryDialog.value = true
+  } catch (error) { connectionResult.value = { ok: false, message: error.message } }
+  finally { connecting.value = false }
+}
+async function copyDirectoryGuide() {
+  const guide = `聚成工作台公司通讯录接入\n网站：${window.location.origin}\n请为“聚成工作台”自建应用配置通讯录读取范围，将需导入的公司员工和部门加入应用可见范围。\n请由管理员在工作台“小聚 → 企业微信接入”安全配置 CorpID、AgentID 和对应应用 Secret，并设置服务器出口公网 IP 为企业可信 IP。\n网页登录需配置本站域名为可信域名。同步内容：企业 UserID、姓名、部门、岗位，以及接口获准返回的工作邮箱和手机。先预览，再确认导入；新成员默认普通员工权限。新建应用的手机及邮箱通常不会直接返回。`
+  try { await navigator.clipboard.writeText(guide); ElMessage.success('授权清单已复制') } catch { ElMessage.warning('复制失败，请从页面说明中手动复制') }
 }
 
 const loaders = { users: () => { loadUsers(1); loadRoles() }, dicts: loadDicts, sources: async () => (ds.value = await api.get('/admin/datasources')), jobs: loadJobs, approvals: () => loadApprovals(1), audit: () => loadAudit(1) }
 watch(tab, (t) => loaders[t]?.())
-onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles() })
+onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles(); api.get('/admin/addressbook/status').then((result) => { directory.value = result }); if (route.query.connect === 'wecom') connectDirectory() })
 </script>
 
 <style scoped>
+.directory-message { margin: 0; line-height: 1.7; }
+.directory-warnings { line-height: 1.8; padding-left: 20px; }
+.directory-archive { margin-top: 16px; line-height: 1.8; }
 .dict-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
 .dt { display: flex; justify-content: space-between; padding: 10px 16px; cursor: pointer; border-bottom: 1px solid var(--jc-line-2); font-size: 13px; }
 .dt:hover { background: var(--jc-surface-2); }

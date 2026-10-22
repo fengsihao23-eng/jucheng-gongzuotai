@@ -42,6 +42,19 @@ def send(db: Session, users: Iterable[SysUser], msg_type: str, title: str, conte
 
 def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> None:
     by_user = {u.id: u for u in db.scalars(select(SysUser).where(SysUser.id.in_({r.user_id for r in rows})))}
+    if settings.source_mode("wecom") == "live":
+        allowed = []
+        for r in rows:
+            user = by_user.get(r.user_id)
+            marker = (user.preferences or {}).get("company_directory", {}) if user else {}
+            if user and user.status == 1 and not user.is_deleted and isinstance(marker, dict) and marker.get("corp_id") == settings.wecom_corp_id:
+                allowed.append(r)
+            else:
+                r.send_status, r.error_msg, r.retry_count = 2, "未绑定公司通讯录的账号不发送企业微信消息", MAX_RETRY
+        rows = allowed
+        if not rows:
+            db.flush()
+            return
     # 同一内容批量发送（企微 touser 支持 | 分隔，最多 1000 人）
     groups: dict[tuple, list[SysNotify]] = {}
     for r in rows:

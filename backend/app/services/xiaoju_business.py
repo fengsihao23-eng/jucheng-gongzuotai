@@ -261,6 +261,11 @@ def _snapshot(op, request, user_id):
 
 def _concrete_targets(op, request, user_id):
     """Freeze outbound recipients so later joiners are never added after approval."""
+    if op.id == "admin.addressbook_sync" and (request.get("body") or {}).get("preview_id"):
+        from app.services.company_directory_service import inspect_preview
+        preview = inspect_preview(request["body"]["preview_id"], user_id)
+        return request, {"人员变更统计": preview["counts"], "归档演示账号": preview.get("retire_demo_users", []),
+                         "员工预览": preview["members"], "说明": preview["warnings"]}
     if op.id != "submissions.remind": return request, None
     body = request["body"] or {}
     summary_op = current_operation("submissions.summary", user_id)
@@ -312,7 +317,7 @@ def save_result(op, user_id, task_id, workflow_id, data, message, result_id=None
               "operation_id": op.id, "title": op.title, "page": op.page, "ok": not failed,
               "status": "failed" if failed else "succeeded", "message": redact(str(data.get("error"))) if failed else redact(str(message))[:4000],
               "data": encode(safe_value(data)), "actor_signature": actor_signature(user_id),
-              "data_mode": "live" if op.source == "wecom_cli" else settings.data_source_mode,
+              "data_mode": "live" if op.source == "wecom_cli" else settings.source_mode("wecom") if op.id in {"admin.preview_addressbook", "admin.addressbook_sync"} else settings.data_source_mode,
               "data_source": op.source, "created_at": time.time()}
     state.write("results", record)
     with SessionLocal() as db:
@@ -429,6 +434,7 @@ class BusinessExecutor:
                    "标书": ["tender"], "投标": ["tender"], "方案": ["tender"], "知识": ["kb"], "制度": ["kb", "hr"], "清洗": ["clean"],
                    "附件": ["portal"], "上传文件预览": ["portal"], "attachments": ["portal"],
                    "企业微信": ["wecom_cli"], "企微": ["wecom_cli"], "wecom": ["wecom_cli"], "cli": ["wecom_cli"],
+                   "通讯录": ["admin", "wecom_cli"], "公司人员": ["admin"], "员工账号": ["admin"], "组织架构": ["admin"], "人员导入": ["admin"],
                    "日程": ["wecom_cli"], "微盘": ["wecom_cli"], "待办": ["wecom_cli"], "群聊": ["wecom_cli"],
                    "文档": ["wecom_cli", "kb", "tender"], "表格": ["wecom_cli"], "邮件": ["wecom_cli"], "会议": ["wecom_cli"],
                    "导入": ["clean", "flows", "hr", "finance_data"], "汇报": ["submissions", "market"], "审批": ["portal", "admin"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
@@ -486,7 +492,7 @@ class BusinessExecutor:
                 record = {"id": uuid.uuid4().hex, "user_id": self.user_id, "task_id": self.task_id, "workflow_id": self.workflow_id,
                           "fingerprint": fingerprint, "operation_id": op.id, "title": op.title, "page": op.page, "request": request,
                           "before": _snapshot(op, request, self.user_id), "actor_signature": actor_signature(self.user_id),
-                          "source_signature": source_signature(), "data_mode": "live" if op.source == "wecom_cli" else settings.data_source_mode,
+                          "source_signature": source_signature(), "data_mode": "live" if op.source == "wecom_cli" else settings.source_mode("wecom") if op.id == "admin.addressbook_sync" else settings.data_source_mode,
                           "connection_id": op.connection_id,
                           "targets": targets,
                           "state": "pending", "created_at": time.time(), "expires_at": time.time() + 1800}

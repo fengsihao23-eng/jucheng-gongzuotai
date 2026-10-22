@@ -67,7 +67,9 @@ def login_config(db: Session = Depends(get_db)):
         users = db.scalars(select(SysUser).where(SysUser.status == 1, SysUser.is_deleted.is_(False))
                            .order_by(SysUser.department_id, SysUser.id)).all()
         data["demo_accounts"] = [{"userid": u.wecom_userid, "name": u.name, "position": u.position,
-                                  "dept": u.department.name if u.department else ""} for u in users]
+                                  "dept": u.department.name if u.department else ""} for u in users
+                                 if not (u.preferences or {}).get("company_directory")
+                                 and not (u.preferences or {}).get("archived_demo_userid")]
         data["demo_password_hint"] = settings.demo_password
     return ok(data)
 
@@ -104,16 +106,23 @@ def wecom_authorize_url(redirect: str = "/", qr: bool = False):
 
 @router.post("/wecom/oauth")
 def wecom_oauth(body: OAuthIn, request: Request, db: Session = Depends(get_db)):
+    if settings.environment == "prod" and settings.source_mode("wecom") != "live":
+        raise BizError(40301, "公司企业微信登录尚未启用，请使用已设置的账号密码登录")
     try:
         userid = get_wecom().exchange_user_info(body.code)
-    except Exception as exc:  # noqa: BLE001
-        raise BizError(40101, f"企业微信授权失败：{exc}") from exc
+    except Exception:  # Third-party errors can echo credentials.
+        raise BizError(40101, "企业微信授权失败，请重新扫码并检查公司应用配置") from None
     u = db.scalar(select(SysUser).where(SysUser.wecom_userid == userid))
     if not u:  # 通讯录尚未同步该成员：即时同步一次
         user_service.sync_addressbook(db)
         u = db.scalar(select(SysUser).where(SysUser.wecom_userid == userid))
     if not u or u.status != 1:
         raise BizError(40301, "该企业微信账号未开通工作台或已离职")
+    directory = (u.preferences or {}).get("company_directory")
+    if settings.source_mode("wecom") == "live" and (
+        not isinstance(directory, dict) or directory.get("corp_id") != settings.wecom_corp_id or u.is_deleted
+    ):
+        raise BizError(40301, "该企业账号尚未完成公司通讯录建档或与本地账号冲突，请联系平台管理员核对")
     return ok(_session(db, u, request, "wecom_oauth"))
 
 

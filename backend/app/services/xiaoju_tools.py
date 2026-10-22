@@ -297,7 +297,7 @@ class XiaoJuTools:
         outcome = {"provider": provider, **result, "status": "partial" if result["ok"] else "failed",
                    "saved": result["ok"], "activated": result["ok"] and provider == "wecom", "login_url": LOGIN_URLS[provider]}
         if result["ok"]:
-            outcome["message"] = ("企业微信凭证已自动验证保存并启用；还需企业微信后台的回调及业务权限授权" if provider == "wecom" else "柠檬云应用授权已自动验证保存；账套和财务接口尚待联调，保留演示模式")
+            outcome["message"] = ("企业微信公司应用已自动验证保存，可以读取实际授权范围内的员工通讯录预览；网页登录、消息回调按需配置" if provider == "wecom" else "柠檬云应用授权已自动验证保存；账套和财务接口尚待联调，保留演示模式")
         with SessionLocal() as db:
             log_op(db, self.user_id, "xiaoju.connect", "integration", provider,
                    after={"ok": result["ok"], "source": selected["id"], "activated": outcome["activated"]})

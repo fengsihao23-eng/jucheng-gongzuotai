@@ -172,7 +172,7 @@ def configure(provider: Literal["wecom", "lemoncloud"], body: ConfigureBody, req
         saved = True
         result["activated"] = provider == "wecom"
         if provider == "wecom":
-            result["message"] = "已保存并启用企业微信真实接口。请继续完成企业微信后台的回调 URL 验证及业务权限授权。"
+            result["message"] = "公司应用已验证并保存，可继续预览员工通讯录；网页登录及消息回调按需配置。"
         else:
             result["message"] = "已验证并保存柠檬云应用凭证。账套与同步接口尚待联调，当前保留演示模式。"
     # 只记录工具名称、结果和字段名；不记录凭证、聊天或第三方原始响应。

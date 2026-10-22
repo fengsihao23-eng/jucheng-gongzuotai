@@ -62,6 +62,7 @@ LABELS = {
     "roles": "查询角色", "set_roles": "调整账号角色", "update_role": "调整角色权限", "upsert_dict": "维护系统字典",
     "jobs": "查询任务", "run_job": "运行后台任务", "audit": "查询操作审计", "approvals": "查询审批归集队列", "retry_approval": "重试审批登记",
     "addressbook_sync": "同步企业通讯录", "my_notifications": "查询我的通知", "mark_read": "标记通知已读", "patch_tool": "调整工具授权",
+    "company_directory_status": "检查公司通讯录授权状态", "preview_addressbook": "预览真实公司人员与账号变更",
 }
 MCP_IMPLS = {
     "fin.daily_expense_report": "t_daily_expense", "fin.project_profit": "t_project_profit",

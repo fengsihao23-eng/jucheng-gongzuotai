@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.permissions import DEPT_DEFAULT_ROLE, ROLE_DEFS
+from app.core.config import settings
 from app.integration.wecom import get_wecom
 from app.models import SysDepartment, SysRole, SysUser, SysUserRole
 
@@ -27,9 +28,13 @@ def ensure_default_role(db: Session, user: SysUser) -> None:
 
 
 def sync_addressbook(db: Session) -> dict:
-    """全量拉取部门与成员，增量更新；通讯录中已退出/禁用的成员自动停用（status=2）。"""
+    """真实源只更新已确认企业；模拟源只用于非生产演示。"""
+    from app.services import company_directory_service as directory
+    if settings.source_mode("wecom") == "live": return directory.sync_confirmed_company(db)
+    if settings.environment == "prod": return {"rows": 0, "message": "公司通讯录未授权，已跳过模拟人员同步"}
     depts, users = get_wecom().get_addressbook()
-    by_wid = {d.wecom_dept_id: d for d in db.scalars(select(SysDepartment)).all()}
+    managed = directory.managed_department_ids(db)
+    by_wid = {d.wecom_dept_id: d for d in db.scalars(select(SysDepartment)).all() if d.id not in managed}
     created_d = 0
     for d in depts:
         row = by_wid.get(d.wecom_dept_id)
@@ -48,6 +53,7 @@ def sync_addressbook(db: Session) -> dict:
         seen.add(u.userid)
         dept = next((by_wid[i] for i in u.dept_ids if i in by_wid), None)
         row = existing.get(u.userid)
+        if row and (row.preferences or {}).get(directory.MARKER): continue
         active = u.status in (1, 4)
         if not row:
             row = SysUser(wecom_userid=u.userid, name=u.name, department_id=dept.id if dept else None,
@@ -61,11 +67,8 @@ def sync_addressbook(db: Session) -> dict:
         row.mobile, row.email = u.mobile or row.mobile, u.email or row.email
         row.department_id = dept.id if dept else row.department_id
         row.status = 1 if active else 2
+        if not active: row.access_token = row.access_token_hint = None
         updated += 1
-    for uid, row in existing.items():  # 通讯录中已不存在 → 视为离职
-        if uid not in seen and row.status == 1 and uid != "admin":
-            row.status = 2
-            disabled += 1
     db.commit()
     return {"rows": created + updated, "message": f"部门新增 {created_d}；成员新增 {created}、更新 {updated}、停用 {disabled}",
             "created": created, "updated": updated, "disabled": disabled}

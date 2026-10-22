@@ -1,7 +1,9 @@
 """接入助手：受限的意图理解、只读检测与显式配置工具。模型不能直接执行写操作。"""
 import base64
 import json
+import ipaddress
 import re
+import secrets
 
 import httpx
 from sqlalchemy import select
@@ -14,7 +16,7 @@ from app.models import McpTool
 PROVIDERS = {
     "workbuddy": {"name": "WorkBuddy", "summary": "把工作台的报表、台账和知识库交给 WorkBuddy 调用", "path": "/workbuddy",
                   "docs": "https://www.workbuddy.ai/docs/zh/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide"},
-    "wecom": {"name": "企业微信", "summary": "连接企业自建应用，接收审批回调并提供消息推送能力", "path": "/admin",
+    "wecom": {"name": "企业微信", "summary": "连接公司应用，同步员工账号与组织架构，并按需启用登录、审批和消息", "path": "/admin",
               "docs": "https://developer.work.weixin.qq.com/document/path/91039"},
     "lemoncloud": {"name": "柠檬云", "summary": "验证开放平台授权，准备账套与财务数据对接", "path": "/finance-data",
                    "docs": "https://open.ningmengyun.com/"},
@@ -145,6 +147,9 @@ def candidate(provider: str, values: dict[str, str]) -> dict:
     if not values.keys() <= allowed:
         raise bad_request("包含此接入方式不支持的配置项")
     out = {key: (values.get(key, "").strip() or getattr(settings, key)) for key in allowed}
+    if provider == "wecom":
+        out["wecom_callback_token"] = out["wecom_callback_token"] or secrets.token_hex(16)
+        out["wecom_callback_aes_key"] = out["wecom_callback_aes_key"] or base64.b64encode(secrets.token_bytes(32)).decode().rstrip("=")
     missing = [label for name, label, _, _ in FIELDS[provider] if not out[name]]
     if missing:
         raise bad_request("请补充：" + "、".join(missing))
@@ -178,16 +183,16 @@ def probe(provider: str, config: dict) -> dict:
                 result.raise_for_status()
                 body = result.json()
                 if body.get("errcode") or not body.get("access_token"):
-                    return _wecom_error(body.get("errcode"))
+                    return _wecom_error(body.get("errcode"), body.get("errmsg", ""))
                 result = client.get(settings.wecom_api_base.rstrip("/") + "/cgi-bin/agent/get", params={
                     "access_token": body["access_token"], "agentid": config["wecom_agent_id"]})
                 result.raise_for_status()
                 app = result.json()
                 if app.get("errcode") or str(app.get("agentid")) != str(config["wecom_agent_id"]):
-                    return _wecom_error(app.get("errcode"))
-                return {"ok": True, "activated": False, "message": "企业身份与应用授权验证通过。回调 URL 和可信域名仍需在企业微信后台确认。",
+                    return _wecom_error(app.get("errcode"), app.get("errmsg", ""))
+                return {"ok": True, "activated": False, "message": "企业身份与应用授权验证通过，可以继续预览公司人员。网页登录和消息回调可按业务需要配置。",
                         "checks": ["企业身份验证通过", "应用 ID 与授权匹配", "回调密钥格式有效"],
-                        "pending": ["在企业微信后台保存回调配置并验证 URL", "配置网页授权及扫码登录可信域名", "审批与通讯录权限需按实际业务单独授权"]}
+                        "pending": ["预览实际授权范围内的通讯录并确认导入", "启用网页登录时配置可信域名", "启用消息或审批回调时再配置回调 URL"]}
             result = client.get("https://open.ningmengyun.com/api/OAuth2/AccessToken", params={
                 "appId": config["lemoncloud_app_id"], "appSecret": config["lemoncloud_app_secret"]})
             result.raise_for_status()
@@ -205,7 +210,14 @@ def probe(provider: str, config: dict) -> dict:
         return {"ok": False, "activated": False, "message": "平台未返回有效授权结果。请核对凭证、接口权限及服务器 IP 白名单后重试。", "checks": [], "pending": []}
 
 
-def _wecom_error(code) -> dict:
+def _wecom_error(code, message="") -> dict:
     reasons = {40013: "企业 ID 不正确", 40001: "应用 Secret 不正确或已失效", 40014: "授权令牌无效", 60020: "服务器出口 IP 不在企业微信可信 IP 范围内", 40003: "应用或账号标识不正确", 48002: "应用缺少所需接口权限"}
     reason = reasons.get(code, "企业身份或应用授权未通过，请检查 Secret、AgentID 与可信 IP") if isinstance(code, int) else "应用授权结果不完整，请核对 AgentID"
-    return {"ok": False, "activated": False, "message": reason + "。配置未保存。", "checks": [], "pending": []}
+    server_ip = None
+    if code == 60020:
+        match = re.search(r"from\s*ip\s*[:=]\s*([0-9.]+)", str(message), re.I)
+        if match:
+            try: server_ip = str(ipaddress.IPv4Address(match.group(1)))
+            except ipaddress.AddressValueError: pass
+    return {"ok": False, "activated": False, "error_code": code if isinstance(code, int) else None, "server_ip": server_ip,
+            "message": reason + "。配置未保存。", "checks": [], "pending": []}
