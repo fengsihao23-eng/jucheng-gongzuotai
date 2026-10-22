@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.permissions import PUBLIC_MENUS, ROLE_DEFS
 from app.core.response import BizError, forbidden
-from app.core.security import decode_jwt
+from app.core.security import decode_jwt, password_version
 from app.models import SysUser
 
 _SCOPE_ORDER = {"self": 0, "dept": 1, "all": 2}
@@ -74,6 +74,12 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
     user = db.get(SysUser, int(payload["sub"]))
     if not user or user.is_deleted or user.status != 1:
         raise BizError(40101, "账号不可用")
+    if payload.get("pwdv") is not None:
+        if payload["pwdv"] != password_version(user.password_hash): raise BizError(40102, "账号密码已更新，请重新登录")
+    else:
+        # Legacy demo sessions cannot access a newly connected personal account.
+        from app.services.wecom_cli_service import binding
+        if binding(user.id): raise BizError(40102, "个人连接已更新，请重新登录")
     p = build_principal(user)
     request.state.principal = p
     request.state.jwt_exp = payload["exp"]

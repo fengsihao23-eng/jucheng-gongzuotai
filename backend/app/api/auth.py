@@ -137,7 +137,8 @@ def change_password(body: PasswordIn, p: Principal = Depends(get_principal), db:
     u.password_hash = hash_password(body.new_password)
     log_op(db, p.id, "auth.password_change", "user", p.id)
     db.commit()
-    return ok()
+    token, _ = create_jwt(u.id)
+    return ok(headers={"X-Refresh-Token": token})
 
 
 @router.put("/preferences")

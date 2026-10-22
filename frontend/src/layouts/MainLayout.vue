@@ -26,6 +26,7 @@
         </div>
         <div class="jc-spacer" />
         <span class="jc-muted jc-small today">{{ today }}</span>
+        <el-button text @click="router.push('/account')">修改密码</el-button>
         <el-button class="assistant-entry" @click="assistant.open()">小聚</el-button>
         <el-popover placement="bottom-end" :width="360" trigger="click" @show="loadNotify">
           <template #reference>

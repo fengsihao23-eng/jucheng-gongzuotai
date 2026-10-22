@@ -21,6 +21,10 @@ def catalog(p: Principal = Depends(get_principal), db: Session = Depends(get_db)
     import json
     from app.core.security import hash_token
     info = service.catalog(db, p)
+    from app.services.wecom_cli_service import status as cli_status
+    info["wecom_cli"] = cli_status(p.id)
+    if info["wecom_cli"]["available"]:
+        next(connector for connector in info["connectors"] if connector["key"] == "wecom")["state_label"] = "CLI 个人连接已配置"
     path = settings.assistant_host_home / ".workbuddy/mcp.json"
     if p.is_admin and settings.assistant_host_access and path.is_file() and path.stat().st_size < 1048576:
         try:

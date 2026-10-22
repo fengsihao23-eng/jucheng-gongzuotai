@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     assistant_host_home: Path = Path.home()
     assistant_node_bin: str = "node"
     assistant_task_timeout_seconds: int = 300
+    # Optional override for deployments that install the official CLI separately.
+    wecom_cli_bin: str = ""
 
     mcp_server_name: str = "jucheng-portal"
     mcp_rate_limit_per_min: int = 60

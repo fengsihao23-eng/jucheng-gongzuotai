@@ -49,7 +49,7 @@ def test_catalog_covers_real_business_routes_and_mcp(db):
               for method in r.methods if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}}
     assert routes == {(o.path, o.method) for o in ops.values() if o.source == "api"}
     assert {o.mcp_code for o in ops.values() if o.source == "mcp"} == set(catalog.MCP_IMPLS)
-    assert set(catalog.MODULES) == {o.module for o in ops.values()}
+    assert set(catalog.MODULES) - {"wecom_cli"} == {o.module for o in ops.values()}
     assert not any("/assistant/" in o.path or "/auth/" in o.path or o.path.startswith("/api/v1/files") for o in ops.values())
     assert ops["attachments.preview"].effect == "query"
 

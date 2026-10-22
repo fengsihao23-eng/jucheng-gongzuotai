@@ -54,6 +54,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 小聚也能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，自动发现和验证企业微信、柠檬云凭证。接入范围见 [接入说明](docs/INTEGRATION_ASSISTANT.md)。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
 
+企业微信还支持按账号绑定官方 CLI 个人连接，可调用文档、表格、待办、日程等实际获授权的业务，并在缺少功能权限时提供官方授权入口。使用与账号保护说明见 [企业微信 CLI](docs/WECOM_CLI.md)。
+
 面向公司员工：企业系统由管理员统一授权一次，员工通过小聚按各自权限使用，无需各自提供企业密钥。员工个人 WorkBuddy 授权由小聚自动生成、自检并提供完整配置下载；不能把网站服务器当成员工的电脑，首次客户端导入仍需在客户端完成。
 
 登录工作台 →「WorkBuddy 接入」→ 生成个人令牌 → 复制配置片段到 WorkBuddy。端点 `https://<域名>/mcp`，鉴权 `Authorization: Bearer <令牌>`。13 个工具见该页「工具注册表」，管理员可在线启停与授权。
@@ -61,7 +63,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 ## 测试与验收
 
 ```bash
-cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 246 项
+cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 257 项
 cd acceptance && npm install && node e2e.mjs                            # 端到端 68 项，需服务在运行
 ```
 

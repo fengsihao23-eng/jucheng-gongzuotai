@@ -18,7 +18,7 @@ from app.core.audit import log_op
 from app.core.config import BASE_DIR, settings
 from app.core.db import SessionLocal
 from app.core.deps import build_principal
-from app.core.security import hash_token, new_access_token
+from app.core.security import hash_token, new_access_token, password_version
 from app.core.response import BizError
 from app.models import SysUser
 from app.services import assistant_service as connectors
@@ -132,6 +132,9 @@ class XiaoJuTools:
         self.task_id, self.workflow_id, self.intent = task_id, workflow_id, intent
         self._business = None
         self.business_errors = []
+        with SessionLocal() as db:
+            user = db.get(SysUser, user_id)
+            self._credential_version = password_version(user.password_hash if user else None)
 
     @property
     def business(self):
@@ -182,6 +185,8 @@ class XiaoJuTools:
                 user = db.get(SysUser, self.user_id)
                 if not user or user.status != 1 or user.is_deleted:
                     return {"ok": False, "message": "账号已停用"}
+                if self._credential_version != password_version(user.password_hash):
+                    return {"ok": False, "message": "账号密码已更新，请重新发起任务"}
                 if not build_principal(user).is_admin and name not in {"inspect_environment", "connect_enterprise", "find_page", "prepare_personal_workbuddy", "list_business_capabilities", "describe_business_operation", "execute_business_operation", "read_business_action", "read_business_result"}:
                     return {"ok": False, "message": "此操作需要公司管理员权限"}
             result = getattr(self, name)(**args)
@@ -190,7 +195,12 @@ class XiaoJuTools:
         except BizError as exc:
             result = {"ok": False, "code": exc.code, "message": redact(exc.message), "operation_id": args.get("operation_id"), "status": "failed"}
             if "business" in name:
-                self.business_errors.append(result)
+                ui_result = dict(result)
+                if isinstance(exc.data, dict) and exc.data.get("authorization_url"):
+                    ui_result.update(authorization_url=exc.data["authorization_url"], authorization_label=exc.data["authorization_label"])
+                    result["requires_authorization"] = True
+                self.business_errors = [item for item in self.business_errors if item.get("operation_id") != ui_result.get("operation_id")]
+                self.business_errors.append(ui_result)
             return result
         except (ValueError, TypeError):
             result = {"ok": False, "message": "工具参数或接入文件格式不正确，原有配置已保留"}

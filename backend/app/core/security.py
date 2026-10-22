@@ -30,9 +30,18 @@ def verify_password(password: str, encoded: str | None) -> bool:
 
 
 def create_jwt(user_id: int, minutes: int | None = None) -> tuple[str, int]:
+    from app.core.db import SessionLocal
+    from app.models import SysUser
+    with SessionLocal() as db:
+        user = db.get(SysUser, user_id)
+        version = password_version(user.password_hash if user else None)
     exp = datetime.now(timezone.utc) + timedelta(minutes=minutes or settings.jwt_expire_minutes)
-    token = jwt.encode({"sub": str(user_id), "exp": exp, "typ": "session"}, settings.secret_key, algorithm=ALGO)
+    token = jwt.encode({"sub": str(user_id), "exp": exp, "typ": "session", "pwdv": version}, settings.secret_key, algorithm=ALGO)
     return token, int(exp.timestamp())
+
+
+def password_version(encoded: str | None) -> str:
+    return hmac.new(settings.secret_key.encode(), (encoded or "sso-only").encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def decode_jwt(token: str) -> dict:

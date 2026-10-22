@@ -28,6 +28,7 @@ MODULES = {
     "tender": ("标书与方案", "/tender"), "kb": ("知识库", "/kb"),
     "admin": ("系统管理", "/admin"), "notify": ("我的通知", "/notifications"),
     "mcp_config": ("公司工具接入", "/workbuddy"),
+    "wecom_cli": ("企业微信个人连接", "/workbuddy"),
 }
 LABELS = {
     "list_contracts": "查询合同", "create": "新增记录", "update": "更新记录", "detail": "查看详情",
@@ -159,6 +160,8 @@ class Operation:
     mcp_code: str = ""
     impl: Any = None
     params_model: Any = None
+    cli_method: str = ""
+    connection_id: str = ""
 
     def allowed(self, p, mcp_rows):
         if any(not any(p.has_menu(menu) for menu in group) for group in self.groups): return False
@@ -237,11 +240,15 @@ def operations():
 
 def available(p, db):
     rows = {row.tool_code: row for row in db.scalars(select(McpTool))}
-    return {key: op for key, op in operations().items() if op.allowed(p, rows)}
+    result = {key: op for key, op in operations().items() if op.allowed(p, rows)}
+    from app.services import wecom_cli_service
+    result.update(wecom_cli_service.operations(p.id))
+    return result
 
 
 def get(operation_id, p, db):
-    op = operations().get(operation_id)
+    permitted = available(p, db)
+    op = permitted.get(operation_id) or operations().get(operation_id)
     if not op: raise not_found("业务功能")
-    if operation_id not in available(p, db): raise forbidden("当前账号无权执行该业务功能")
+    if operation_id not in permitted: raise forbidden("当前账号无权执行该业务功能")
     return op

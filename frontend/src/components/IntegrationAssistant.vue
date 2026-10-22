@@ -23,7 +23,9 @@
             <b>从一句话开始</b>
             <p>按你的账号权限处理财务、项目、合同、人事、客服等工作。支持上传资料、连续办理和下载结果；公司系统由管理员统一接入。</p>
             <span v-if="catalog.runtime?.available" class="execution-badge">执行引擎已就绪 · 支持自动接入</span>
+            <span v-if="catalog.wecom_cli?.available" class="execution-badge cli-badge">企业微信个人连接 · {{ catalog.wecom_cli.operations }} 项操作可用</span>
             <div class="quick-prompts"><button v-for="q in prompts" :key="q" :disabled="busy" @click="ask(q)">{{ q }} <span>↗</span></button></div>
+            <div v-if="catalog.wecom_cli?.requires_password_change" class="scope-note">企业微信个人授权已保存。请先在个人中心更换演示密码，再使用真实数据。<el-button text size="small" @click="navigate('/account')">去修改密码</el-button></div>
           </div>
 
           <div v-for="(item, i) in messages" :key="i" class="assistant-message" :class="item.role">
@@ -56,10 +58,10 @@
             </div>
             <div v-if="!executing && !execution.outcomes?.length && ['failed', 'cancelled'].includes(execution.state)" class="execution-actions"><el-button size="small" @click="ask(lastInstruction)">重新执行</el-button></div>
           </section>
-          <section v-if="execution?.business_results?.length || execution?.business_actions?.length" class="business-output" aria-label="小聚业务结果">
+          <section v-if="execution?.business_results?.length || execution?.business_actions?.length || execution?.business_errors?.length" class="business-output" aria-label="小聚业务结果">
             <BusinessActionCard v-for="action in execution.business_actions" :key="action.id" :action="action" :disabled="busy" @decision="handleDecision" />
             <BusinessResultCard v-for="(receipt, index) in execution.business_results" :key="receipt.result_id || index" :result="receipt" @navigate="navigate" />
-            <p v-for="(error, index) in execution.business_errors" :key="`error-${index}`" class="business-error">{{ error.message }}</p>
+            <div v-for="(error, index) in execution.business_errors" :key="`error-${index}`" class="business-error"><p>{{ error.message }}</p><a v-if="error.authorization_url" :href="error.authorization_url" target="_blank" rel="noopener noreferrer">{{ error.authorization_label || '打开企业微信授权' }} ↗</a></div>
           </section>
           <input ref="credentialInput" type="file" accept=".env,.json,.txt" hidden @change="importCredentialFile" />
           <input ref="businessInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.docx,.pptx,.pdf,.txt,.md,.png,.jpg,.jpeg" multiple hidden @change="uploadBusinessFiles" />
@@ -364,7 +366,7 @@ watch(() => assistant.visible, async (visible) => {
   if (automaticMode.value && !executing.value && !execution.value) {
     try {
       const tasks = await api.get('/assistant/tasks', null, { silent: true })
-      const unfinished = tasks.find((task) => !TERMINAL.has(task.state) || task.state === 'awaiting_confirmation')
+      const unfinished = tasks.find((task) => !TERMINAL.has(task.state) || task.state === 'awaiting_confirmation' || task.business_errors?.some((error) => error.authorization_url))
       if (unfinished) {
         execution.value = unfinished; assistant.activeTaskId = unfinished.id
         if (!TERMINAL.has(unfinished.state)) { executing.value = true; pollGeneration++; pollExecution(unfinished.id, pollGeneration) }
@@ -410,6 +412,7 @@ onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); assistant.vis
 .connection-result { margin-top: 20px; padding: 13px; border: 1px solid var(--jc-line); border-radius: 8px; font-size: 12px; line-height: 1.8; }.connection-result > b { font-weight: 500; }.connection-result > p { margin-bottom: 0; }.connection-result.success { border-left: 3px solid var(--jc-up); }.connection-result.failure { border-left: 3px solid var(--jc-down); }.connection-result ul, .connection-result ol { padding-left: 19px; margin: 9px 0 0; }.pending-steps { border-top: 1px solid var(--jc-line-2); margin-top: 12px; padding-top: 12px; }.pending-steps strong { font-weight: 500; }
 .assistant-composer { padding: 17px 24px 20px; border-top: 1px solid var(--jc-line); background: var(--jc-surface); }.composer-box { display: flex; align-items: flex-end; gap: 10px; border: 1px solid var(--jc-line); border-radius: 10px; padding: 12px; }.composer-box:focus-within { border-color: var(--jc-brand); }.composer-box textarea { flex: 1; min-width: 0; resize: none; outline: none; border: 0; background: transparent; color: var(--jc-ink); font: inherit; font-size: 13px; line-height: 1.7; }.composer-box textarea::placeholder { color: var(--jc-ink-3); }.composer-box .el-button { width: 32px; min-width: 32px; height: 32px; padding: 0; border-radius: 7px; }.assistant-composer > small { display: block; font-size: 10px; color: var(--jc-ink-3); margin-top: 9px; }.assistant-load-error { text-align: center; padding: 40px 0; color: var(--jc-ink-3); }
 .execution-badge { display: inline-block; margin-bottom: 14px; padding: 3px 8px; border-radius: 4px; background: var(--jc-up-bg); color: var(--jc-up); font-size: 11px; }
+.cli-badge { margin-left: 6px; background: var(--jc-brand-50); color: var(--jc-brand); }
 .execution-card { padding: 18px; border: 1px solid var(--jc-line); border-radius: 10px; margin: 18px 0; }
 .execution-heading { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .execution-steps { list-style: none; padding: 0; margin: 15px 0 0; }
