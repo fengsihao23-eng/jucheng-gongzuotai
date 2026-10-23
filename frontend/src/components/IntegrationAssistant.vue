@@ -23,7 +23,14 @@
             <b>从一句话开始</b>
             <p>按你的账号权限处理财务、项目、合同、人事、客服等工作。支持上传资料、连续办理和下载结果；公司系统由管理员统一接入。</p>
             <span v-if="catalog.runtime?.available" class="execution-badge">执行引擎已就绪 · 支持自动接入</span>
-            <span v-if="catalog.wecom_cli?.available" class="execution-badge cli-badge">企业微信个人连接 · {{ catalog.wecom_cli.operations }} 项操作可用</span>
+            <div v-if="catalog.wecom_cli?.available" class="cli-connect">
+              <span class="execution-badge cli-badge">企业微信个人连接 · {{ catalog.wecom_cli.operations }} 项操作可用</span>
+              <el-button text size="small" @click="unbindCli">解除绑定</el-button>
+            </div>
+            <div v-else-if="catalog.wecom_cli" class="scope-note cli-connect">
+              <span>绑定你的企业微信后，小聚才能读取<strong>你自己</strong>的待办、日程、文档、邮件；每人各自授权，互不可见。</span>
+              <el-button type="primary" size="small" :loading="bindingLoading" @click="startBind">绑定我的企业微信</el-button>
+            </div>
             <div class="quick-prompts"><button v-for="q in prompts" :key="q" :disabled="busy" @click="ask(q)">{{ q }} <span>↗</span></button></div>
             <div v-if="catalog.wecom_cli?.requires_password_change" class="scope-note">企业微信个人授权已保存。请先在个人中心更换演示密码，再使用真实数据。<el-button text size="small" @click="navigate('/account')">去修改密码</el-button></div>
           </div>
@@ -115,6 +122,24 @@
       </form>
     </section>
   </el-drawer>
+
+  <el-dialog v-model="bindVisible" title="绑定企业微信个人连接" width="min(400px, 92vw)" :close-on-click-modal="false" @closed="closeBind">
+    <div class="bind-body">
+      <p class="jc-small jc-muted">用手机企业微信扫描下方二维码，确认授权后本页会自动完成绑定。凭证只保存在你个人的目录，其他成员不可见。</p>
+      <div v-loading="!bindQr && bindState !== 'ready'" class="bind-qr">
+        <img v-if="bindQr && bindState !== 'ready'" :src="bindQr" alt="企业微信授权二维码" />
+        <div v-else-if="bindState === 'ready'" class="bind-ok">绑定成功 · 已开通 {{ bindOperations }} 项操作</div>
+      </div>
+      <p v-if="bindState === 'pending'" class="jc-small">等待扫码确认… 二维码还剩 {{ bindCountdown }} 秒</p>
+      <p v-else-if="bindState === 'ready'" class="jc-small">现在可以在小聚里问「我有哪些待办」「查看我本周的日程」。</p>
+      <p v-else class="jc-small bind-error">{{ bindMessage || '二维码已失效，请重新获取' }}</p>
+      <a v-if="bindLink && bindState === 'pending'" :href="bindLink" target="_blank" rel="noopener noreferrer" class="jc-small">手机上打不开二维码？点这里打开授权入口 ↗</a>
+    </div>
+    <template #footer>
+      <el-button @click="bindVisible = false">关闭</el-button>
+      <el-button v-if="bindState !== 'ready'" type="primary" :loading="bindingLoading" @click="startBind">重新获取二维码</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -172,6 +197,101 @@ const localAddress = computed(() => {
   try { return ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(new URL(catalog.value.public_base_url).hostname) } catch { return false }
 })
 const secretPattern = /jcmcp_[\w-]+|sk-[\w-]{12,}|(?:secret|token|密钥|令牌|api[_ -]?key)\s*[:=：]\s*\S+|[A-Za-z0-9_+/=-]{28,}/i
+const bindVisible = ref(false)
+const bindSession = ref('')
+const bindQr = ref('')
+const bindState = ref('')
+const bindMessage = ref('')
+const bindLink = ref('')
+const bindOperations = ref(0)
+const bindCountdown = ref(0)
+const bindingLoading = ref(false)
+let bindPoll
+let bindClock
+let bindObjectUrl = ''
+
+function stopBindTimers() {
+  if (bindPoll) clearInterval(bindPoll)
+  if (bindClock) clearInterval(bindClock)
+  bindPoll = bindClock = null
+}
+function setBindQr(blob) {
+  if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl)
+  bindObjectUrl = URL.createObjectURL(blob)
+  bindQr.value = bindObjectUrl
+}
+async function startBind() {
+  if (bindingLoading.value) return
+  bindingLoading.value = true
+  stopBindTimers()
+  try {
+    if (bindSession.value) {
+      try { await api.del(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true }) } catch { /* 会话可能已结束 */ }
+    }
+    bindState.value = 'pending'
+    bindMessage.value = ''
+    bindLink.value = ''
+    bindQr.value = ''
+    bindOperations.value = 0
+    const session = await api.post('/assistant/wecom-cli/bind', null, { silent: true })
+    bindSession.value = session.session_id
+    bindLink.value = session.link || ''
+    bindVisible.value = true
+    const picture = await api.get(`/assistant/wecom-cli/bind/${session.session_id}/qr`, null, { responseType: 'blob', silent: true })
+    setBindQr(picture.data)
+    bindCountdown.value = Math.max(0, Math.round(session.expires_at - Date.now() / 1000))
+    bindClock = setInterval(() => { bindCountdown.value = Math.max(0, bindCountdown.value - 1) }, 1000)
+    bindPoll = setInterval(pollBind, 2500)
+  } catch (error) {
+    bindState.value = 'failed'
+    bindMessage.value = error.message || '无法发起绑定，请稍后重试'
+    bindVisible.value = true
+  } finally {
+    bindingLoading.value = false
+  }
+}
+async function pollBind() {
+  if (!bindSession.value) return
+  try {
+    const state = await api.get(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true })
+    if (state.state === 'ready') {
+      stopBindTimers()
+      bindState.value = 'ready'
+      bindOperations.value = state.operations || 0
+      bindQr.value = ''
+      ElMessage.success('企业微信个人连接已绑定')
+      await loadCatalog()
+    } else if (['expired', 'failed', 'cancelled'].includes(state.state)) {
+      stopBindTimers()
+      bindState.value = state.state
+      bindMessage.value = state.message || ''
+    }
+  } catch { /* 轮询短暂中断时保持当前状态 */ }
+}
+function closeBind() {
+  stopBindTimers()
+  if (bindState.value === 'pending' && bindSession.value) {
+    api.del(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true }).catch(() => {})
+  }
+  if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl)
+  bindObjectUrl = ''
+  bindQr.value = ''
+  bindSession.value = ''
+  bindState.value = ''
+  bindMessage.value = ''
+  bindLink.value = ''
+}
+async function unbindCli() {
+  try {
+    await ElMessageBox.confirm('解除后小聚将无法读取你本人的企业微信数据，可随时重新绑定。', '解除企业微信个人连接', { type: 'warning' })
+  } catch { return }
+  try {
+    await api.del('/assistant/wecom-cli/binding')
+    ElMessage.success('已解除绑定')
+    await loadCatalog()
+  } catch { /* 错误已由统一提示处理 */ }
+}
+
 
 async function scrollDown() { await nextTick(); if (scrollArea.value) scrollArea.value.scrollTop = scrollArea.value.scrollHeight }
 const connectorName = (key) => catalog.value.connectors.find((c) => c.key === key)?.name || key
@@ -380,7 +500,7 @@ watch(() => assistant.visible, async (visible) => {
   }
 })
 watch(() => auth.profile?.id, () => { pollGeneration++; clearTimeout(pollTimer); executing.value = false; execution.value = null; assistant.activeTaskId = ''; clearSensitive(); messages.value = []; context.value = []; assistant.visible = false })
-onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); assistant.visible = false; clearSensitive() })
+onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); stopBindTimers(); if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl); assistant.visible = false; clearSensitive() })
 </script>
 
 <style>
@@ -422,5 +542,12 @@ onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); assistant.vis
 .execution-outcome { margin-top: 16px; padding: 13px; border: 1px solid var(--jc-line-2); border-radius: 7px; background: var(--jc-surface-2); font-size: 12px; line-height: 1.8; }.execution-outcome p { margin: 8px 0; }.execution-outcome code { display: block; font-size: 10px; overflow-wrap: anywhere; }.pending-list { margin: 8px 0; padding-left: 18px; color: var(--jc-ink-3); }
 .execution-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }.execution-actions .el-button { margin-left: 0; }.manual-entry { margin: 0 0 10px; }
 .business-output { margin-bottom: 18px; }.business-error { color: var(--jc-down); font-size: 12px; line-height: 1.8; }.composer-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }.composer-files :deep(.el-tag__content) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.cli-connect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cli-connect.scope-note { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.bind-body { font-size: 12px; line-height: 1.8; }
+.bind-qr { display: grid; place-items: center; min-height: 210px; margin: 14px 0; }
+.bind-qr img { width: 210px; height: 210px; padding: 8px; border: 1px solid var(--jc-line-2); border-radius: 8px; background: #fff; }
+.bind-ok { padding: 16px 20px; border-radius: 8px; background: var(--jc-up-bg); color: var(--jc-up); font-size: 13px; }
+.bind-error { color: var(--jc-down); }
 @media (max-width: 480px) { .assistant-header, .assistant-scroll, .assistant-composer { padding-left: 16px; padding-right: 16px; }.setup-card { padding: 15px; }.section-label > span { display: none; } }
 </style>

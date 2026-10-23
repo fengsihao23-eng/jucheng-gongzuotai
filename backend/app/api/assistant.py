@@ -181,3 +181,51 @@ def configure(provider: Literal["wecom", "lemoncloud"], body: ConfigureBody, req
            ip=client_ip(request))
     db.commit()
     return ok({**result, "saved": saved})
+
+
+# ---------------------------------------------------------------- 企业微信个人连接自助绑定
+
+
+@router.post("/wecom-cli/bind")
+def wecom_cli_bind_start(request: Request, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    """为当前账号起一次官方 CLI 扫码会话，返回二维码有效期与状态查询标识。"""
+    from app.services import wecom_cli_bind as bind
+    from app.services.wecom_cli_service import binding
+    if binding(p.id):
+        raise BizError(40901, "当前账号已绑定企业微信个人连接；如需更换，请先解除绑定")
+    result = bind.start(p.id)
+    log_op(db, p.id, "wecom_cli.bind_start", "integration", "wecom-cli", after={"session": result["session_id"]},
+           ip=client_ip(request))
+    db.commit()
+    return ok(result)
+
+
+@router.get("/wecom-cli/bind/{session_id}")
+def wecom_cli_bind_status(session_id: str, p: Principal = Depends(get_principal)):
+    from app.services import wecom_cli_bind as bind
+    return ok(bind.status(p.id, session_id))
+
+
+@router.get("/wecom-cli/bind/{session_id}/qr")
+def wecom_cli_bind_qr(session_id: str, p: Principal = Depends(get_principal)):
+    from fastapi.responses import FileResponse
+    from app.services import wecom_cli_bind as bind
+    path = bind.qr_path(p.id, session_id)
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/wecom-cli/bind/{session_id}")
+def wecom_cli_bind_cancel(session_id: str, p: Principal = Depends(get_principal)):
+    from app.services import wecom_cli_bind as bind
+    return ok(bind.cancel(p.id, session_id))
+
+
+@router.delete("/wecom-cli/binding")
+def wecom_cli_unbind(request: Request, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    """解除本人绑定，只清理该账号自己的凭证目录。"""
+    from app.services import wecom_cli_bind as bind
+    result = bind.unbind(p.id)
+    log_op(db, p.id, "wecom_cli.unbind", "integration", "wecom-cli", ip=client_ip(request))
+    db.commit()
+    return ok(result)
+
