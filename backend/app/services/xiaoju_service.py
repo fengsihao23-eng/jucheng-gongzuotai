@@ -391,7 +391,7 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
                     elif business and not business.results and not any(word in message for word in ("哪些", "什么功能", "什么能力", "能做什么")):
                         state = "waiting_input"
                     # 接入结果由工具事实生成，业务回答必须有实际回执支撑。
-                    summary = "\n\n".join(f"{connectors_name(r['provider'])}：{r['message']}" for r in tools.outcomes) if tools.outcomes else redact(frame.get("message", "执行结束"))[:5000]
+                    summary = "\n\n".join(f"{connectors_name(r['provider'])}：{r['message']}" for r in tools.outcomes) if tools.outcomes else redact(frame.get("message", "执行结束"))[:64000]
                     if business and business.actions:
                         summary = "已准备具体执行单，请核对下方内容并确认。尚未写入业务数据：" + "；".join(action["title"] for action in business.actions)
                     elif tools.business_errors and not (business and business.results):
