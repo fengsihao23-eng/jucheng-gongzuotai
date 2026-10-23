@@ -1,7 +1,7 @@
 """系统与权限域：部门、用户、角色、字典口径、通知、文件、任务日志、审计。"""
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import JSON, Base, SoftDeleteMixin, TimestampMixin
@@ -52,6 +52,23 @@ class SysUser(TimestampMixin, SoftDeleteMixin, Base):
     @property
     def dept_code(self) -> str | None:
         return self.department.dept_code if self.department else None
+
+
+class SysWecomItem(TimestampMixin, Base):
+    """企业微信个人数据快照：待办、日程等按账号隔离保存，只本人可见。"""
+    __tablename__ = "sys_wecom_item"
+    __table_args__ = (UniqueConstraint("user_id", "service", "external_id"),)
+    user_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id", ondelete="CASCADE"), index=True)
+    service: Mapped[str] = mapped_column(String(16), index=True)
+    external_id: Mapped[str] = mapped_column(String(160))
+    title: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(24))
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    link: Mapped[str | None] = mapped_column(String(500))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class SysDict(TimestampMixin, Base):

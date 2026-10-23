@@ -226,18 +226,18 @@ async function startBind() {
   stopBindTimers()
   try {
     if (bindSession.value) {
-      try { await api.del(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true }) } catch { /* 会话可能已结束 */ }
+      try { await api.del(`/wecom-personal/bind/${bindSession.value}`, null, { silent: true }) } catch { /* 会话可能已结束 */ }
     }
     bindState.value = 'pending'
     bindMessage.value = ''
     bindLink.value = ''
     bindQr.value = ''
     bindOperations.value = 0
-    const session = await api.post('/assistant/wecom-cli/bind', null, { silent: true })
+    const session = await api.post('/wecom-personal/bind', null, { silent: true })
     bindSession.value = session.session_id
     bindLink.value = session.link || ''
     bindVisible.value = true
-    const picture = await api.get(`/assistant/wecom-cli/bind/${session.session_id}/qr`, null, { responseType: 'blob', silent: true })
+    const picture = await api.get(`/wecom-personal/bind/${session.session_id}/qr`, null, { responseType: 'blob', silent: true })
     setBindQr(picture.data)
     bindCountdown.value = Math.max(0, Math.round(session.expires_at - Date.now() / 1000))
     bindClock = setInterval(() => { bindCountdown.value = Math.max(0, bindCountdown.value - 1) }, 1000)
@@ -253,7 +253,7 @@ async function startBind() {
 async function pollBind() {
   if (!bindSession.value) return
   try {
-    const state = await api.get(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true })
+    const state = await api.get(`/wecom-personal/bind/${bindSession.value}`, null, { silent: true })
     if (state.state === 'ready') {
       stopBindTimers()
       bindState.value = 'ready'
@@ -271,7 +271,7 @@ async function pollBind() {
 function closeBind() {
   stopBindTimers()
   if (bindState.value === 'pending' && bindSession.value) {
-    api.del(`/assistant/wecom-cli/bind/${bindSession.value}`, null, { silent: true }).catch(() => {})
+    api.del(`/wecom-personal/bind/${bindSession.value}`, null, { silent: true }).catch(() => {})
   }
   if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl)
   bindObjectUrl = ''
@@ -286,7 +286,7 @@ async function unbindCli() {
     await ElMessageBox.confirm('解除后小聚将无法读取你本人的企业微信数据，可随时重新绑定。', '解除企业微信个人连接', { type: 'warning' })
   } catch { return }
   try {
-    await api.del('/assistant/wecom-cli/binding')
+    await api.del('/wecom-personal/binding')
     ElMessage.success('已解除绑定')
     await loadCatalog()
   } catch { /* 错误已由统一提示处理 */ }

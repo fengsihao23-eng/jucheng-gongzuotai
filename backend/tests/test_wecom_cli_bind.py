@@ -89,5 +89,5 @@ def test_api_rejects_second_binding_for_bound_account(cli_env, db, client, login
     (config / ".encryption_key").write_bytes(b"key")
     (cli.home(uid) / "binding.json").write_text(
         '{"user_id": %d, "binding_id": "%s", "services": []}' % (uid, "a" * 32))
-    response = client.post("/api/v1/assistant/wecom-cli/bind", headers=login("sunyan"))
+    response = client.post("/api/v1/wecom-personal/bind", headers=login("sunyan"))
     assert response.json()["code"] == 40901

@@ -26,6 +26,21 @@
         <el-button type="primary" plain @click="qa = true">开始提问</el-button>
       </Panel>
     </div>
+    <Panel class="mt-16" title="我的企业微信数据" sub="待办与日程按本人授权同步，只有你能看到">
+      <div class="jc-row between">
+        <p class="jc-muted jc-small">{{ syncNote }}</p>
+        <div class="jc-row">
+          <el-button size="small" :loading="syncing" :disabled="!sync.bound" @click="runSync">立即同步</el-button>
+          <el-button v-if="!sync.bound" size="small" type="primary" @click="assistant.open()">去绑定</el-button>
+        </div>
+      </div>
+      <el-table :data="syncItems" size="small" empty-text="暂无同步数据（绑定后会自动拉取）">
+        <el-table-column label="类型" width="80"><template #default="{ row }">{{ row.service === 'todo' ? '待办' : '日程' }}</template></el-table-column>
+        <el-table-column label="标题" min-width="220" prop="title" />
+        <el-table-column label="时间" width="170"><template #default="{ row }">{{ datetime(row.starts_at || row.ends_at) }}</template></el-table-column>
+        <el-table-column label="状态" width="110"><template #default="{ row }">{{ row.status || '—' }}</template></el-table-column>
+      </el-table>
+    </Panel>
     <Panel class="mt-16" title="我的审批" sub="我在企业微信提交的合同/报销/商机审批及自动登记结果" :padding="false">
       <el-table :data="approvals">
         <el-table-column label="审批单号" width="170"><template #default="{ row }"><span class="jc-mono">{{ row.sp_no }}</span></template></el-table-column>
@@ -45,15 +60,44 @@
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useAssistant } from '@/store/assistant'
 import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 
 const auth = useAuth()
+const assistant = useAssistant()
 const p = computed(() => auth.profile || {})
 const pw = reactive({ old_password: '', new_password: '' })
 const approvals = ref([])
 const qa = ref(false)
 const HrQa = shallowRef(null)
+const sync = ref({ bound: false, counts: [], last_sync_at: null, note: '' })
+const syncItems = ref([])
+const syncing = ref(false)
+const syncNote = computed(() => {
+  if (!sync.value.bound) return '尚未绑定企业微信个人连接，绑定后才能读取你自己的待办和日程'
+  const total = (sync.value.counts || []).reduce((sum, item) => sum + item.items, 0)
+  const last = datetime(sync.value.last_sync_at)
+  return `已同步 ${total} 条${last && last !== '—' ? ' · 上次 ' + last : ''} · 每 10 分钟自动刷新`
+})
+
+async function loadSync() {
+  try {
+    const data = await api.get('/wecom-personal/sync/items', null, { silent: true })
+    syncItems.value = data.items
+    sync.value = data.status
+  } catch { /* 未登录或接口暂不可用时保持空状态 */ }
+}
+async function runSync() {
+  syncing.value = true
+  try {
+    await api.post('/wecom-personal/sync/run')
+    ElMessage.success('已同步本人的企业微信数据')
+    await loadSync()
+  } finally {
+    syncing.value = false
+  }
+}
 
 async function changePw() {
   await api.post('/auth/password', pw)
@@ -62,6 +106,7 @@ async function changePw() {
 }
 onMounted(async () => {
   approvals.value = (await api.get('/account/approvals')).items
+  await loadSync()
   const mods = import.meta.glob('@/components/HrQaDialog.vue')
   const loader = Object.values(mods)[0]
   if (loader) HrQa.value = (await loader()).default

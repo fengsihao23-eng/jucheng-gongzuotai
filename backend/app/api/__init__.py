@@ -8,6 +8,8 @@ api_router = APIRouter()
 MODULES = [
     # 平台（认证/管理/文件/企微回调/通知/Mock）
     "auth", "admin", "files", "wecom", "notify", "dev",
+    # 企业微信个人连接与个人数据同步（按账号隔离）
+    "wecom_personal",
     # 总办 / 台账
     "portal", "board", "contracts", "submissions",
     # 财务

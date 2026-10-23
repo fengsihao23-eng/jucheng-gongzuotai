@@ -15,6 +15,12 @@ def approval_reconcile(db, params):
     return r
 
 
+@job("wecom_personal_sync", "企微个人数据同步", {"minute": "*/10"}, "每 10 分钟")
+def personal_sync(db, params):
+    from app.services import wecom_sync_service
+    return wecom_sync_service.sync_all(db)
+
+
 @job("notify_retry", "企微消息失败重试", {"minute": "*/5"}, "每 5 分钟")
 def notify_retry(db, params):
     n = notify_service.retry_failed(db)

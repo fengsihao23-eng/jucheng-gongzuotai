@@ -86,3 +86,17 @@ def parse_approval_event(xml_text: str) -> dict | None:
         "apply_time": int(info.findtext("ApplyTime") or 0),
         "applicant_userid": info.findtext("Applyer/UserId"),
     }
+
+
+def parse_contact_event(xml_text: str) -> dict | None:
+    """解析通讯录变更事件（Event=change_contact）：成员、部门、标签的增删改。"""
+    root = ET.fromstring(xml_text)
+    if root.findtext("Event") != "change_contact":
+        return None
+    return {
+        "change_type": root.findtext("ChangeType") or "",
+        "user_id": root.findtext("UserID") or "",
+        "department_id": root.findtext("Id") or root.findtext("DepartmentId") or "",
+        "name": root.findtext("Name") or "",
+    }
+
