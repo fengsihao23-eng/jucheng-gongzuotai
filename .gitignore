@@ -14,3 +14,6 @@ deploy/.env
 deploy/app.env
 deploy/certs/
 deploy/backups/
+
+# 工作区本地数据（记忆、临时产物）
+.workbuddy/

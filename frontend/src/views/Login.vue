@@ -35,7 +35,7 @@
         </el-form>
 
         <div class="or"><span>或</span></div>
-        <el-button size="large" class="full" @click="wecom">企业微信扫码登录</el-button>
+        <el-button size="large" class="full" @click="wecom(false)">{{ inWeCom ? '使用企业微信账号登录' : '企业微信扫码登录' }}</el-button>
 
         <div v-if="cfg.demo_accounts?.length" class="demo">
           <div class="jc-row between">
@@ -69,6 +69,7 @@ const remember = ref(!!localStorage.getItem('jc_last_user'))
 const loading = ref(false)
 const demo = ref('')
 
+const inWeCom = /wxwork/i.test(navigator.userAgent)
 const demoGroups = computed(() => {
   const g = {}
   cfg.value.demo_accounts.forEach((a) => (g[a.dept] ||= []).push(a))
@@ -91,12 +92,23 @@ function pickDemo(uid) {
   form.password = cfg.value.demo_password_hint
   submit()
 }
-async function wecom() {
-  const r = await api.get('/auth/wecom/authorize-url', { qr: true, redirect: route.query.redirect || '/' })
-  if (r.mock) return ElMessage.info('当前为演示数据模式，企业微信凭证配置后即可扫码登录')
+async function wecom(auto = false) {
+  const r = await api.get('/auth/wecom/authorize-url', { qr: !inWeCom, redirect: route.query.redirect || '/' })
+  if (r.mock) {
+    if (!auto) ElMessage.info('当前为演示数据模式，企业微信凭证配置后即可扫码登录')
+    return
+  }
   location.href = r.url
 }
-onMounted(async () => { cfg.value = await api.get('/auth/login-config') })
+onMounted(async () => {
+  cfg.value = await api.get('/auth/login-config')
+  if (!inWeCom || cfg.value.wecom_mode !== 'live' || cfg.value.corp_id !== '') return
+  // 企微内打开应用即静默授权；30 秒内失败过一次就不再自动跳转，避免死循环
+  const last = Number(sessionStorage.getItem('jc_oauth_at') || 0)
+  if (Date.now() - last < 30000) return
+  sessionStorage.setItem('jc_oauth_at', String(Date.now()))
+  await wecom(true)
+})
 </script>
 
 <style scoped>
