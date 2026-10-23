@@ -184,7 +184,7 @@ def test_task_endpoints_enforce_user_scope(client, login, monkeypatch):
     staff_task = data(client.post("/api/v1/assistant/tasks", headers=login("zengli"), json={"message": "接入WorkBuddy"}))
     assert staff_task["user_id"] != data(client.get("/api/v1/auth/me", headers=login("admin")))["id"]
     task = data(client.post("/api/v1/assistant/tasks", headers=login("admin"), json={"message": "接入WorkBuddy"}))
-    assert task["name"] == "小聚" and task["engine"] == "pi-agent-core"
+    assert task["name"] == "小聚" and task["engine"] == "pi-coding-agent"
     assert client.get(f"/api/v1/assistant/tasks/{task['id']}", headers=login("zengli")).status_code == 403
     assert data(client.get(f"/api/v1/assistant/tasks/{task['id']}", headers=login("admin")))["state"] == "queued"
     assert data(client.post(f"/api/v1/assistant/tasks/{task['id']}/cancel", headers=login("admin")))["cancel_requested"]

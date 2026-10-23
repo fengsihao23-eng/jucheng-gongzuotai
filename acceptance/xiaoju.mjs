@@ -48,13 +48,13 @@ async function ask(page, message) {
   const created = await (await response).json()
   assert.equal(created.code, 0)
   let task
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 620; i++) {
     task = await fetch(`${API}/api/v1/assistant/tasks/${created.data.id}`, { headers: page.xiaojuHeaders }).then((r) => r.json()).then((r) => r.data)
     if (terminal.has(task.state)) break
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
   assert.ok(terminal.has(task.state), '任务应在测试时限内结束')
-  await page.waitForFunction(() => !document.querySelector('textarea[aria-label="向小聚描述需求"]').disabled)
+  await page.waitForFunction(([id, state]) => { const card = document.querySelector('.execution-card'); return card?.dataset.taskId === id && card?.dataset.taskState === state }, [task.id, task.state])
   return task
 }
 

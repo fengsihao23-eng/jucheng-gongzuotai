@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", extra="ignore")
 
     environment: str = "dev"  # dev | test | prod
+    app_revision: str = ""
     secret_key: str = "dev-only-secret-change-me"
     jwt_expire_minutes: int = 120  # PRD：会话 JWT 2h，滑动续期
     public_base_url: str = "http://localhost:5180"  # 晨报链接、MCP 文件下载链接拼接
@@ -70,7 +71,17 @@ class Settings(BaseSettings):
     assistant_host_access: bool = False
     assistant_host_home: Path = Path.home()
     assistant_node_bin: str = "node"
-    assistant_task_timeout_seconds: int = 300
+    assistant_task_timeout_seconds: int = 900
+    assistant_max_turns: int = 80
+    assistant_max_tool_calls: int = 256
+    assistant_max_output_tokens: int = 8192
+    assistant_thinking_level: str = "medium"
+    assistant_models: str = ""  # 逗号分隔，空值只启用 LLM_MODEL
+    assistant_sandbox_enabled: bool = False
+    assistant_sandbox_image: str = "jucheng-xiaoju-workspace:1.3.0"
+    assistant_workspace_root: Path | None = None
+    assistant_workspace_volume: str = ""  # Docker volume-subpath，仅挂载当前账号当前会话
+    assistant_sandbox_timeout_seconds: int = 90
     # Optional override for deployments that install the official CLI separately.
     wecom_cli_bin: str = ""
 

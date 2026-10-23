@@ -247,7 +247,8 @@ def test_resume_owner_history_files_and_confirmation_task_state(db, client, logi
     assert updated["business_results"][0]["result_id"] == decision["result"]["result_id"]
     resumed = data(client.post("/api/v1/assistant/tasks", headers=login("admin"), json={"message": "继续", "resume_task_id": task["id"], "history": [{"role": "user", "content": "之前的业务目标"}]}))
     assert resumed["workflow_id"] == task["workflow_id"] and resumed["attachment_ids"] == [file["id"]]
-    assert resumed["business_results"] and calls[-1][6][0]["content"] == "之前的业务目标"
+    # 完整会话以服务端保存的目标为准，客户端历史不能替换原对话。
+    assert resumed["business_results"] and calls[-1][6][0]["content"] == "维护合同备注"
     assert "之前的业务目标" not in (xiaoju_service.task_root() / (resumed["id"] + ".json")).read_text()
     assert client.post("/api/v1/assistant/tasks", headers=login("zengli"), json={"message": "继续", "resume_task_id": task["id"]}).status_code == 403
     tools = xiaoju_tools.XiaoJuTools(uid(db))

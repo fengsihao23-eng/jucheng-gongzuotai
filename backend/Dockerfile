@@ -1,3 +1,4 @@
+FROM docker:26-cli AS docker-client
 FROM node:22-bookworm-slim AS xiaoju-runtime
 ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /runtime
@@ -16,6 +17,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -i "$PIP_INDEX_URL" -r requirements.txt
 COPY . .
 COPY --from=xiaoju-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=docker-client /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=xiaoju-runtime /runtime/node_modules ./agent_runtime/node_modules
 EXPOSE 8000
 # 迁移前置：alembic upgrade head 成功后再启动（PRD 12.2）

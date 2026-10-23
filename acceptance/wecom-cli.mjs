@@ -47,7 +47,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 500))
     }
     assert.ok(terminal.has(task.state))
-    await page.waitForFunction(() => !document.querySelector('textarea[aria-label="向小聚描述需求"]').disabled)
+    await page.waitForFunction(([id, state]) => { const card = document.querySelector('.execution-card'); return card?.dataset.taskId === id && card?.dataset.taskState === state }, [id, task.state])
     return task
   }
   const identity = await ask('请通过企业微信 CLI 查询当前绑定身份，只读查询，不发送消息。')

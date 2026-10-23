@@ -50,7 +50,9 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 ## 小聚业务 Agent 与 WorkBuddy 接入
 
-任意页面顶部的「小聚」使用 Pi 核心与 DeepSeek，可按当前账号权限执行现有工作台的 243 个业务动作（229 个业务 API、13 个 MCP 工具和附件预览），覆盖财务、合同、项目、人事、客服、标书等 21 个模块。支持上传业务文件、连续对话、实际写入、报表下载及操作回执；记账、删除、权限调整、对外通知会生成具体执行单，点击确认后提交。业务范围及验证见 [小聚业务能力说明](docs/XIAOJU_BUSINESS.md)。
+任意页面顶部的「小聚」使用完整官方 Pi SDK 与 DeepSeek，支持服务端历史对话、上下文压缩、Skills、扩展、MCP、Codemode、模型与思考设置、流式输出和执行中补充要求。原生文件与命令工具在按账号、对话隔离的容器内执行，支持实际生成和下载文件。实现与部署见 [完整 Pi 运行说明](docs/XIAOJU_FULL_PI.md)。
+
+小聚按当前账号权限调用现有工作台的业务 API、MCP 与附件预览，覆盖财务、合同、项目、人事、客服、标书等模块。记账、删除、权限调整、对外通知会生成具体执行单，点击确认后提交；确认后回到同一对话继续核对回执。业务范围及验证见 [小聚业务能力说明](docs/XIAOJU_BUSINESS.md)。
 
 公司员工账号与组织架构在「系统管理 → 配置公司应用」一次填写应用凭证，自动验证并读取真实成员预览，确认后独立建档。支持演示账号归档、身份冲突保护和增量更新，详见[公司通讯录接入](docs/COMPANY_DIRECTORY.md)。
 
@@ -65,7 +67,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 ## 测试与验收
 
 ```bash
-cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 275 项
+cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 299 项
 cd acceptance && npm install && node e2e.mjs                            # 端到端 68 项，需服务在运行
 ```
 

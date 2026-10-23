@@ -37,11 +37,24 @@ rsync -az --delete -e "$RSYNC_SSH" --exclude '.DS_Store' --exclude 'backups' \
   "$ROOT/deploy/" "$SERVER:$REMOTE_DIR/deploy/"
 
 say "4/6 安装生产环境变量（backend/.env, 600）"
+REVISION="$(git -C "$ROOT" rev-parse HEAD)"
+# .env 不入 Git；仅更新公开的版本号，保留数据库口令等配置。
+if [[ -f "$ROOT/deploy/.env" ]]; then
+  TASK_REVISION="$REVISION" python3 - "$ROOT/deploy/.env" <<'PY'
+import os, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+lines = [line for line in p.read_text().splitlines() if not line.startswith('APP_REVISION=')]
+p.write_text('\n'.join(lines) + '\nAPP_REVISION=' + os.environ['TASK_REVISION'] + '\n')
+p.chmod(0o600)
+PY
+  scp -q "$ROOT/deploy/.env" "$SERVER:$REMOTE_DIR/deploy/.env"
+fi
 scp -q "$ROOT/deploy/app.env" "$SERVER:$REMOTE_DIR/backend/.env"
 "${SSH[@]}" "chmod 600 '$REMOTE_DIR/backend/.env' '$REMOTE_DIR/deploy/.env' '$REMOTE_DIR/deploy/certs/privkey.pem'"
 
 say "5/6 构建并启动容器（首次约 3-8 分钟）"
-"${SSH[@]}" "cd '$REMOTE_DIR/deploy' && docker compose up -d --build --remove-orphans"
+"${SSH[@]}" "cd '$REMOTE_DIR/deploy' && docker compose --profile build build xiaoju-workspace && docker compose up -d --build --remove-orphans && docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s reload"
 
 say "6/6 等待服务健康"
 HEALTH_CMD='curl -fsS -m 5 -k -H "Host: juchengcc.com" https://127.0.0.1/health 2>/dev/null || wget -qO- --no-check-certificate --header="Host: juchengcc.com" https://127.0.0.1/health 2>/dev/null'

@@ -43,12 +43,16 @@ class HistoryTurn(BaseModel):
 
 
 class ChatBody(BaseModel):
-    message: str = Field(min_length=1, max_length=1500)
+    message: str = Field(min_length=1, max_length=16000)
     context: list[Literal["workbuddy", "wecom", "lemoncloud"]] = Field(default_factory=list, max_length=3)
     history: list[HistoryTurn] = Field(default_factory=list, max_length=12)
     attachment_ids: list[str] = Field(default_factory=list, max_length=20)
     resume_task_id: str | None = None
     current_page: str = Field(default="", max_length=250)
+    session_id: str | None = None
+    model: str | None = None
+    thinking: Literal["off", "minimal", "low", "medium", "high"] | None = None
+    action: Literal["prompt", "compact"] = "prompt"
 
 
 @router.post("/chat")
@@ -60,7 +64,103 @@ def chat(body: ChatBody, p: Principal = Depends(get_principal)):
 def create_task(body: ChatBody, p: Principal = Depends(get_principal)):
     from app.services.xiaoju_service import create
     return ok(create(body.message, body.context, p.id, history=[turn.model_dump() for turn in body.history],
-                     attachment_ids=body.attachment_ids, resume_task_id=body.resume_task_id, current_page=body.current_page))
+                     attachment_ids=body.attachment_ids, resume_task_id=body.resume_task_id, current_page=body.current_page,
+                     session_id=body.session_id, model=body.model, thinking=body.thinking, action=body.action))
+
+
+@router.get("/sessions")
+def list_sessions(p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_sessions as sessions
+    return ok(sessions.list_for_user(p.id))
+
+
+class SessionBody(BaseModel):
+    model: str | None = None
+    thinking: Literal["off", "minimal", "low", "medium", "high"] | None = None
+
+
+@router.post("/sessions")
+def create_session(body: SessionBody, p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_sessions as sessions
+    return ok(sessions.view(sessions.create(p.id, model=body.model, thinking=body.thinking), True))
+
+
+@router.get("/sessions/{session_id}")
+def read_session(session_id: str, p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_sessions as sessions
+    return ok(sessions.view(sessions.load(p.id, session_id), True))
+
+
+@router.patch("/sessions/{session_id}")
+def configure_session(session_id: str, body: SessionBody, p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_sessions as sessions
+    return ok(sessions.configure(p.id, session_id, body.model, body.thinking))
+
+
+@router.post("/sessions/{session_id}/fork")
+def fork_session(session_id: str, p: Principal = Depends(get_principal)):
+    from app.services import xiaoju_sessions as sessions
+    return ok(sessions.fork(p.id, session_id))
+
+
+@router.get("/sessions/{session_id}/files")
+def download_workspace_file(session_id: str, path: str | None = None, p: Principal = Depends(get_principal)):
+    from fastapi.responses import Response
+    from urllib.parse import quote
+    from app.services.xiaoju_workspace import read_file, list_files
+    import mimetypes
+    if path is None:
+        return ok(list_files(p.id, session_id))
+    content, filename = read_file(p.id, session_id, path)
+    return Response(content, media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+                    headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(filename), "Cache-Control": "no-store"})
+
+
+@router.get("/tasks/{task_id}/stream")
+async def stream_task(task_id: str, request: Request):
+    import asyncio
+    import json
+    from fastapi.responses import StreamingResponse
+    from app.services.xiaoju_service import read, TERMINAL
+    from app.services import xiaoju_sessions as sessions
+    from app.core.db import SessionLocal
+    # StreamingResponse 生命周期内不占用数据库连接，避免排队任务耗尽连接池。
+    with SessionLocal() as db:
+        user_id = get_principal(request, db).id
+    initial = read(task_id, user_id)
+    if initial.get("session_id"):
+        sessions.load(user_id, initial["session_id"])
+
+    async def events():
+        last = None
+        while not await request.is_disconnected():
+            try:
+                task = await asyncio.to_thread(read, task_id, user_id)
+                if task.get("session_id"):
+                    await asyncio.to_thread(sessions.load, user_id, task["session_id"])
+                revision = (task["updated_at"], task["state"])
+                if revision != last:
+                    yield "event: task\ndata: " + json.dumps(task, ensure_ascii=False) + "\n\n"
+                    last = revision
+                else:
+                    yield ": keepalive\n\n"
+                if task["state"] in TERMINAL:
+                    return
+                await asyncio.sleep(0.5)
+            except BizError:
+                yield 'event: error\ndata: {"message":"当前任务已不可访问，请新建对话。"}\n\n'
+                return
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+class SteerBody(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/tasks/{task_id}/steer")
+def steer_task(task_id: str, body: SteerBody, p: Principal = Depends(get_principal)):
+    from app.services.xiaoju_service import steer
+    return ok(steer(task_id, p.id, body.message))
 
 
 @router.get("/business/capabilities")
@@ -181,51 +281,3 @@ def configure(provider: Literal["wecom", "lemoncloud"], body: ConfigureBody, req
            ip=client_ip(request))
     db.commit()
     return ok({**result, "saved": saved})
-
-
-# ---------------------------------------------------------------- 企业微信个人连接自助绑定
-
-
-@router.post("/wecom-cli/bind")
-def wecom_cli_bind_start(request: Request, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    """为当前账号起一次官方 CLI 扫码会话，返回二维码有效期与状态查询标识。"""
-    from app.services import wecom_cli_bind as bind
-    from app.services.wecom_cli_service import binding
-    if binding(p.id):
-        raise BizError(40901, "当前账号已绑定企业微信个人连接；如需更换，请先解除绑定")
-    result = bind.start(p.id)
-    log_op(db, p.id, "wecom_cli.bind_start", "integration", "wecom-cli", after={"session": result["session_id"]},
-           ip=client_ip(request))
-    db.commit()
-    return ok(result)
-
-
-@router.get("/wecom-cli/bind/{session_id}")
-def wecom_cli_bind_status(session_id: str, p: Principal = Depends(get_principal)):
-    from app.services import wecom_cli_bind as bind
-    return ok(bind.status(p.id, session_id))
-
-
-@router.get("/wecom-cli/bind/{session_id}/qr")
-def wecom_cli_bind_qr(session_id: str, p: Principal = Depends(get_principal)):
-    from fastapi.responses import FileResponse
-    from app.services import wecom_cli_bind as bind
-    path = bind.qr_path(p.id, session_id)
-    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
-
-
-@router.delete("/wecom-cli/bind/{session_id}")
-def wecom_cli_bind_cancel(session_id: str, p: Principal = Depends(get_principal)):
-    from app.services import wecom_cli_bind as bind
-    return ok(bind.cancel(p.id, session_id))
-
-
-@router.delete("/wecom-cli/binding")
-def wecom_cli_unbind(request: Request, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    """解除本人绑定，只清理该账号自己的凭证目录。"""
-    from app.services import wecom_cli_bind as bind
-    result = bind.unbind(p.id)
-    log_op(db, p.id, "wecom_cli.unbind", "integration", "wecom-cli", ip=client_ip(request))
-    db.commit()
-    return ok(result)
-

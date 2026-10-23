@@ -8,7 +8,7 @@
 
 ## 执行核心
 
-官方 `@earendil-works/pi-agent-core@1.3.0` 和 `@earendil-works/pi-ai@1.3.0` 负责多轮工具调用与状态管理。Python FastAPI 负责账号权限、主机工具、凭证保管和任务持久化。模型使用 DeepSeek V4.1 Flash（`deepseek-flash`）。没有委托到用户全局 Pi CLI 的其他模型账号。
+使用官方 `@earendil-works/pi-coding-agent@1.3.0` 完整 SDK，包含同版本 Agent Core 与 Pi AI。Pi 管理完整会话、自动上下文压缩、Skills、扩展、MCP 和工具循环。Python FastAPI 管理业务权限、凭证、确认与回执；文件和脚本交给独立执行容器。默认使用 `deepseek-flash`，管理员配置 `ASSISTANT_MODELS` 后可在界面切换已启用模型。没有委托到用户全局 Pi CLI 的其他模型账号。详细配置见 [完整 Pi 运行说明](XIAOJU_FULL_PI.md)。
 
 API Key 只经独立进程 stdin 传入，不放在命令行、任务文件或 GitHub。npm lockfile 固定依赖；Docker 构建自动安装 Node 和 Pi 核心。本地开发安装一次：
 
@@ -60,9 +60,9 @@ ASSISTANT_HOST_ACCESS=true
 
 ## 执行记录和权限
 
-任务显示实际工具步骤，可停止；关闭面板后继续运行，重新打开可恢复进行中的任务和待确认执行单。默认最长 300 秒、64 次工具调用、20 轮推理，工具逐项执行；准备业务确认单后立即停止，等待本人操作。
+任务显示实际工具步骤与流式回答，可停止和补充要求；关闭面板后继续运行，重新打开可恢复对话、进行中的任务和待确认执行单。默认最长 900 秒、256 次工具调用、80 轮、每次模型响应最多 8192 token，均可配置；准备业务确认单后立即停止，等待本人操作。脚本工具另有独立的时间、内存和进程限制。
 
-- 任务：`STORAGE_DIR` 父目录的 `xiaoju/tasks/`，按账号隔离；不保存聊天指令原文或密钥。
+- 任务：`STORAGE_DIR` 父目录的 `xiaoju/tasks/`；完整对话与 Pi 工具轨迹：`xiaoju/sessions/<user-id>/<session-id>/`。均按账号隔离，模型密钥不写入会话文件。权限、密码、数据源或个人连接改变后，旧上下文禁止继续使用。
 - 导入凭证：`xiaoju/credentials/<user-id>/`；企业生效配置：`integrations.json`；文件均为 `0600`。
 - 每次工具调用重新检查账号状态与角色；公司配置、主机读写和 CLI 仅管理员可执行。员工可使用共享连接、个人授权及有权限的页面，不能读取或停止他人任务。
 - 接入结果由工具事实生成，不能用模型文字或无关 CLI 错误代替实际检测。

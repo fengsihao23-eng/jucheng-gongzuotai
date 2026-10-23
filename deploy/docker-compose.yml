@@ -22,8 +22,12 @@ services:
     env_file: ../backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg://jucheng:${DB_PASSWORD}@db:5432/jucheng
+      APP_REVISION: ${APP_REVISION:-}
       STORAGE_DIR: /data/files
-    volumes: [files:/data]
+      ASSISTANT_SANDBOX_ENABLED: "true"
+      ASSISTANT_WORKSPACE_ROOT: /workspaces
+      ASSISTANT_WORKSPACE_VOLUME: jucheng_xiaoju_workspaces
+    volumes: [files:/data, workspaces:/workspaces, /var/run/docker.sock:/var/run/docker.sock]
     depends_on: { db: { condition: service_healthy } }
   nginx:
     image: nginx:1.27
@@ -34,6 +38,15 @@ services:
       - ../frontend/dist:/usr/share/nginx/html:ro
       - ./certs:/etc/nginx/certs:ro
     depends_on: [api]
+  xiaoju-workspace:
+    image: jucheng-xiaoju-workspace:1.3.0
+    build:
+      context: ../backend/agent_runtime
+      dockerfile: Dockerfile.workspace
+      args:
+        APT_MIRROR: ${WORKSPACE_APT_MIRROR:-${APT_MIRROR:-}}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    profiles: [build]
   backup:
     image: postgres:17
     restart: unless-stopped
@@ -42,4 +55,8 @@ services:
     # 每日 02:30 全量备份，保留 7 天（PRD 9：RPO ≤ 24h）
     entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 'tomorrow 02:30' +%s) - $$(date +%s)) )); pg_dump -h db -U jucheng -Fc jucheng > /backups/jucheng_$$(date +%F).dump && find /backups -name '*.dump' -mtime +7 -delete; done"]
     depends_on: [db]
-volumes: { pgdata: {}, files: {} }
+volumes:
+  pgdata: {}
+  files: {}
+  workspaces:
+    name: jucheng_xiaoju_workspaces

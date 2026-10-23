@@ -99,7 +99,7 @@ def health():
     with engine.connect() as c:
         c.execute(text("select 1"))
     return {"status": "ok", "env": settings.environment, "mode": settings.data_source_mode,
-            "overrides": settings.data_source_overrides}
+            "overrides": settings.data_source_overrides, "revision": settings.app_revision}
 
 
 _mcp_server = _mcp()

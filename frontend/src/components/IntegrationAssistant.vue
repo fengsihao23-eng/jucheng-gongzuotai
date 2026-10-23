@@ -9,6 +9,15 @@
         <el-button text :disabled="working || saving" aria-label="关闭小聚" @click="assistant.visible = false"><el-icon><Close /></el-icon></el-button>
       </header>
 
+      <div v-if="automaticMode" class="conversation-toolbar">
+        <select v-model="sessionId" aria-label="历史对话" :disabled="busy" @change="loadConversation(sessionId)"><option value="">新对话</option><option v-for="item in conversations" :key="item.id" :value="item.id">{{ item.title }}</option></select>
+        <el-button size="small" :disabled="busy" @click="newConversation">新对话</el-button>
+        <el-button size="small" :disabled="busy || !sessionId" @click="forkConversation">复制对话</el-button>
+        <el-button size="small" :disabled="busy || !sessionId || messages.length < 2 || execution?.state === 'awaiting_confirmation'" @click="ask('压缩当前对话', false, 'compact')">整理上下文</el-button>
+        <label v-if="catalog.runtime?.models?.length > 1">模型 <select v-model="selectedModel" aria-label="对话模型" :disabled="busy" @change="saveConversationOptions"><option v-for="model in catalog.runtime.models" :key="model" :value="model">{{ model }}</option></select></label>
+        <label>思考 <select v-model="selectedThinking" aria-label="思考深度" :disabled="busy" @change="saveConversationOptions"><option value="off">快速</option><option value="medium">标准</option><option value="high">深入</option></select></label>
+      </div>
+
       <div ref="scrollArea" class="assistant-scroll" aria-live="polite">
         <div v-if="loadError" class="assistant-load-error"><p>暂时无法读取接入状态。</p><el-button @click="loadCatalog">重新加载</el-button></div>
         <template v-else>
@@ -38,12 +47,15 @@
           <div v-for="(item, i) in messages" :key="i" class="assistant-message" :class="item.role">
             <span class="message-label">{{ item.role === 'user' ? '你' : '小聚' }}</span>
             <div class="message-content">{{ item.text }}</div>
+            <el-button v-if="item.role === 'assistant' && item.task_id" text size="small" :disabled="executing" @click="showTask(item.task_id)">查看执行记录</el-button>
             <div v-if="item.links?.length" class="message-links"><el-button v-for="link in item.links" :key="link.path" @click="navigate(link.path)">{{ link.label }} <el-icon><Right /></el-icon></el-button></div>
             <div v-if="item.providers?.length > 1" class="message-links"><el-button v-for="key in item.providers" :key="key" size="small" :disabled="busy" @click="selectProvider(key)">{{ connectorName(key) }}</el-button></div>
           </div>
           <div v-if="chatting" class="assistant-thinking" role="status">小聚正在准备执行…</div>
+          <div v-if="executing && execution?.partial_text" class="assistant-message assistant"><span class="message-label">小聚</span><div class="message-content">{{ execution.partial_text }}</div></div>
+          <p v-if="executing && execution?.runtime_event === 'auto_compaction_start'" class="jc-small jc-muted">正在整理较早的上下文，随后继续执行…</p>
 
-          <section v-if="execution" class="execution-card" aria-label="小聚执行进度">
+          <section v-if="execution" class="execution-card" :data-task-id="execution.id" :data-task-state="execution.state" aria-label="小聚执行进度">
             <div class="execution-heading"><b>{{ STATE_LABELS[execution.state] || '正在执行' }}</b><el-button v-if="executing" text size="small" @click="cancelExecution">停止执行</el-button></div>
             <ol class="execution-steps"><li v-for="(step, i) in execution.steps" :key="i" :class="step.state"><span class="step-dot" /><div><b>{{ step.label }}</b><p v-if="step.message">{{ step.message }}</p></div><small>{{ step.state === 'running' ? '执行中' : step.state === 'succeeded' ? '已完成' : '待处理' }}</small></li></ol>
             <p v-if="!execution.steps?.length" class="jc-muted jc-small">小聚正在分析任务并选择工具。</p>
@@ -70,6 +82,7 @@
             <BusinessResultCard v-for="(receipt, index) in execution.business_results" :key="receipt.result_id || index" :result="receipt" @navigate="navigate" />
             <div v-for="(error, index) in execution.business_errors" :key="`error-${index}`" class="business-error"><p>{{ error.message }}</p><a v-if="error.authorization_url" :href="error.authorization_url" target="_blank" rel="noopener noreferrer">{{ error.authorization_label || '打开企业微信授权' }} ↗</a></div>
           </section>
+          <section v-if="execution?.workspace_files?.length" class="workspace-results" aria-label="对话工作文件"><b>工作文件</b><el-button v-for="file in execution.workspace_files" :key="file.path" text @click="downloadWorkspace(file)">{{ file.path }} · 下载</el-button></section>
           <input ref="credentialInput" type="file" accept=".env,.json,.txt" hidden @change="importCredentialFile" />
           <input ref="businessInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.docx,.pptx,.pdf,.txt,.md,.png,.jpg,.jpeg" multiple hidden @change="uploadBusinessFiles" />
           <el-button v-if="execution && !executing && active" class="manual-entry" text size="small" @click="manualMode = !manualMode">{{ manualMode ? '收起备用配置' : '展开备用配置' }}</el-button>
@@ -117,8 +130,8 @@
 
       <form class="assistant-composer" @submit.prevent="ask()">
         <div v-if="attachments.length" class="composer-files"><el-tag v-for="file in attachments" :key="file.id" closable :disable-transitions="true" @close="attachments = attachments.filter((item) => item.id !== file.id)">{{ file.filename }}</el-tag></div>
-        <div class="composer-box"><el-button text :disabled="busy || !automaticMode" :loading="uploading" aria-label="上传业务文件" title="上传业务文件" @click="businessInput?.click()"><el-icon v-if="!uploading"><Paperclip /></el-icon></el-button><textarea v-model="input" aria-label="向小聚描述需求" placeholder="例如：登记客户工单，或生成本月财务报表" rows="2" :maxlength="1500" :disabled="busy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="busy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
-        <small>按账号权限办事 · 重要操作核对后提交 · 支持业务文件上传</small>
+        <div class="composer-box"><el-button text :disabled="busy || !automaticMode" :loading="uploading" aria-label="上传业务文件" title="上传业务文件" @click="businessInput?.click()"><el-icon v-if="!uploading"><Paperclip /></el-icon></el-button><textarea v-model="input" aria-label="向小聚描述需求" :placeholder="executing ? '可以补充要求，小聚会在执行中接收' : '例如：登记客户工单，或分析附件并生成表格'" rows="2" :maxlength="16000" :disabled="composerBusy" @keydown.enter.exact.prevent="!$event.isComposing && ask()" /><el-button type="primary" native-type="submit" :disabled="composerBusy || !input.trim()" :loading="chatting" aria-label="发送需求"><el-icon v-if="!chatting"><Top /></el-icon></el-button></div>
+        <small>对话自动保存 · 按账号权限办事 · 重要操作核对后提交</small>
       </form>
     </section>
   </el-drawer>
@@ -147,7 +160,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Close, Right, Top, Paperclip } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api from '@/api/client'
+import api, { getToken, setToken } from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { useAuth } from '@/store/auth'
 import BusinessActionCard from '@/components/BusinessActionCard.vue'
@@ -183,6 +196,12 @@ let pollGeneration = 0
 const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || executing.value || uploading.value)
 const input = ref('')
 const messages = ref([])
+const conversations = ref([])
+const sessionId = ref('')
+const selectedModel = ref('')
+const selectedThinking = ref('medium')
+let streamController
+const composerBusy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || uploading.value)
 const activeKey = ref('')
 const context = ref([])
 const active = computed(() => catalog.value.connectors.find((c) => c.key === activeKey.value))
@@ -261,6 +280,7 @@ async function pollBind() {
       bindQr.value = ''
       ElMessage.success('企业微信个人连接已绑定')
       await loadCatalog()
+      newConversation()
     } else if (['expired', 'failed', 'cancelled'].includes(state.state)) {
       stopBindTimers()
       bindState.value = state.state
@@ -289,6 +309,7 @@ async function unbindCli() {
     await api.del('/wecom-personal/binding')
     ElMessage.success('已解除绑定')
     await loadCatalog()
+    newConversation()
   } catch { /* 错误已由统一提示处理 */ }
 }
 
@@ -310,9 +331,9 @@ function selectProvider(key) {
   active.value?.fields?.forEach((f) => { form[f.key] = f.secret ? '' : f.value })
   scrollDown()
 }
-async function ask(text = input.value, resume = false) {
+async function ask(text = input.value, resume = false, action = 'prompt') {
   const message = text.trim()
-  if (!message || busy.value) return
+  if (!message || composerBusy.value) return
   if (secretPattern.test(message)) {
     input.value = ''
     messages.value.push({ role: 'assistant', text: '这条内容可能含有密钥，内容未发送。公司密钥请由管理员通过接入文件管理。' })
@@ -320,8 +341,16 @@ async function ask(text = input.value, resume = false) {
     return
   }
   input.value = ''
+  if (executing.value && execution.value?.id) {
+    try {
+      await api.post(`/assistant/tasks/${execution.value.id}/steer`, { message }, { silent: true })
+      messages.value.push({ role: 'user', text: message })
+      scrollDown()
+    } catch (error) { ElMessage.warning(error.message || '补充要求未发送，请稍后重试') }
+    return
+  }
   const history = messages.value.slice(-12).map((item) => ({ role: item.role, content: item.text.slice(0, 6000) }))
-  const previousId = execution.value?.id
+  const previousId = execution.value?.session_id === sessionId.value || (!execution.value?.session_id && !sessionId.value) ? execution.value?.id : null
   const continuing = resume || /继续|接着|刚才|上面|这个|这张|这些|这项|该项目|该工单|改为|改成|确认|根据上述/.test(message)
   messages.value.push({ role: 'user', text: message })
   lastInstruction.value = message
@@ -330,12 +359,13 @@ async function ask(text = input.value, resume = false) {
   scrollDown()
   try {
     if (automaticMode.value) {
-      execution.value = await api.post('/assistant/tasks', { message, context: context.value, history, attachment_ids: attachments.value.map((file) => file.id), current_page: route.fullPath, resume_task_id: continuing ? previousId : null }, { silent: true })
+      execution.value = await api.post('/assistant/tasks', { message, context: context.value, history: sessionId.value ? [] : history, session_id: sessionId.value || null, model: selectedModel.value || null, thinking: selectedThinking.value, action, attachment_ids: attachments.value.map((file) => file.id), current_page: route.fullPath, resume_task_id: continuing ? previousId : null }, { silent: true })
+      sessionId.value = execution.value.session_id
       attachments.value = []
       assistant.activeTaskId = execution.value.id
       executing.value = true
       pollGeneration++
-      pollExecution(assistant.activeTaskId, pollGeneration)
+      streamExecution(assistant.activeTaskId, pollGeneration)
       return
     }
     const r = await api.post('/assistant/chat', { message, context: context.value }, { silent: true })
@@ -343,32 +373,118 @@ async function ask(text = input.value, resume = false) {
     if (r.providers?.length) { context.value = r.providers; selectProvider(r.providers[0]) }
     else { activeKey.value = ''; Object.keys(form).forEach((k) => delete form[k]) }
   } catch (error) { messages.value.push({ role: 'assistant', text: error.message || '小聚暂时无法处理这条请求，请稍后重试。' }) }
-  finally { chatting.value = false; messages.value = messages.value.slice(-24); scrollDown() }
+  finally { chatting.value = false; scrollDown() }
+}
+async function applyTask(task, generation) {
+  if (generation !== pollGeneration) return true
+  execution.value = task
+  pollError.value = false
+  if (!TERMINAL.has(task.state)) return false
+  executing.value = false
+  assistant.activeTaskId = ''
+  const providers = [...new Set((task.outcomes || []).map((r) => r.provider))]
+  if (providers.length) { context.value = providers; selectProvider(providers[0]) }
+  if (!messages.value.some((m) => m.role === 'assistant' && m.task_id === task.id)) messages.value.push({ role: 'assistant', text: task.message, links: task.links, task_id: task.id })
+  await refreshConversations()
+  await loadCatalog()
+  scrollDown()
+  return true
+}
+async function streamExecution(id, generation) {
+  streamController?.abort()
+  const controller = new AbortController()
+  streamController = controller
+  try {
+    const response = await fetch(`/api/v1/assistant/tasks/${id}/stream`, { headers: { Authorization: `Bearer ${getToken()}` }, signal: controller.signal })
+    if (!response.ok || !response.body) throw new Error('stream unavailable')
+    const renewed = response.headers.get('x-refresh-token')
+    if (renewed) setToken(renewed)
+    const reader = response.body.getReader(), decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let boundary
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2)
+        const data = block.split('\n').find((line) => line.startsWith('data: '))
+        if (!data) continue
+        if (block.startsWith('event: error')) throw new Error('session unavailable')
+        if (await applyTask(JSON.parse(data.slice(6)), generation)) { await reader.cancel(); return }
+      }
+    }
+    if (generation === pollGeneration && executing.value) pollExecution(id, generation)
+  } catch (error) {
+    if (error.name !== 'AbortError' && generation === pollGeneration) { pollError.value = true; pollExecution(id, generation) }
+  }
 }
 async function pollExecution(id, generation) {
   if (generation !== pollGeneration) return
   try {
     const task = await api.get(`/assistant/tasks/${id}`, null, { silent: true })
     if (generation !== pollGeneration) return
-    execution.value = task
-    pollError.value = false
-    if (TERMINAL.has(task.state)) {
-      executing.value = false
-      assistant.activeTaskId = ''
-      const providers = [...new Set((task.outcomes || []).map((r) => r.provider))]
-      if (providers.length) { context.value = providers; selectProvider(providers[0]) }
-      messages.value.push({ role: 'assistant', text: task.message, links: task.links })
-      messages.value = messages.value.slice(-24)
-      await loadCatalog()
-      scrollDown()
+    if (await applyTask(task, generation)) return
+    pollTimer = setTimeout(() => pollExecution(id, generation), 700)
+  } catch (error) {
+    if (generation !== pollGeneration) return
+    if ([40101, 40102, 40301, 40401].includes(error.code)) {
+      executing.value = false; messages.value = []; execution.value = null; sessionId.value = ''; assistant.activeTaskId = ''
+      ElMessage.warning('当前对话已不可访问，请新建对话。')
       return
     }
-    pollTimer = setTimeout(() => pollExecution(id, generation), 700)
-  } catch {
-    if (generation !== pollGeneration) return
     pollError.value = true
     pollTimer = setTimeout(() => pollExecution(id, generation), 2500)
   }
+}
+async function refreshConversations() {
+  const account = auth.profile?.id
+  const values = await api.get('/assistant/sessions', null, { silent: true })
+  if (account === auth.profile?.id) conversations.value = values
+}
+function newConversation() {
+  if (busy.value) return
+  pollGeneration++; clearTimeout(pollTimer); streamController?.abort()
+  sessionId.value = ''; execution.value = null; messages.value = []; context.value = []; attachments.value = []
+  selectedModel.value = catalog.value.runtime?.model || ''
+  selectedThinking.value = catalog.value.runtime?.thinking || 'medium'
+}
+async function loadConversation(id) {
+  if (!id) { newConversation(); return }
+  try {
+    const generation = ++pollGeneration
+    clearTimeout(pollTimer); streamController?.abort()
+    const conversation = await api.get(`/assistant/sessions/${id}`, null, { silent: true })
+    if (generation !== pollGeneration) return
+    sessionId.value = conversation.id; messages.value = conversation.messages || []
+    selectedModel.value = conversation.model; selectedThinking.value = conversation.thinking
+    execution.value = null; context.value = []; attachments.value = []
+    if (conversation.last_task_id) {
+      const task = await api.get(`/assistant/tasks/${conversation.last_task_id}`, null, { silent: true })
+      if (generation !== pollGeneration) return
+      execution.value = task
+      if (!TERMINAL.has(execution.value.state)) { executing.value = true; assistant.activeTaskId = execution.value.id; streamExecution(execution.value.id, pollGeneration) }
+    }
+    scrollDown()
+  } catch (error) { newConversation(); ElMessage.warning(error.message || '无法恢复对话，请新建对话') }
+}
+async function forkConversation() {
+  try {
+    const result = await api.post(`/assistant/sessions/${sessionId.value}/fork`, {}, { silent: true })
+    await refreshConversations(); await loadConversation(result.id)
+  } catch (error) { ElMessage.warning(error.message || '无法复制对话') }
+}
+async function saveConversationOptions() {
+  if (!sessionId.value) return
+  try { await api.patch(`/assistant/sessions/${sessionId.value}`, { model: selectedModel.value, thinking: selectedThinking.value }, { silent: true }) }
+  catch (error) { ElMessage.warning(error.message || '设置未保存') }
+}
+async function downloadWorkspace(file) {
+  if (execution.value?.session_id) await api.download(`/assistant/sessions/${execution.value.session_id}/files`, { path: file.path }, file.path.split('/').pop())
+}
+async function showTask(id) {
+  try { execution.value = await api.get(`/assistant/tasks/${id}`, null, { silent: true }); scrollDown() }
+  catch (error) { ElMessage.warning(error.message || '无法读取执行记录') }
 }
 async function cancelExecution() {
   if (!execution.value?.id) return
@@ -483,13 +599,19 @@ async function configure(persist) {
 watch(() => assistant.visible, async (visible) => {
   if (!visible) return
   await loadCatalog()
-  if (automaticMode.value && !executing.value && !execution.value) {
+  if (automaticMode.value && !executing.value) {
     try {
-      const tasks = await api.get('/assistant/tasks', null, { silent: true })
-      const unfinished = tasks.find((task) => !TERMINAL.has(task.state) || task.state === 'awaiting_confirmation' || task.business_errors?.some((error) => error.authorization_url))
-      if (unfinished) {
-        execution.value = unfinished; assistant.activeTaskId = unfinished.id
-        if (!TERMINAL.has(unfinished.state)) { executing.value = true; pollGeneration++; pollExecution(unfinished.id, pollGeneration) }
+      await refreshConversations()
+      if (sessionId.value || conversations.value.length) await loadConversation(sessionId.value || conversations.value[0].id)
+      else {
+        selectedModel.value = catalog.value.runtime?.model || ''; selectedThinking.value = catalog.value.runtime?.thinking || 'medium'
+        const tasks = await api.get('/assistant/tasks', null, { silent: true })
+        const pending = tasks.find((task) => !task.session_id && (!TERMINAL.has(task.state) || task.state === 'awaiting_confirmation'))
+        if (pending) {
+          execution.value = pending
+          messages.value = [{ role: 'assistant', text: pending.message, task_id: pending.id }]
+          if (!TERMINAL.has(pending.state)) { executing.value = true; pollGeneration++; streamExecution(pending.id, pollGeneration) }
+        }
       }
     } catch { /* 状态恢复失败不阻止用户发起新任务 */ }
   }
@@ -499,15 +621,20 @@ watch(() => assistant.visible, async (visible) => {
     await ask(message)
   }
 })
-watch(() => auth.profile?.id, () => { pollGeneration++; clearTimeout(pollTimer); executing.value = false; execution.value = null; assistant.activeTaskId = ''; clearSensitive(); messages.value = []; context.value = []; assistant.visible = false })
-onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); stopBindTimers(); if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl); assistant.visible = false; clearSensitive() })
+watch(() => auth.profile?.id, () => { pollGeneration++; clearTimeout(pollTimer); streamController?.abort(); executing.value = false; execution.value = null; assistant.activeTaskId = ''; clearSensitive(); messages.value = []; conversations.value = []; sessionId.value = ''; context.value = []; assistant.visible = false })
+onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); streamController?.abort(); stopBindTimers(); if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl); assistant.visible = false; clearSensitive() })
 </script>
 
 <style>
+.integration-assistant.el-drawer { max-width: 100vw; transition-property: transform; }
 .integration-assistant .el-drawer__body { padding: 0; overflow: hidden; }
 </style>
 <style scoped>
 .assistant-shell { display: flex; flex-direction: column; height: 100%; color: var(--jc-ink); background: var(--jc-surface); }
+.conversation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 24px; border-bottom: 1px solid var(--jc-line); }
+.conversation-toolbar select { min-width: 0; max-width: 220px; padding: 6px; color: var(--jc-ink); border: 1px solid var(--jc-line); border-radius: 5px; background: var(--jc-surface); font: inherit; font-size: 12px; }
+.conversation-toolbar > select { flex: 1; }.conversation-toolbar label { color: var(--jc-ink-3); font-size: 11px; }.conversation-toolbar .el-button { margin: 0; }
+.workspace-results { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; border: 1px solid var(--jc-line); border-radius: 8px; font-size: 12px; margin-bottom: 14px; }
 .assistant-header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 20px; border-bottom: 1px solid var(--jc-line); }
 .assistant-mark { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; background: var(--jc-brand); color: white; border-radius: 12px; }
 .assistant-header h2 { margin: 0 0 5px; font-family: var(--jc-font-serif); font-size: 21px; font-weight: 600; }

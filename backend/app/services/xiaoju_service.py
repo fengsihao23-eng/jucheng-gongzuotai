@@ -20,6 +20,8 @@ from app.services.xiaoju_tools import TOOL_SPECS, XiaoJuTools, private_write, re
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="xiaoju")
 _lock = threading.RLock()
+_worker_id = uuid.uuid4().hex
+_worker_leases = {}
 TERMINAL = {"succeeded", "partial", "waiting_input", "waiting_admin", "awaiting_confirmation", "failed", "cancelled"}
 TITLES = {"inspect_environment": "检查运行环境和现有接入", "discover_credentials": "自动查找已有凭证",
           "install_workbuddy": "写入 WorkBuddy 并验证连接", "connect_enterprise": "调用企业接口并自动配置",
@@ -62,14 +64,41 @@ WorkBuddy 工具成功表示配置已写且服务可达，客户端加载状态�
 
 def runtime_info():
     runtime = BASE_DIR / "agent_runtime"
-    installed = (runtime / "node_modules/@earendil-works/pi-agent-core/package.json").is_file()
-    return {"name": "小聚", "engine": "pi-agent-core", "version": "1.3.0", "model": settings.llm_model,
+    from app.services import xiaoju_sessions, xiaoju_workspace
+    installed = (runtime / "node_modules/@earendil-works/pi-coding-agent/package.json").is_file()
+    return {"name": "小聚", "engine": "pi-coding-agent", "version": "1.3.0", "model": settings.llm_model,
             "available": bool(shutil.which(settings.assistant_node_bin) and installed and settings.llm_api_key and settings.llm_base_url and settings.llm_model),
-            "host_access": settings.assistant_host_access}
+            "host_access": settings.assistant_host_access, "models": xiaoju_sessions.models(),
+            "thinking": settings.assistant_thinking_level, "workspace": xiaoju_workspace.available(),
+            "features": ["persistent_sessions", "compaction", "skills", "extensions", "mcp", "codemode", "tool_search", "streaming"]}
 
 
 def task_root():
     return settings.storage_dir.parent / "xiaoju" / "tasks"
+
+
+def _worker_lease():
+    root = task_root()
+    with _lock:
+        if str(root) not in _worker_leases:
+            path = root / ".workers" / _worker_id
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = path.open("a")
+            os.fchmod(handle.fileno(), 0o600)
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            _worker_leases[str(root)] = handle
+    return _worker_id
+
+
+def _released(path):
+    if not path.exists():
+        return True
+    with path.open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            return False
 
 
 def _path(root, task_id):
@@ -100,7 +129,21 @@ def read(task_id, user_id):
     result = _load(task_root(), task_id)
     if result["user_id"] != user_id:
         raise forbidden("此任务属于其他账号")
-    if result["state"] not in TERMINAL and time.time() - result["updated_at"] > settings.assistant_task_timeout_seconds + 60:
+    if result.get("session_id"):
+        from app.services import xiaoju_sessions as sessions
+        sessions.load(user_id, result["session_id"])
+    interrupted = result.get("engine") == "pi-agent-core" and result["state"] not in TERMINAL
+    if result["state"] not in TERMINAL and result.get("runtime_worker"):
+        interrupted = _released(task_root() / ".workers" / result["runtime_worker"])
+    lease_path = _path(task_root(), task_id).with_suffix(".running")
+    if result["state"] in {"running", "stopping"} and lease_path.exists():
+        with lease_path.open("a") as lease:
+            try:
+                fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                interrupted = True
+            except BlockingIOError:
+                pass
+    if interrupted or result["state"] not in TERMINAL and time.time() - result["updated_at"] > settings.assistant_task_timeout_seconds + 60:
         result = _change(task_root(), task_id, lambda task: task.update(state="failed", message="上次执行已中断，请继续任务以重新检查当前状态"))
     return _business_view(result, user_id)
 
@@ -113,13 +156,20 @@ def list_for_user(user_id):
     for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         task = _load(root, path.stem)
         if task["user_id"] == user_id and (len(result) < 5 or task["state"] not in TERMINAL or task["state"] == "awaiting_confirmation"):
+            if task.get("session_id"):
+                from app.services import xiaoju_sessions as sessions
+                try:
+                    sessions.load(user_id, task["session_id"])
+                except BizError:
+                    continue
             result.append(_business_view(task, user_id))
         if len(result) >= 20:
             break
     return result
 
 
-def create(message, context, user_id, history=None, attachment_ids=None, resume_task_id=None, current_page=""):
+def create(message, context, user_id, history=None, attachment_ids=None, resume_task_id=None, current_page="",
+           session_id=None, model=None, thinking=None, action="prompt"):
     if not message.strip():
         raise bad_request("请告诉小聚需要完成的操作")
     if SECRET_PATTERN.search(message):
@@ -129,12 +179,22 @@ def create(message, context, user_id, history=None, attachment_ids=None, resume_
     root = task_root()
     task_id = uuid.uuid4().hex
     previous = read(resume_task_id, user_id) if resume_task_id else None
+    from app.services import xiaoju_sessions as sessions
+    session_id = session_id or (previous or {}).get("session_id")
+    conversation = sessions.load(user_id, session_id) if session_id else sessions.create(user_id, model=model, thinking=thinking)
+    if previous and previous.get("session_id") and previous["session_id"] != conversation["id"]:
+        raise bad_request("只能继续当前对话的任务")
     workflow_id = previous.get("workflow_id", previous["id"]) if previous else task_id
     attachment_ids = list(dict.fromkeys([*(attachment_ids or []), *(previous.get("attachment_ids", []) if previous else [])]))
     from app.services import xiaoju_business_state as business_state
     for attachment_id in attachment_ids: business_state.attachment(attachment_id, user_id)
     history = [{"role": turn["role"], "content": SECRET_PATTERN.sub("[已隐藏]", turn["content"])[:6000]} for turn in (history or [])[-12:]]
-    task = {"id": task_id, "user_id": user_id, "name": "小聚", "engine": "pi-agent-core", "state": "queued",
+    conversation = sessions.reserve(user_id, conversation["id"], task_id, message, model, thinking)
+    if len(conversation["messages"]) > 1:
+        history = [{"role": m["role"], "content": m["text"]} for m in conversation["messages"][:-1]]
+    task = {"id": task_id, "user_id": user_id, "name": "小聚", "engine": "pi-coding-agent", "state": "queued",
+            "runtime_worker": _worker_lease(),
+            "session_id": conversation["id"], "model": conversation["model"], "thinking": conversation["thinking"], "action": action,
             "message": "小聚正在准备执行", "steps": [], "outcomes": [], "links": [], "cancel_requested": False,
             "workflow_id": workflow_id, "attachment_ids": attachment_ids,
             "business_results": [item for item in previous.get("business_results", []) if item.get("result_id")] if previous else [],
@@ -149,12 +209,50 @@ def cancel(task_id, user_id):
     value = read(task_id, user_id)
     if value["state"] in TERMINAL:
         return value
+    if value["state"] == "queued":
+        result = _change(task_root(), task_id, lambda t: t.update(cancel_requested=True, state="cancelled", message="已取消排队任务，未开始执行。"))
+        from app.services import xiaoju_sessions as sessions
+        sessions.finish(user_id, value.get("session_id"), task_id, result["message"])
+        return result
     return _change(task_root(), task_id, lambda t: t.update(cancel_requested=True, state="stopping", message="正在停止，小聚会保留已完成的步骤"))
 
 
+def steer(task_id, user_id, message):
+    from app.services import xiaoju_sessions as sessions
+    value = read(task_id, user_id)
+    sessions.load(user_id, value.get("session_id"))
+    if value["state"] in TERMINAL:
+        raise bad_request("本次执行已结束，请发送新的消息")
+    if SECRET_PATTERN.search(message):
+        raise bad_request("聊天不接收密钥，请使用接入配置入口")
+    def queued(task):
+        if len(task.get("pending_inputs", [])) >= 8:
+            raise bad_request("补充要求正在排队，请稍后再发送")
+        task.setdefault("pending_inputs", []).append(message)
+    result = _change(task_root(), task_id, queued)
+    with sessions.locked(user_id, value["session_id"]):
+        conversation = sessions.load(user_id, value["session_id"])
+        conversation["messages"].append({"role": "user", "text": redact(message), "task_id": task_id})
+        sessions.save(conversation)
+    return result
+
+
 def _run(root, task_id, message, context, user_id, history=None, attachment_ids=None, workflow_id=None, current_page="", previous=None):
+    from app.services import xiaoju_sessions as sessions, xiaoju_workspace as workspace
     process = None
     selector = None
+    lease = _path(root, task_id).with_suffix(".running").open("a")
+    os.fchmod(lease.fileno(), 0o600)
+    fcntl.flock(lease, fcntl.LOCK_EX)
+    session_id = _load(root, task_id).get("session_id")
+    initial = _load(root, task_id)
+    if initial["state"] in TERMINAL or initial.get("cancel_requested"):
+        try:
+            sessions.finish(user_id, session_id, task_id, initial["message"])
+        finally:
+            lease.close()
+        return
+    live_text, last_text_save = "", 0.0
     read_only = any(word in message for word in ("检查", "查看", "查询", "列出", "统计", "状态", "诊断")) and not any(
         word in message for word in ("帮我接入", "自动接入", "直接接入", "并接入", "接好", "安装", "配置", "继续", "完成", "全部接入", "生成", "登记", "更新", "新增", "导入", "归档", "创建", "标记", "推进", "归集", "分配", "发送", "催交", "删除", "撤销", "修改", "维护", "提交"))
     intent = message + ("\n" + "\n".join(turn["content"] for turn in history or [] if turn["role"] == "user") if previous else "")
@@ -166,21 +264,31 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
                 raise ValueError("inactive account")
             is_admin = build_principal(user).is_admin
         _change(root, task_id, lambda t: t.update(state="running", message="小聚正在分析并调用工具"))
+        conversation = sessions.load(user_id, session_id)
+        session_dir = sessions.folder(user_id, session_id)
+        session_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        clean_env = {key: os.environ[key] for key in ("PATH", "LANG", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR") if key in os.environ}
+        clean_env.update(HOME=str(session_dir), PI_OFFLINE="1", NODE_NO_WARNINGS="1")
         process = subprocess.Popen([settings.assistant_node_bin, str(BASE_DIR / "agent_runtime/run.mjs")],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   cwd=BASE_DIR, start_new_session=True)
+                                   cwd=BASE_DIR, start_new_session=True, env=clean_env)
         visible_tools = TOOL_SPECS if is_admin else [tool for tool in TOOL_SPECS if tool["name"] in {"inspect_environment", "find_page", "connect_enterprise", "prepare_personal_workbuddy", "list_business_capabilities", "describe_business_operation", "execute_business_operation", "read_business_action", "read_business_result"}]
         scope_prompt = "\n当前账号是公司管理员，可管理公司接入；不得将当前主机配置当成所有员工的电脑配置。" if is_admin else "\n当前账号是普通员工。企业接入只调用 connect_enterprise 查询和复用公司授权，不读取企业密钥。不要要求员工填写企业 App Secret。"
         from app.core.timeutil import today, week_no, last_week, month_of
         from app.services import xiaoju_business_state as business_state
         file_context = [business_state.file_view(business_state.read("files", file_id, user_id)) for file_id in attachment_ids or []]
+        if workspace.available():
+            for item in file_context:
+                item["workspace_path"] = workspace.import_attachment(user_id, session_id, item["id"])
         resume_context = {"actions": [{key: action.get(key) for key in ("id", "state", "operation_id", "result_id")} for action in previous.get("business_actions", [])],
                           "results": [{key: receipt.get(key) for key in ("result_id", "operation_id", "title", "status")} for receipt in previous.get("business_results", [])]} if previous else {}
         extra = {"today": str(today()), "this_week": week_no(today()), "last_week": last_week(), "month": month_of(today()),
                  "current_page": current_page[:250], "uploaded_files": file_context, "prior_workflow_receipts": resume_context}
         from app.services.wecom_cli_service import status as cli_status
         extra["wecom_cli"] = cli_status(user_id)
-        init = {"model": settings.llm_model, "baseUrl": settings.llm_base_url, "apiKey": settings.llm_api_key,
+        init = {"model": conversation["model"], "thinking": conversation["thinking"], "baseUrl": settings.llm_base_url, "apiKey": settings.llm_api_key,
+                "sessionDir": str(session_dir), "workspaceEnabled": workspace.available(), "maxTurns": settings.assistant_max_turns,
+                "maxOutputTokens": settings.assistant_max_output_tokens, "action": _load(root, task_id).get("action", "prompt"),
                 "system": SYSTEM + scope_prompt + "\n上下文：" + json.dumps(extra, ensure_ascii=False) + "\n上次涉及系统：" + json.dumps(context, ensure_ascii=False),
                 "message": message, "tools": visible_tools, "history": history or []}
         process.stdin.write((json.dumps(init, ensure_ascii=False) + "\n").encode()); process.stdin.flush()
@@ -190,9 +298,23 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
         buffer = b""
         done = False
         while time.monotonic() < deadline and not done:
-            if _load(root, task_id)["cancel_requested"]:
-                _change(root, task_id, lambda t: t.update(state="cancelled", message="小聚已停止；已完成的配置仍然保留", outcomes=tools.outcomes, links=tools.links))
+            live_task = _load(root, task_id)
+            if live_task["cancel_requested"]:
+                _change(root, task_id, lambda t: t.update(state="cancelled", message="小聚已停止，已完成的操作和工作文件仍然保留。", outcomes=tools.outcomes, links=tools.links))
                 return
+            if live_task.get("pending_inputs"):
+                sessions.load(user_id, session_id)
+                to_send = []
+                def consume(task):
+                    to_send.extend(task.get("pending_inputs", []))
+                    task["pending_inputs"] = []
+                _change(root, task_id, consume)
+                for text in to_send:
+                    tools.intent += "\n" + text
+                    if tools._business is not None:
+                        tools._business.intent += "\n" + text
+                    process.stdin.write((json.dumps({"type": "steer", "message": text}, ensure_ascii=False) + "\n").encode())
+                process.stdin.flush()
             ready = selector.select(timeout=0.5)
             if not ready:
                 if process.poll() is not None:
@@ -202,24 +324,47 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
             if not chunk:
                 raise RuntimeError("runtime closed")
             buffer += chunk
-            if len(buffer) > 1048576:
+            if len(buffer) > 8 * 1048576:
                 raise RuntimeError("runtime frame too large")
             while b"\n" in buffer:
                 line, buffer = buffer.split(b"\n", 1)
                 frame = json.loads(line)
                 if frame["type"] == "tool_call":
-                    if len(_load(root, task_id)["steps"]) >= 64:
+                    if frame["name"] == "check_session_scope":
+                        sessions.load(user_id, session_id)
+                        process.stdin.write((json.dumps({"type": "tool_result", "id": frame["id"], "result": {"ok": True}}) + "\n").encode()); process.stdin.flush()
+                        continue
+                    if len(_load(root, task_id)["steps"]) >= settings.assistant_max_tool_calls:
                         raise RuntimeError("tool limit")
                     name = frame["name"]
-                    step = {"tool": name, "label": TITLES.get(name, "执行接入操作"), "state": "running"}
+                    step = {"tool": name, "label": "处理工作文件 · " + str(frame.get("args", {}).get("tool", "")) if name == "workspace_tool" else TITLES.get(name, "执行接入操作"), "state": "running"}
                     _change(root, task_id, lambda t: t["steps"].append(step))
-                    result = tools.execute(name, frame.get("args", {}))
+                    result = workspace.execute(user_id, session_id, frame["args"].get("tool"), frame["args"].get("args", {}), task_id) if name == "workspace_tool" else tools.execute(name, frame.get("args", {}))
+                    if name == "connect_enterprise" and result.get("ok"):
+                        sessions.refresh_connection_scope(user_id, session_id)
                     def finalized(task):
-                        task["steps"][-1].update(state="succeeded" if result.get("ok") else "pending", message=redact(str(result.get("message", "已完成检查"))))
+                        task["steps"][-1].update(state="succeeded" if result.get("ok", not result.get("isError", False)) else "pending", message=redact(str(result.get("message", "已执行工作文件工具" if name == "workspace_tool" else "已完成检查"))))
+                        if name == "workspace_tool":
+                            task["workspace_files"] = workspace.list_files(user_id, session_id)
+                            errors = task.setdefault("workspace_errors", {})
+                            native_name = frame["args"].get("tool")
+                            if result.get("isError"):
+                                errors[native_name] = True
+                            else:
+                                errors.pop(native_name, None)
                         task["outcomes"], task["links"] = tools.outcomes, tools.links
                         _sync_business(task, tools)
                     _change(root, task_id, finalized)
                     process.stdin.write((json.dumps({"type": "tool_result", "id": frame["id"], "result": result}, ensure_ascii=False) + "\n").encode()); process.stdin.flush()
+                elif frame["type"] == "text_delta":
+                    live_text += frame.get("delta", "")
+                    if time.monotonic() - last_text_save > 0.25:
+                        _change(root, task_id, lambda t: t.update(partial_text=redact(live_text)[-64000:]))
+                        last_text_save = time.monotonic()
+                elif frame["type"] == "ready":
+                    _change(root, task_id, lambda t: t.update(runtime={key: frame.get(key) for key in ("engine", "skills", "tools", "thinking")}))
+                elif frame["type"] == "runtime_event":
+                    _change(root, task_id, lambda t: t.update(runtime_event=frame.get("event")))
                 elif frame["type"] == "done":
                     if not read_only and tools._business is None and not (previous and (previous.get("business_results") or previous.get("business_actions"))):
                         aliases = {"workbuddy": ("workbuddy", "work buddy"), "wecom": ("企业微信", "企微"), "lemoncloud": ("柠檬", "lemon")}
@@ -255,12 +400,21 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
                         summary = summary if any(word in summary for word in ("需要", "请", "缺少", "补充")) else "已找到相关业务功能，但尚未执行。请补充要处理的记录或具体要求。"
                     requested_business = any(word in message for word in ("工单", "合同", "回款", "报销", "流水", "日记账", "报表", "考勤", "商机", "项目", "标书", "知识库", "人事", "薪资", "催交", "文档", "日程", "待办", "会议", "邮件", "微盘", "表格", "通讯录", "员工账号", "公司人员", "组织架构"))
                     navigation_or_capabilities = any(word in message for word in ("在哪", "入口", "页面", "哪些功能", "什么功能", "什么能力", "能做什么", "能替我办"))
-                    if requested_business and not navigation_or_capabilities and not tools.outcomes and not (business and (business.results or business.actions)):
+                    workspace_done = any(s["tool"] == "workspace_tool" and s["state"] == "succeeded" for s in _load(root, task_id)["steps"])
+                    if state == "succeeded" and _load(root, task_id).get("workspace_errors"):
+                        state = "partial" if workspace_done else "failed"
+                    if requested_business and not workspace_done and not navigation_or_capabilities and not tools.outcomes and not (business and (business.results or business.actions)):
                         state = "waiting_input"
                         if not business:
                             summary = "本次尚未获得实际业务回执，任务未标记完成。" + ("\n" + summary if any(word in summary for word in ("需要", "请", "补充", "缺少")) else "请继续执行或补充要处理的记录。")
                     def finished(task):
+                        if frame.get("budgetExceeded"):
+                            task["budget_exceeded"] = True
                         task.update(state=state, message=summary, outcomes=tools.outcomes, links=tools.links)
+                        if workspace.available():
+                            task["workspace_files"] = workspace.list_files(user_id, session_id)
+                        if frame.get("budgetExceeded") and state == "succeeded":
+                            task.update(state="partial", message=summary + "\n本次执行已达到任务预算，可继续办理剩余步骤。")
                         _sync_business(task, tools)
                     _change(root, task_id, finished)
                     done = True
@@ -287,6 +441,11 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
             for stream in (process.stdin, process.stdout):
                 if stream:
                     stream.close()
+        try:
+            task = _load(root, task_id)
+            sessions.finish(user_id, session_id, task_id, task["message"])
+        finally:
+            lease.close()
 
 
 def connectors_name(provider):

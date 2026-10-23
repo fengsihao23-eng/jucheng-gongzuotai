@@ -49,7 +49,7 @@ async function finish(page, taskId) {
   assert.ok(terminal.has(task.state), '任务应在执行时限内结束')
   fs.writeFileSync(path.join(OUT, `${taskId}.json`), JSON.stringify(task, null, 2))
   console.log('TASK', taskId, task.state, task.steps.length, 'steps', task.message.slice(0, 120))
-  await page.waitForFunction(() => !document.querySelector('textarea[aria-label="向小聚描述需求"]').disabled, { timeout: 10000 })
+  await page.waitForFunction(([id, state]) => { const card = document.querySelector('.execution-card'); return card?.dataset.taskId === id && card?.dataset.taskState === state }, [taskId, task.state], { timeout: 15000 })
   return task
 }
 async function ask(page, text) {
