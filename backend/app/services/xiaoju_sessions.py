@@ -62,6 +62,11 @@ def load(user_id, session_id, check=True):
                 value["active_task_id"] = None
         except BizError:
             value["active_task_id"] = None
+    # 管理员换过可用模型后，旧对话里存的模型名可能已停用：静默改成当前默认，避免整段对话不可用。
+    if value.get("model") not in models():
+        value["model"] = settings.llm_model or models()[0]
+        if check:
+            save(value)
     return value
 
 
