@@ -1,4 +1,6 @@
 """企业微信 Live 适配器：真实开放平台 API（gettoken 缓存、错误码重试、频控退避）。"""
+import json
+import re
 import threading
 import time
 from datetime import datetime
@@ -7,7 +9,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.timeutil import TZ
-from app.integration.wecom.base import ApprovalDto, DeptDto, JournalDto, MessageDto, SendResult, UserDto
+from app.integration.wecom.base import ApprovalDto, DeptDto, JournalDto, MediaDto, MessageDto, SendResult, UserDto
 
 
 class WeComApiError(Exception):
@@ -153,3 +155,32 @@ class LiveWeCom:
         if not uid:
             raise WeComApiError(40029, "非企业成员或 code 无效")
         return uid
+
+    MAX_MEDIA = 50 * 1024 * 1024
+
+    def get_media(self, media_id: str) -> MediaDto:
+        """获取临时素材（成员发给应用的图片/语音/视频，3 天内有效）。成功时返回二进制，失败时返回 JSON 错误。"""
+        from urllib.parse import unquote
+        for attempt in range(2):
+            with self.http.stream("GET", "/cgi-bin/media/get", params={"access_token": self._access_token(refresh=attempt > 0),
+                                                                       "media_id": media_id}) as r:
+                ctype = r.headers.get("content-type", "")
+                if "json" in ctype or "text/plain" in ctype:
+                    err = json.loads(r.read() or b"{}")
+                    code = err.get("errcode", -1)
+                    if code in (40014, 42001) and attempt == 0:
+                        continue
+                    raise WeComApiError(code, err.get("errmsg", "获取素材失败"))
+                buf = bytearray()
+                for chunk in r.iter_bytes():
+                    buf += chunk
+                    if len(buf) > self.MAX_MEDIA:
+                        raise WeComApiError(-2, "素材超过 50MB")
+                cd = r.headers.get("content-disposition", "")
+                m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)", cd)
+                name = unquote(m.group(1)) if m else f"{media_id[:12]}"
+                return MediaDto(bytes(buf), name, ctype.split(";")[0] or None)
+        raise WeComApiError(-1, "获取素材失败")
+
+    def create_menu(self, menu: dict) -> None:
+        self._call("POST", "/cgi-bin/menu/create", params={"agentid": settings.wecom_agent_id}, json=menu)

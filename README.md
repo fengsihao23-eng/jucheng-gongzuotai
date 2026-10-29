@@ -106,7 +106,7 @@ docker compose exec -T api python -m scripts.seed   # 重建演示数据（清�
 
 数据库每日 02:30 全量备份到 `deploy/backups/`，保留 7 天。
 
-上线前：配置企业微信凭证并按数据源启用真实模式（知识库已改为自建，不再接乐享，见 [docs/KB_AND_IMPORTS.md](docs/KB_AND_IMPORTS.md)）；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。企业微信后台回调地址配置为 `https://juchengcc.com/api/v1/wecom/callback`。生产 `DATA_SOURCE_MODE=mock` + `PASSWORD_LOGIN_ENABLED=true` 期间按演示环境运行，切换真实数据源后建议关闭口令登录。
+上线前：配置企业微信凭证并按数据源启用真实模式（知识库已改为自建，不再接乐享，见 [docs/KB_AND_IMPORTS.md](docs/KB_AND_IMPORTS.md)；企业微信应用内对话、菜单与智能上传见 [docs/WECOM_APP_CHAT.md](docs/WECOM_APP_CHAT.md)）；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。企业微信后台回调地址配置为 `https://juchengcc.com/api/v1/wecom/callback`。生产 `DATA_SOURCE_MODE=mock` + `PASSWORD_LOGIN_ENABLED=true` 期间按演示环境运行，切换真实数据源后建议关闭口令登录。
 
 ## 开发约定
 

@@ -2,12 +2,12 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="全员 · 资料导入" title="资料导入"
-      desc="把你手里的 Excel、Word、PDF、PPT 直接拖进来，不用整理成固定格式。表格会自动识别成合同、商机、回款或项目台账，文档进入知识库；系统认不出的交给整理人处理。导错了可以整份撤回。" />
+      desc="把你手里的 Excel、Word、PDF、PPT 直接拖进来，或打包成 zip 一次上传，不用整理成固定格式。表格会自动识别成合同、商机、回款或项目台账，文档由 AI 整理好标题、摘要和分类后进入知识库；认不出的交给整理人。导错了可以整份撤回。在企业微信「聚成工作台」里也能直接发图片、问小聚。" />
 
     <div class="drop jc-card" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop" @click="input.click()">
       <input ref="input" type="file" multiple hidden @change="onPick" />
-      <div class="t">拖拽文件到这里，或点击选择（可多选）</div>
-      <div class="jc-muted jc-small">表格：xlsx / csv　文档：docx / pdf / pptx / md / txt　单个不超过 50MB</div>
+      <div class="t">{{ narrow ? '点击选择文件（可多选）' : '拖拽文件到这里，或点击选择（可多选）' }}</div>
+      <div class="jc-muted jc-small">表格：xlsx / csv　文档：docx / pdf / pptx / md / txt　压缩包：zip（最多 100 个文件）　单个不超过 50MB</div>
     </div>
     <div class="purpose" @click.stop>
       <el-input v-model="purpose" placeholder="可选：一句话说明这些资料是什么，例如「我负责的客户合同」「去年的投标文件」" clearable />
@@ -16,6 +16,7 @@
       <div v-for="q in queue" :key="q.key" class="qi">
         <span class="jc-ellipsis">{{ q.name }}</span>
         <span :class="q.error ? 'jc-down' : 'jc-muted'">{{ q.error || q.state }}</span>
+        <div v-if="q.skipped?.length" class="skip jc-muted">未导入：{{ q.skipped.map((x) => `${x.filename}（${x.reason}）`).join('；') }}</div>
       </div>
     </div>
 
@@ -26,11 +27,32 @@
     </el-tabs>
 
     <Panel :padding="false" :loading="loading">
-      <el-table :data="rows.items">
+      <div v-if="narrow" class="cards">
+        <div v-for="row in rows.items" :key="row.id" class="card">
+          <div class="jc-row between">
+            <a class="fn jc-ellipsis" @click="openFile(row.file?.url)">{{ row.filename }}</a>
+            <StatusPill :text="row.status_name" :tone="TONE[row.status]" />
+          </div>
+          <div class="jc-small jc-muted mt-4">{{ row.route_name }}<span v-if="row.target_name"> · {{ row.target_name }}</span> · {{ datetime(row.created_at) }}
+            <span v-if="row.channel === 'wecom'"> · 企业微信</span><span v-if="row.archive_name"> · 来自 {{ row.archive_name }}</span></div>
+          <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span></div>
+          <div class="card-ops">
+            <el-button v-if="has(row, 'open_clean')" size="small" type="primary" @click="openClean(row)">核对并导入</el-button>
+            <el-button v-if="has(row, 'confirm_kb')" size="small" type="primary" @click="openConfirm(row)">确认入库</el-button>
+            <el-button v-if="has(row, 'to_clean')" size="small" @click="openToClean(row)">导入台账</el-button>
+            <el-button v-if="has(row, 'to_kb') && row.status === 'pool'" size="small" @click="act(row, 'to-kb')">放入知识库</el-button>
+            <el-button v-for="m in more(row)" :key="m.cmd" size="small" @click="onMore(row, m.cmd)">{{ m.label }}</el-button>
+            <el-button v-if="row.kb_doc" size="small" @click="$router.push({ path: '/kb', query: { doc: row.kb_doc.id } })">查看文档</el-button>
+          </div>
+        </div>
+      </div>
+      <el-table v-else :data="rows.items">
         <el-table-column label="文件" min-width="240">
           <template #default="{ row }">
             <a class="fn" @click="openFile(row.file?.url)">{{ row.filename }}</a>
-            <div v-if="row.purpose" class="jc-small jc-muted jc-ellipsis">{{ row.purpose }}</div>
+            <div class="jc-small jc-muted jc-ellipsis">
+              <span v-if="row.channel === 'wecom'" class="src">企业微信</span><span v-if="row.archive_name" class="src">{{ row.archive_name }}</span>{{ row.purpose }}
+            </div>
           </template>
         </el-table-column>
         <el-table-column v-if="tab !== 'mine'" label="上传人" prop="uploader" width="90" />
@@ -41,7 +63,7 @@
           <template #default="{ row }"><StatusPill :text="row.status_name" :tone="TONE[row.status]" /></template>
         </el-table-column>
         <el-table-column label="说明" min-width="280">
-          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span></template>
+          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span><span v-if="row.suggestion.source === 'llm'" class="ai" title="由 AI 识别，以你的确认为准">AI</span></template>
         </el-table-column>
         <el-table-column label="上传时间" width="140"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
@@ -91,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { openFile } from '@/api/client'
@@ -118,6 +140,13 @@ const input = ref()
 const over = ref(false)
 const queue = ref([])
 const has = (row, a) => row.actions.includes(a)
+const narrow = ref(window.innerWidth < 760)
+const onResize = () => { narrow.value = window.innerWidth < 760 }
+function summarize(batches) {
+  const n = (f) => batches.filter(f).length
+  return [[n((b) => b.route === 'kb'), '份进知识库'], [n((b) => b.route === 'clean'), '份进台账'], [n((b) => b.status === 'pool'), '份待整理']]
+    .filter(([c]) => c).map(([c, t]) => c + ' ' + t).join('，')
+}
 
 function explain(row) {
   if (row.note) return row.note
@@ -163,7 +192,10 @@ async function upload(files) {
     it.state = '上传识别中…'
     try {
       const b = await api.upload('/imports', it.file, { purpose: purpose.value }, { silent: true })
-      it.state = `${b.route_name} · ${b.status_name}`
+      if (b.archive) {
+        it.state = `解开 ${b.batches.length} 份：` + summarize(b.batches)
+        it.skipped = b.skipped
+      } else it.state = `${b.route_name} · ${b.status_name}`
     } catch (err) {
       it.error = err.message
     }
@@ -205,7 +237,7 @@ async function openConfirm(row) {
   cur.value = row
   const s = row.suggestion || {}
   form.value = { title: s.title || row.filename.replace(/\.[^.]+$/, ''), category: s.category || '', subcategory: s.subcategory || '',
-    tags: [], summary: row.purpose || '', visibility: 'all', visible_depts: [], visible_roles: [] }
+    tags: [...(s.tags || [])], summary: s.summary || row.purpose || '', visibility: 'all', visible_depts: [], visible_roles: [] }
   kbDlg.value = true
 }
 async function confirmKb() {
@@ -247,7 +279,8 @@ async function onMore(row, cmd) {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); window.addEventListener('resize', onResize) })
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 </script>
 
 <style scoped>
@@ -260,4 +293,15 @@ onMounted(load)
 .fn { color: var(--jc-ink); cursor: pointer; }
 .empty { padding: 32px 0; text-align: center; }
 .pager { display: flex; justify-content: flex-end; padding: 10px 16px; }
+.skip { flex-basis: 100%; font-size: 12px; }
+.qi { flex-wrap: wrap; }
+.ai { display: inline-block; margin-left: 6px; padding: 0 5px; font-size: 11px; line-height: 16px; border-radius: 3px; color: var(--jc-brand); background: var(--jc-brand-50); }
+.src { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px; background: var(--jc-surface-2); border: 1px solid var(--jc-line-2); }
+.cards { padding: 4px 12px; }
+.card { padding: 12px 2px; border-bottom: 1px solid var(--jc-line-2); }
+.card:last-child { border-bottom: 0; }
+.card .fn { max-width: 70%; }
+.mt-4 { margin-top: 4px; }
+.card-ops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.card-ops .el-button + .el-button { margin-left: 0; }
 </style>

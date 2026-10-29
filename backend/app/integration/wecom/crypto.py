@@ -100,3 +100,25 @@ def parse_contact_event(xml_text: str) -> dict | None:
         "name": root.findtext("Name") or "",
     }
 
+
+def parse_member_message(xml_text: str) -> dict | None:
+    """解析成员发给应用的普通消息（text/image/voice/video/location/link，以及客户端可能下发的 file）和菜单点击事件。
+
+    审批、通讯录等系统事件返回 None，交给各自的解析函数。
+    """
+    root = ET.fromstring(xml_text)
+    msg_type = root.findtext("MsgType") or ""
+    base = {"msg_type": msg_type, "from_user": root.findtext("FromUserName") or "", "corp_id": root.findtext("ToUserName") or "",
+            "agent_id": root.findtext("AgentID") or "", "create_time": int(root.findtext("CreateTime") or 0)}
+    if msg_type == "event":
+        event = (root.findtext("Event") or "").lower()
+        if event not in ("click", "view"):
+            return None
+        return {**base, "event": event, "key": root.findtext("EventKey") or "",
+                "msg_id": f"evt-{base['from_user']}-{base['create_time']}-{root.findtext('EventKey') or ''}"}
+    if msg_type not in ("text", "image", "voice", "video", "location", "link", "file"):
+        return None
+    return {**base, "msg_id": root.findtext("MsgId") or f"{base['from_user']}-{base['create_time']}",
+            "content": root.findtext("Content") or "", "media_id": root.findtext("MediaId") or "",
+            "file_name": root.findtext("FileName") or root.findtext("Title") or "",
+            "pic_url": root.findtext("PicUrl") or "", "url": root.findtext("Url") or ""}

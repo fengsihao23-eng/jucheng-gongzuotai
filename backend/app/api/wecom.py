@@ -1,4 +1,4 @@
-"""企微回调（FR-07-02）：GET 验证 URL；POST 审批事件 → 先回 success，再异步分发（企微 5s 超时限制）。"""
+"""企微回调（FR-07-02）：GET 验证 URL；POST 审批 / 通讯录事件 / 成员消息 → 先回 success，再异步处理（企微 5s 超时限制）。"""
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Request
@@ -6,8 +6,8 @@ from fastapi.responses import PlainTextResponse
 
 from app.core.db import SessionLocal
 from app.integration.wecom import get_crypto
-from app.integration.wecom.crypto import WeComCryptoError, parse_approval_event, parse_contact_event
-from app.services import dispatch_service
+from app.integration.wecom.crypto import WeComCryptoError, parse_approval_event, parse_contact_event, parse_member_message
+from app.services import dispatch_service, wecom_inbox_service
 
 router = APIRouter(prefix="/wecom", tags=["企业微信"])
 log = logging.getLogger("wecom.callback")
@@ -71,4 +71,6 @@ async def receive(request: Request, background: BackgroundTasks, msg_signature: 
         background.add_task(_process, evt["sp_no"])
     elif parse_contact_event(plain):
         background.add_task(_sync_directory)
+    elif msg := parse_member_message(plain):
+        background.add_task(wecom_inbox_service.handle, msg)  # 成员发给应用的消息/菜单点击：异步处理后主动回复
     return "success"

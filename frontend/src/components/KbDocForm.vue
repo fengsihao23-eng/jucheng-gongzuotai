@@ -14,7 +14,7 @@
         </el-select>
       </div>
       <div v-if="suggestion?.category" class="jc-small jc-muted hint">
-        系统建议：{{ suggestion.category }}{{ suggestion.subcategory ? ' / ' + suggestion.subcategory : '' }}（{{ suggestion.reason }}）
+        {{ suggestion.source === 'llm' ? 'AI 建议' : '系统建议' }}：{{ suggestion.category }}{{ suggestion.subcategory ? ' / ' + suggestion.subcategory : '' }}（{{ suggestion.reason }}）
       </div>
       <div v-if="reviewHint" class="jc-small jc-muted hint">{{ reviewHint }}</div>
     </el-form-item>

@@ -143,7 +143,7 @@
     <el-dialog v-model="formDlg" :title="editing ? '修改文档信息' : '上传文档到知识库'" width="620px" destroy-on-close>
       <template v-if="!editing">
         <UploadBox ref="uploader" :accept="ACCEPT" tip="支持 Word(docx)、PDF、PPT(pptx)、Excel(xlsx)、Markdown、TXT，单个不超过 50MB" @change="onPick" />
-        <div v-if="suggestion" class="jc-small jc-muted mt-8">读到正文 {{ suggestion.chars }} 字：{{ suggestion.preview.slice(0, 80) }}…</div>
+        <div v-if="suggestion" class="jc-small jc-muted mt-8">读到正文 {{ suggestion.chars }} 字{{ suggestion.source === 'llm' ? '，标题、摘要、标签和分类由 AI 整理，请核对' : '' }}：{{ suggestion.preview.slice(0, 80) }}…</div>
       </template>
       <KbDocForm v-if="editing || suggestion" v-model="form" class="mt-16" :tree="tree" :meta="meta" :suggestion="suggestion" :roles="myRoles" />
       <template #footer>
@@ -320,6 +320,8 @@ async function onPick(f) {
   const s = await api.upload('/kb/suggest', f)
   suggestion.value = s
   form.value.title = s.title
+  if (!form.value.summary && s.summary) form.value.summary = s.summary
+  if (!form.value.tags.length && s.tags?.length) form.value.tags = [...s.tags]
   if (!form.value.category && s.category) {
     form.value.category = s.category
     form.value.subcategory = s.subcategory || ''

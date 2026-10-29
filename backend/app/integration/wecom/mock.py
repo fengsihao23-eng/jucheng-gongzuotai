@@ -14,7 +14,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.timeutil import TZ, now
-from app.integration.wecom.base import ApprovalDto, DeptDto, JournalDto, MessageDto, SendResult, UserDto
+from app.integration.wecom.base import ApprovalDto, DeptDto, JournalDto, MediaDto, MessageDto, SendResult, UserDto
 
 # Mock 模式下的回调凭证（与企微后台配置格式一致，便于全链路走真实加解密）
 MOCK_CALLBACK_TOKEN = "jcMockToken"
@@ -62,6 +62,19 @@ def read_outbox(limit: int = 50) -> list[dict]:
     if not p.exists():
         return []
     return [json.loads(line) for line in p.read_text("utf-8").splitlines()[-limit:]]
+
+
+def put_media(media_id: str, data: bytes, filename: str, content_type: str | None = None) -> None:
+    """测试/联调：登记一份「成员发给应用」的临时素材。"""
+    d = _path("media") / media_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "meta.json").write_text(json.dumps({"filename": filename, "content_type": content_type}, ensure_ascii=False), "utf-8")
+    (d / "data.bin").write_bytes(data)
+
+
+def read_menu() -> dict | None:
+    p = _path("menu.json")
+    return json.loads(p.read_text("utf-8")) if p.exists() else None
 
 
 class MockWeCom:
@@ -113,3 +126,13 @@ class MockWeCom:
         if not code.startswith("mock-"):
             raise ValueError("Mock 模式下 code 需为 mock-<userid>")
         return code[5:]
+
+    def get_media(self, media_id: str) -> MediaDto:
+        d = _path("media") / media_id
+        if not (d / "data.bin").exists():
+            raise ValueError("素材不存在或已过期")
+        meta = json.loads((d / "meta.json").read_text("utf-8"))
+        return MediaDto((d / "data.bin").read_bytes(), meta["filename"], meta.get("content_type"))
+
+    def create_menu(self, menu: dict) -> None:
+        _path("menu.json").write_text(json.dumps(menu, ensure_ascii=False, indent=1), "utf-8")

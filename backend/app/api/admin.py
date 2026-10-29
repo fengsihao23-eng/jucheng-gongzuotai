@@ -244,3 +244,27 @@ def preview_addressbook(p: Principal = Admin, db: Session = Depends(get_db)):
     """只读取真实公司通讯录并准备预览，不创建、更新或停用员工账号。"""
     from app.services.company_directory_service import preview
     return ok(preview(db, p))
+
+
+@router.get("/wecom/menu")
+def wecom_menu_preview(p: Principal = Admin):
+    from app.services import wecom_inbox_service
+    return ok({"menu": wecom_inbox_service.default_menu(), "mode": settings.source_mode("wecom"),
+               "agent_id": settings.wecom_agent_id,
+               "callback_url": settings.public_base_url.rstrip("/") + "/api/v1/wecom/callback"})
+
+
+@router.post("/wecom/menu")
+def wecom_menu_push(request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
+    """把「上传资料 / 知识库 / 更多」菜单下发到企业微信自建应用。"""
+    from app.services import wecom_inbox_service
+    if not p.is_admin:
+        raise BizError(40301, "仅平台管理员可下发企业微信菜单")
+    try:
+        menu = wecom_inbox_service.push_menu()
+    except Exception as exc:  # noqa: BLE001  企微错误码只回显数字，不回显原文
+        code = getattr(exc, "errcode", None)
+        raise BizError(50201, f"企业微信拒绝了菜单配置{f'（错误码 {code}）' if code else ''}，请检查应用 AgentID 与可信 IP") from None
+    log_op(db, p.id, "wecom.menu.push", "wecom_app", str(settings.wecom_agent_id), after=menu, ip=client_ip(request))
+    db.commit()
+    return ok({"menu": menu})

@@ -100,6 +100,23 @@
             </div>
           </div>
         </Panel>
+        <Panel class="mt-16" title="企业微信应用菜单与对话" sub="下发后，同事在企业微信「聚成工作台」应用底部就能上传资料、查知识库；直接发文字会由小聚以本人权限办理并回复">
+          <template #extra>
+            <el-button size="small" type="primary" :loading="menuPushing" @click="pushWecomMenu">下发菜单到企业微信</el-button>
+          </template>
+          <div v-if="wxMenu" class="jc-small">
+            <div class="menu-row">
+              <span v-for="b in wxMenu.menu.button" :key="b.name" class="menu-btn">
+                <b>{{ b.name }}</b>
+                <span v-if="b.sub_button" class="jc-muted">：{{ b.sub_button.map((x) => x.name).join(' / ') }}</span>
+              </span>
+            </div>
+            <p class="jc-muted mt-8">
+              应用对话需要在企业微信后台 → 应用管理 → 聚成工作台 → 接收消息 中启用 API 接收，URL 填
+              <code>{{ wxMenu.callback_url }}</code>（与通讯录回调同一地址）。当前企业微信数据源：{{ wxMenu.mode === 'live' ? 'Live' : 'Mock' }}，AgentID {{ wxMenu.agent_id || '未配置' }}。
+            </p>
+          </div>
+        </Panel>
       </el-tab-pane>
 
       <!-- 定时任务 -->
@@ -246,7 +263,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 
@@ -277,6 +294,16 @@ const roles = ref({ roles: [], menus: {} })
 const dicts = ref([])
 const curType = ref('payment_target')
 const ds = ref({ sources: [] })
+const wxMenu = ref(null)
+const menuPushing = ref(false)
+async function pushWecomMenu() {
+  await ElMessageBox.confirm('将用当前菜单覆盖企业微信「聚成工作台」应用的底部菜单，确定下发？', '下发菜单', { type: 'warning' })
+  menuPushing.value = true
+  try {
+    await api.post('/admin/wecom/menu')
+    ElMessage.success('已下发，企业微信里重新进入应用即可看到')
+  } finally { menuPushing.value = false }
+}
 const jobs = ref([])
 const running = ref('')
 const apr = ref({ items: [], total: 0, stats: {} })
@@ -396,7 +423,7 @@ async function copyDirectoryGuide() {
   try { await navigator.clipboard.writeText(guide); ElMessage.success('授权清单已复制') } catch { ElMessage.warning('复制失败，请从页面说明中手动复制') }
 }
 
-const loaders = { users: () => { loadUsers(1); loadRoles() }, dicts: loadDicts, sources: async () => (ds.value = await api.get('/admin/datasources')), jobs: loadJobs, approvals: () => loadApprovals(1), audit: () => loadAudit(1) }
+const loaders = { users: () => { loadUsers(1); loadRoles() }, dicts: loadDicts, sources: async () => { ds.value = await api.get('/admin/datasources'); wxMenu.value = await api.get('/admin/wecom/menu') }, jobs: loadJobs, approvals: () => loadApprovals(1), audit: () => loadAudit(1) }
 watch(tab, (t) => loaders[t]?.())
 onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles(); api.get('/admin/addressbook/status').then((result) => { directory.value = result }); if (route.query.connect === 'wecom') connectDirectory() })
 </script>
@@ -412,4 +439,6 @@ onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles()
 .val { word-break: break-all; }
 .src { padding: 14px 16px; border: 1px solid var(--jc-line-2); border-radius: 8px; background: var(--jc-surface-2); }
 .err { white-space: pre-wrap; font-size: 11px; color: var(--jc-down); background: var(--jc-down-bg); padding: 8px; border-radius: 4px; max-height: 200px; overflow: auto; }
+.menu-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.menu-btn { padding: 6px 10px; border: 1px solid var(--jc-line); border-radius: var(--jc-radius); background: var(--jc-surface-2); }
 </style>

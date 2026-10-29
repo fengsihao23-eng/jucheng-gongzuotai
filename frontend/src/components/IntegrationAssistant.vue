@@ -622,6 +622,14 @@ watch(() => assistant.visible, async (visible) => {
   }
 })
 watch(() => auth.profile?.id, () => { pollGeneration++; clearTimeout(pollTimer); streamController?.abort(); executing.value = false; execution.value = null; assistant.activeTaskId = ''; clearSensitive(); messages.value = []; conversations.value = []; sessionId.value = ''; context.value = []; assistant.visible = false })
+// 企业微信回复里的「打开小聚」链接：/?xiaoju=<会话 ID>，打开抽屉并定位到该对话
+watch(() => [route.query.xiaoju, auth.profile?.id], ([sid, uid]) => {
+  if (!sid || !uid) return
+  sessionId.value = String(sid)
+  assistant.visible = true
+  const { xiaoju, ...rest } = route.query
+  router.replace({ query: rest })
+}, { immediate: true })
 onBeforeUnmount(() => { pollGeneration++; clearTimeout(pollTimer); streamController?.abort(); stopBindTimers(); if (bindObjectUrl) URL.revokeObjectURL(bindObjectUrl); assistant.visible = false; clearSensitive() })
 </script>
 

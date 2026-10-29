@@ -110,16 +110,16 @@ def doc(doc_id: str, p: Principal = User, db: Session = Depends(get_db)):
 
 
 @router.post("/suggest")
-async def suggest(file: UploadFile = File(...), p: Principal = User):
-    """上传前预读：返回建议标题与分类，不落库。"""
-    from pathlib import Path
-
+async def suggest(file: UploadFile = File(...), p: Principal = User, db: Session = Depends(get_db)):
+    """上传前预读：返回建议的标题、摘要、标签与分类（AI 优先，规则兜底），不落库。"""
+    from app.services import smart_intake
     from app.services.kb_extract import extract_text
     data = await file.read()
     name = file.filename or "upload"
     text = extract_text(data, name)
-    title = Path(name).stem
-    return ok({"title": title, "chars": len(text), "preview": text[:300], **kb_service.suggest_category(title, text)})
+    out = smart_intake.describe_document(db, name, text)
+    db.commit()
+    return ok({**out, "chars": len(text), "preview": text[:300]})
 
 
 @router.post("/docs")

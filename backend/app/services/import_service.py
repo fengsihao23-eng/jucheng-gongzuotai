@@ -19,7 +19,7 @@ from app.core.response import BizError, bad_request, conflict, forbidden, not_fo
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today, utcnow
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
-from app.services import clean_service, kb_service
+from app.services import clean_service, kb_service, smart_intake
 from app.services.kb_extract import DOC_EXTS, MAX_BYTES, TABLE_EXTS, ext_of, extract_text
 
 STATUS_NAMES = {"pending": "待确认", "pool": "待整理", "done": "已入库", "withdrawn": "已撤回", "dismissed": "已处理"}
@@ -50,13 +50,34 @@ def _handlers(db: Session) -> list[SysUser]:
     return notify_service.users_by_roles(db, roles)
 
 
-def _notify_pool(db: Session, b: ImportBatch, uploader_name: str) -> None:
+def _notify_pool(db: Session, batches: list[ImportBatch], uploader_name: str) -> None:
     from app.services import notify_service
-    users = [u for u in _handlers(db) if u.id != b.uploader_id]
-    reason = b.suggestion.get("reason") or b.note or ""
-    notify_service.send(db, users, "import_pool", f"资料待整理：{b.filename}",
-                        f"**{uploader_name}** 上传了《{b.filename}》{('（' + b.purpose + '）') if b.purpose else ''}，"
-                        f"系统未能自动入库：{reason}", link="/imports?tab=pool", ref_type="import_batch", ref_id=str(b.id))
+    uploader_ids = {b.uploader_id for b in batches}
+    users = [u for u in _handlers(db) if u.id not in uploader_ids]
+    if not users or not batches:
+        return
+    b = batches[0]
+    if len(batches) == 1:
+        reason = b.suggestion.get("reason") or b.note or ""
+        title = f"资料待整理：{b.filename}"
+        content = (f"**{uploader_name}** 上传了《{b.filename}》{('（' + b.purpose + '）') if b.purpose else ''}，"
+                   f"系统未能自动入库：{reason}")
+    else:
+        title = f"资料待整理：{uploader_name} 的 {len(batches)} 份资料"
+        names = "、".join(f"《{x.filename}》" for x in batches[:5]) + (" 等" if len(batches) > 5 else "")
+        content = f"**{uploader_name}** 上传的 {names} 需要人工判断去向{('（' + b.purpose + '）') if b.purpose else ''}。"
+    notify_service.send(db, users, "import_pool", title, content, link="/imports?tab=pool", ref_type="import_batch",
+                        ref_id=str(b.id))
+
+
+def _notify_uploader(db: Session, b: ImportBatch, actor_id: int | None, text: str) -> None:
+    """别人处理了我的资料（整理人分派、导入、标记已处理、撤回）时通知上传人。自己操作不通知。"""
+    from app.services import notify_service
+    if not b.uploader_id or b.uploader_id == actor_id:
+        return
+    u = db.get(SysUser, b.uploader_id)
+    notify_service.send(db, [u], "import_result", f"资料处理进度：{b.filename}", text,
+                        link="/imports", ref_type="import_batch", ref_id=str(b.id))
 
 
 def _to_pool(b: ImportBatch, reason: str) -> None:
@@ -76,12 +97,19 @@ def _route_table(db: Session, p, b: ImportBatch, data: bytes) -> None:
     if not target:
         target, scores = clean_service.guess_target(db, data, b.filename)
         how = "表头匹配"
-    sug = {"target": target, "target_name": clean_service.TARGET_NAMES.get(target), "scores": scores}
+    ai = None
+    if not target:
+        ai = _ask_table(db, b, data)
+        if ai and ai["target"]:
+            target, how = ai["target"], "AI 判断"
+    sug = {"target": target, "target_name": clean_service.TARGET_NAMES.get(target), "scores": scores,
+           "source": "llm" if ai else "rule", "description": (ai or {}).get("description")}
     if not target:
         b.suggestion = sug
-        _to_pool(b, "表格内容不属于现有的合同 / 商机 / 回款 / 项目台账模板，需要整理人判断去向")
+        what = f"看起来是「{ai['description']}」，" if ai and ai.get("description") else ""
+        _to_pool(b, f"{what}不属于现有的合同 / 商机 / 回款 / 项目台账模板，需要整理人判断去向")
         return
-    sug["reason"] = f"按{how}识别为「{clean_service.TARGET_NAMES[target]}」"
+    sug["reason"] = f"按{how}识别为「{clean_service.TARGET_NAMES[target]}」" + (f"（{ai['reason']}）" if ai and ai.get("reason") else "")
     b.suggestion, b.target = sug, target
     if not can_clean(p):
         _to_pool(b, sug["reason"] + "；你没有台账导入权限，已交给整理人导入")
@@ -92,46 +120,144 @@ def _route_table(db: Session, p, b: ImportBatch, data: bytes) -> None:
         _to_pool(b, f"表格解析失败：{exc.message}")
 
 
-def _route_document(b: ImportBatch, data: bytes) -> None:
+def _ask_table(db: Session, b: ImportBatch, data: bytes) -> dict | None:
+    try:
+        rows = clean_service.read_table(data, b.filename)
+    except BizError:
+        return None
+    rows = [r for r in rows if any(not clean_service._is_blank(v) for v in r[1])]
+    if not rows:
+        return None
+    idx = clean_service.detect_header(rows, clean_service.templates(db)["contract"])
+    return smart_intake.describe_table(rows[idx][1], [r[1] for r in rows[idx + 1:idx + 6]], b.filename, b.purpose)
+
+
+def _route_document(db: Session, b: ImportBatch, data: bytes) -> None:
     try:
         text = extract_text(data, b.filename)
     except BizError as exc:
         _to_pool(b, exc.message)
         return
-    title = Path(b.filename).stem
-    sug = kb_service.suggest_category(title, f"{b.purpose or ''}\n{text}")
+    sug = smart_intake.describe_document(db, b.filename, text, b.purpose)
     b.route, b.status = "kb", "pending"
-    b.suggestion = {**sug, "title": title, "chars": len(text), "preview": text[:300]}
+    b.suggestion = {**sug, "chars": len(text), "preview": text[:300]}
 
 
-def create(db: Session, p, data: bytes, filename: str, purpose: str | None = None) -> ImportBatch:
-    if not data:
-        raise bad_request("文件为空")
-    if len(data) > MAX_BYTES:
-        raise bad_request("文件超过 50MB，请拆分后再上传")
+ZIP_MAX_ENTRIES = 100
+ZIP_MAX_TOTAL = 200 * 1024 * 1024
+ZIP_SKIP = ("__MACOSX/", ".DS_Store", "Thumbs.db", "desktop.ini")
+
+
+def _dup(db: Session, p, sha: str) -> ImportBatch | None:
+    return db.scalar(select(ImportBatch).where(ImportBatch.uploader_id == p.id, ImportBatch.sha256 == sha,
+                                               ImportBatch.status.notin_(["withdrawn", "dismissed"])))
+
+
+def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channel: str,
+         archive_name: str | None = None) -> ImportBatch:
     filename = Path(filename or "upload").name[:200]
     sha = hashlib.sha256(data).hexdigest()
-    dup = db.scalar(select(ImportBatch).where(ImportBatch.uploader_id == p.id, ImportBatch.sha256 == sha,
-                                              ImportBatch.status.notin_(["withdrawn", "dismissed"])))
-    if dup is not None:
+    if (dup := _dup(db, p, sha)) is not None:
         raise conflict(f"你已经上传过同一份文件（{dup.filename}，{STATUS_NAMES.get(dup.status)}）", data={"batch_id": dup.id})
     f = save_bytes(db, data=data, filename=filename, category="import",
                    key=f"import/{today():%Y-%m}/{uuid.uuid4().hex[:12]}/{filename}", uploader_id=p.id)
     b = ImportBatch(filename=filename, file_id=f.id, sha256=sha, size=len(data), purpose=(purpose or "").strip()[:255] or None,
                     kind=classify(filename), route="pool", status="pool", suggestion={}, uploader_id=p.id,
-                    dept_code=p.dept_code)
+                    dept_code=p.dept_code, channel=channel, archive_name=archive_name)
     db.add(b)
     db.flush()
     if b.kind == "table":
         _route_table(db, p, b, data)
     elif b.kind == "document":
-        _route_document(b, data)
+        _route_document(db, b, data)
     else:
         _to_pool(b, f"系统不能自动识别 {ext_of(filename) or '无扩展名'} 文件，需要整理人处理")
     db.flush()
-    if b.status == "pool":
-        _notify_pool(db, b, p.user.name)
     return b
+
+
+def _zip_name(info) -> str:
+    """Windows 压缩的中文文件名多为 GBK 且未置 UTF-8 标志位，zipfile 会按 cp437 解码成乱码，这里还原。"""
+    name = info.filename
+    if not info.flag_bits & 0x800:
+        try:
+            name = name.encode("cp437").decode("gb18030")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return name
+
+
+def _unzip(data: bytes) -> tuple[list[tuple[str, bytes]], list[dict]]:
+    import io
+    import zipfile
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise bad_request("压缩包已损坏或不是 zip 格式")
+    files, skipped, total = [], [], 0
+    infos = [i for i in zf.infolist() if not i.is_dir()]
+    for info in infos:
+        name = _zip_name(info)
+        base = Path(name).name
+        if not base or any(x in name for x in ZIP_SKIP) or base.startswith(("._", "~$")):
+            continue
+        if info.flag_bits & 0x1:
+            skipped.append({"filename": base, "reason": "加密文件，无法读取"})
+            continue
+        if ext_of(base) in (".zip", ".rar", ".7z"):
+            skipped.append({"filename": base, "reason": "压缩包里的压缩包请先解开再上传"})
+            continue
+        if info.file_size > MAX_BYTES:
+            skipped.append({"filename": base, "reason": "单个文件超过 50MB"})
+            continue
+        total += info.file_size
+        if total > ZIP_MAX_TOTAL or len(files) >= ZIP_MAX_ENTRIES:
+            raise bad_request(f"压缩包内容过多（最多 {ZIP_MAX_ENTRIES} 个文件、解压后 200MB），请拆分后上传")
+        files.append((base, zf.read(info)))
+    if not files and not skipped:
+        raise bad_request("压缩包里没有可导入的文件")
+    return files, skipped
+
+
+def create_many(db: Session, p, data: bytes, filename: str, purpose: str | None = None,
+                channel: str = "web") -> dict:
+    """上传一个文件；zip 压缩包逐个解开分别建批次。返回 {batches, skipped, archive}。待整理的资料合并成一条通知。"""
+    if not data:
+        raise bad_request("文件为空")
+    if len(data) > MAX_BYTES:
+        raise bad_request("文件超过 50MB，请拆分后再上传")
+    filename = Path(filename or "upload").name[:200]
+    if ext_of(filename) in (".rar", ".7z"):
+        raise bad_request("暂不支持 rar / 7z，请改成 zip 压缩包或直接上传文件")
+    if ext_of(filename) != ".zip":
+        b = _one(db, p, data, filename, purpose, channel)
+        if b.status == "pool":
+            _notify_pool(db, [b], p.user.name)
+        return {"batches": [b], "skipped": [], "archive": None}
+    if (dup := _dup(db, p, hashlib.sha256(data).hexdigest())) is not None:
+        raise conflict(f"你已经上传过同一个压缩包里的文件（{dup.filename}）", data={"batch_id": dup.id})
+    files, skipped = _unzip(data)
+    batches = []
+    for name, content in files:
+        if not content:
+            skipped.append({"filename": name, "reason": "空文件"})
+            continue
+        try:
+            with db.begin_nested():
+                batches.append(_one(db, p, content, name, purpose, channel, archive_name=filename))
+        except BizError as exc:
+            skipped.append({"filename": name, "reason": exc.message})
+    if not batches:
+        raise bad_request("压缩包里的文件都没能导入：" + "；".join(f"{x['filename']}（{x['reason']}）" for x in skipped[:5]))
+    pooled = [b for b in batches if b.status == "pool"]
+    if pooled:
+        _notify_pool(db, pooled, p.user.name)
+    return {"batches": batches, "skipped": skipped, "archive": filename}
+
+
+def create(db: Session, p, data: bytes, filename: str, purpose: str | None = None, channel: str = "web") -> ImportBatch:
+    """单文件上传（兼容旧调用）；zip 请用 create_many。"""
+    return create_many(db, p, data, filename, purpose, channel)["batches"][0]
 
 
 # ---------------------------------------------------------------- 状态同步 / 视图
@@ -141,6 +267,9 @@ def _sync(db: Session, b: ImportBatch) -> None:
         job = db.get(CleanJob, b.clean_job_id)
         if job and job.status == "imported":
             b.status, b.handled_at = "done", job.updated_at
+            _notify_uploader(db, b, job.created_by,
+                             f"《{b.filename}》已导入{clean_service.TARGET_NAMES.get(b.target, '台账')} "
+                             f"{(job.stats or {}).get('imported', 0)} 行。")
         elif job and job.status in ("cancelled", "rolled_back"):
             b.status = "withdrawn"
             b.note = b.note or "已在数据清洗页取消"
@@ -186,6 +315,7 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
     job = db.get(CleanJob, b.clean_job_id) if b.clean_job_id else None
     doc = db.get(KbDocument, b.kb_doc_id) if b.kb_doc_id else None
     return {"id": b.id, "filename": b.filename, "size": b.size, "purpose": b.purpose, "kind": b.kind,
+            "channel": b.channel, "archive_name": b.archive_name,
             "route": b.route, "route_name": ROUTE_NAMES.get(b.route), "status": b.status,
             "status_name": STATUS_NAMES.get(b.status, b.status), "target": b.target,
             "target_name": clean_service.TARGET_NAMES.get(b.target), "suggestion": b.suggestion or {}, "note": b.note,
@@ -250,6 +380,7 @@ def confirm_kb(db: Session, p, batch_id: int, **meta) -> ImportBatch:
     b.kb_doc_id = d.id
     _mark(b, p, "done", "已发布到知识库" if d.status == "published" else "已提交知识库，等待分类审核人审核")
     db.flush()
+    _notify_uploader(db, b, p.id, f"《{b.filename}》{b.note}（{d.category}）。")
     return b
 
 
@@ -267,6 +398,7 @@ def to_clean(db: Session, p, batch_id: int, target: str) -> ImportBatch:
     if b.uploader_id != p.id:
         b.handler_id, b.handled_at = p.id, utcnow()
     db.flush()
+    _notify_uploader(db, b, p.id, f"{p.user.name} 正在把《{b.filename}》导入{clean_service.TARGET_NAMES[target]}。")
     return b
 
 
@@ -284,7 +416,7 @@ def to_kb(db: Session, p, batch_id: int) -> ImportBatch:
             job.status = "cancelled"
         b.clean_job_id = None
     data = read_bytes(db.get(SysFile, b.file_id))
-    _route_document(b, data)
+    _route_document(db, b, data)
     if b.status == "pool":
         raise bad_request(b.suggestion.get("reason") or "文件无法放入知识库")
     db.flush()
@@ -304,7 +436,7 @@ def to_pool(db: Session, p, batch_id: int, note: str | None = None) -> ImportBat
         b.clean_job_id = None
     _to_pool(b, (note or "").strip()[:200] or "上传人请整理人协助处理")
     db.flush()
-    _notify_pool(db, b, p.user.name)
+    _notify_pool(db, [b], p.user.name)
     return b
 
 
@@ -318,6 +450,7 @@ def dismiss(db: Session, p, batch_id: int, note: str) -> ImportBatch:
         raise bad_request("请写明处理方式，例如「已线下录入」「无需入库」")
     _mark(b, p, "dismissed", note.strip())
     db.flush()
+    _notify_uploader(db, b, p.id, f"{p.user.name} 已处理《{b.filename}》：{b.note}")
     return b
 
 
@@ -347,4 +480,5 @@ def withdraw(db: Session, p, batch_id: int) -> ImportBatch:
             note = "已撤回（知识库文档已下架）"
     _mark(b, p, "withdrawn", note)
     db.flush()
+    _notify_uploader(db, b, p.id, f"{p.user.name} 撤回了《{b.filename}》：{note}")
     return b

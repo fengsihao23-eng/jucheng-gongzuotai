@@ -54,6 +54,13 @@ class MessageDto:
 
 
 @dataclass
+class MediaDto:
+    data: bytes
+    filename: str
+    content_type: str | None = None
+
+
+@dataclass
 class SendResult:
     ok: bool
     msgid: str | None = None
@@ -68,3 +75,5 @@ class WeComProvider(Protocol):
     def send_app_message(self, user_ids: list[str], content: MessageDto) -> SendResult: ...
     def get_journal_records(self, start: datetime, end: datetime) -> list[JournalDto]: ...
     def exchange_user_info(self, code: str) -> str: ...
+    def get_media(self, media_id: str) -> MediaDto: ...
+    def create_menu(self, menu: dict) -> None: ...

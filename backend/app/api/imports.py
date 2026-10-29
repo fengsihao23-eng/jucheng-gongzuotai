@@ -23,9 +23,16 @@ def _done(db: Session, p: Principal, b, action: str, request: Request, after: di
 @router.post("")
 async def upload(request: Request, file: UploadFile = File(...), purpose: str = Form(""), p: Principal = User,
                  db: Session = Depends(get_db)):
+    """上传一个文件或一个 zip 压缩包（逐个文件建批次）。返回第一份的视图，并附 batches / skipped。"""
     data = await file.read()
-    b = svc.create(db, p, data, file.filename or "upload", purpose or None)
-    return ok(_done(db, p, b, "upload", request, {"filename": b.filename, "kind": b.kind, "target": b.target}))
+    r = svc.create_many(db, p, data, file.filename or "upload", purpose or None)
+    for b in r["batches"]:
+        log_op(db, p.id, "import.upload", "import_batch", b.id,
+               after={"filename": b.filename, "kind": b.kind, "route": b.route, "status": b.status,
+                      "archive": r["archive"]}, ip=client_ip(request))
+    db.commit()
+    views = [svc.view(db, b, p) for b in r["batches"]]
+    return ok({**views[0], "batches": views, "skipped": r["skipped"], "archive": r["archive"]})
 
 
 @router.get("")

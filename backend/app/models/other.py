@@ -249,6 +249,8 @@ class ImportBatch(TimestampMixin, Base):
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     size: Mapped[int] = mapped_column(Integer, default=0)
     purpose: Mapped[str | None] = mapped_column(String(255))  # 上传人写的一句用途说明
+    channel: Mapped[str] = mapped_column(String(8), default="web", server_default="web")  # web 网页 | wecom 企业微信
+    archive_name: Mapped[str | None] = mapped_column(String(255))  # 来自 zip 压缩包时的包名
     kind: Mapped[str] = mapped_column(String(12))  # table 表格 | document 文档 | other 其他
     route: Mapped[str] = mapped_column(String(8))  # clean 台账 | kb 知识库 | pool 待整理池
     # pending 待上传人确认 | pool 待整理 | done 已入库 | withdrawn 已撤回 | dismissed 已处理（不入库）

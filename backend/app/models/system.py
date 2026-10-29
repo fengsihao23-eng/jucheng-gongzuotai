@@ -71,6 +71,22 @@ class SysWecomItem(TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SysWecomInbound(TimestampMixin, Base):
+    """成员在企业微信「聚成工作台」应用里发来的消息。msg_id 唯一，用于去重企微的回调重试；只存摘要不存全文。"""
+    __tablename__ = "sys_wecom_inbound"
+    msg_id: Mapped[str] = mapped_column(String(96), unique=True)
+    wecom_userid: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id", ondelete="SET NULL"), index=True)
+    msg_type: Mapped[str] = mapped_column(String(16))
+    preview: Mapped[str | None] = mapped_column(String(200))  # 文字前 200 字 / 文件名 / 菜单键
+    # received 已收到 | done 已回复 | ignored 无需处理 | failed 处理失败
+    status: Mapped[str] = mapped_column(String(12), default="received")
+    task_id: Mapped[str | None] = mapped_column(String(64))  # 小聚任务
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("import_batch.id", ondelete="SET NULL"))
+    error: Mapped[str | None] = mapped_column(String(300))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SysDict(TimestampMixin, Base):
     """口径/配置字典：payment_target、business_line、opportunity_stage、approval_template、portal_cards、
     attendance_rule、alert_lead_days、bank_template、clean_template…评审变更只改配置不改代码。"""
