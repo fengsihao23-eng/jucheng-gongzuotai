@@ -1,8 +1,8 @@
-<!-- 标书助手（PRD 7.7）：文档库 / 对话式合规检查 / 方案生成（带出处角标）/ 售前资料库（乐享） -->
+<!-- 标书助手（PRD 7.7）：文档库 / 对话式合规检查 / 方案生成（带出处角标）/ 售前资料库（知识库） -->
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="产品中心" title="标书助手"
-      desc="上传需求书与投标文件，按资质 → 技术参数 → 商务 → 格式签章 → ★实质性条款逐轮排查；结合需求书、投喂资料与乐享模板生成方案，段落均标注出处。" />
+      desc="上传需求书与投标文件，按资质 → 技术参数 → 商务 → 格式签章 → ★实质性条款逐轮排查；结合需求书、投喂资料与知识库模板生成方案，段落均标注出处。" />
 
     <el-tabs v-model="tab">
       <!-- 文档库 -->
@@ -207,7 +207,7 @@
             <div class="jc-row"><StatusPill :text="EV[cite.type] || cite.type" tone="brand" /><b>{{ cite.title }}</b></div>
             <div class="jc-quote mt-16">{{ cite.excerpt }}</div>
             <div class="mt-16 jc-small">
-              <a v-if="cite.type === 'lexiang' || cite.type === 'local'" :href="cite.url" target="_blank" rel="noopener">在乐享打开原文 ↗</a>
+              <a v-if="cite.type === 'lexiang' || cite.type === 'local'" :href="cite.url" target="_blank" rel="noopener">在知识库打开原文 ↗</a>
               <a v-else @click="citeOpen = false; jumpDoc(cite)">在文档库定位条款</a>
               <div class="jc-muted ex">{{ cite.url }}</div>
             </div>
@@ -218,7 +218,7 @@
       <!-- 售前资料库 -->
       <el-tab-pane label="售前资料库" name="lib">
         <div class="jc-grid c2">
-          <Panel v-for="(rows, cat) in lib" :key="cat" :title="cat" :sub="`${rows.length} 篇 · 乐享`" :padding="false">
+          <Panel v-for="(rows, cat) in lib" :key="cat" :title="cat" :sub="`${rows.length} 篇 · 知识库`" :padding="false">
             <ul class="lib">
               <li v-for="d in rows" :key="d.id">
                 <a :href="d.url" target="_blank" rel="noopener">{{ d.title }}</a>
@@ -227,7 +227,7 @@
             </ul>
           </Panel>
         </div>
-        <Panel class="mt-16" title="按项目生成售前方案模板" sub="选择需求书（可选），自动引用乐享资质、解决方案与案例">
+        <Panel class="mt-16" title="按项目生成售前方案模板" sub="选择需求书（可选），自动引用知识库中的资质、解决方案与案例">
           <div class="jc-row">
             <el-select v-model="g.tender_doc_id" placeholder="需求书（可选）" clearable style="width: 360px">
               <el-option v-for="d in docsOf('tender')" :key="d.id" :label="d.title" :value="d.id" />
@@ -247,7 +247,7 @@ import { ElMessage } from 'element-plus'
 import api, { openFile } from '@/api/client'
 import { date, datetime } from '@/utils/format'
 
-const EV = { tender: '需求书', bid: '投标文件', lexiang: '乐享', material: '投喂资料', local: '工作台' }
+const EV = { tender: '需求书', bid: '投标文件', lexiang: '知识库', material: '投喂资料', local: '工作台' }
 const ENGINE = { rule: '规则引擎', llm: '大模型', 'llm+rule': '大模型 + 规则' }
 const route = useRoute()
 const tab = ref(['docs', 'check', 'gen', 'lib'].includes(route.query.tab) ? route.query.tab : 'docs')

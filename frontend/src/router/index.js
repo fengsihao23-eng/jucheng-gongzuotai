@@ -27,6 +27,7 @@ const pages = [
   { path: 'service', name: 'service', component: () => import('@/views/Service.vue'), meta: { menu: 'service', title: '客服工单' } },
   { path: 'hr', name: 'hr', component: () => import('@/views/Hr.vue'), meta: { menu: 'hr', title: '人事中心' } },
   { path: 'kb', name: 'kb', component: () => import('@/views/Kb.vue'), meta: { menu: 'kb', title: '知识库' } },
+  { path: 'imports', name: 'imports', component: () => import('@/views/Imports.vue'), meta: { menu: 'imports', title: '资料导入' } },
   { path: 'workbuddy', name: 'mcp', component: () => import('@/views/McpConfig.vue'), meta: { menu: 'mcp', title: 'WorkBuddy 接入' } },
   { path: 'admin', name: 'admin', component: () => import('@/views/Admin.vue'), meta: { menu: 'admin', title: '系统管理' } },
   { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue'), meta: { title: '消息通知' } },

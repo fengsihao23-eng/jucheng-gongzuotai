@@ -466,29 +466,29 @@ def alert_rows(db: Session, status: str = "pending") -> list[dict]:
 # =============== 员工自助答疑 ===============
 FAQ = [
     {"key": "attendance", "kw": ["迟到", "打卡", "考勤", "早退", "缺卡", "旷工", "上班时间", "下班时间"],
-     "title": "《考勤管理制度》", "url": "https://lexiang.example.com/jc/policy/attendance",
+     "title": "《考勤管理制度》", "url": "/kb?q=考勤",
      "answer": None},  # 动态读取 attendance_rule
     {"key": "annual", "kw": ["年假", "年休假", "带薪假"], "title": "《休假管理制度》第三章 年休假",
-     "url": "https://lexiang.example.com/jc/policy/leave#annual",
+     "url": "/kb?q=年休假",
      "answer": "年休假按《职工带薪年休假条例》执行：累计工作满 1 年不满 10 年 5 天，满 10 年不满 20 年 10 天，满 20 年 15 天；"
                "公司在法定基础上按司龄每满 1 年增加 1 天（上限 15 天）。年假需提前 3 个工作日在企微提交请假审批，当年有效。"},
     {"key": "leave", "kw": ["请假", "事假", "病假", "婚假", "产假", "陪产", "丧假", "调休"],
-     "title": "《休假管理制度》第二章 请假流程", "url": "https://lexiang.example.com/jc/policy/leave#apply",
+     "title": "《休假管理制度》第二章 请假流程", "url": "/kb?q=请假",
      "answer": "请假须提前通过企微「请假」审批提交：1 天以内由部门负责人审批，1~3 天加签人事，3 天以上需总经理审批；"
                "病假需附二级以上医院证明；婚假 3 天、产假 98 天（广东另加 80 天）、陪产假 15 天、丧假 3 天；"
                "调休以已审批加班时长为限，按小时折算。"},
     {"key": "social", "kw": ["社保", "公积金", "五险", "医保", "养老", "生育险"], "title": "《薪酬福利制度》第五章 社会保险",
-     "url": "https://lexiang.example.com/jc/policy/benefit#social",
+     "url": "/kb?q=社会保险",
      "answer": "公司自入职当月起为员工缴纳养老、医疗（含生育）、失业、工伤保险及住房公积金，缴费基数按上年度月平均工资"
                "并在当地上下限内核定；每月 15 日前增减员，社保卡与公积金账户问题可联系人事部邓欣。"},
     {"key": "overtime", "kw": ["加班", "加班费"], "title": "《考勤管理制度》第四章 加班",
-     "url": "https://lexiang.example.com/jc/policy/attendance#overtime",
+     "url": "/kb?q=加班",
      "answer": "加班需事先在企微提交加班审批；工作日加班优先安排调休，休息日加班可调休或按 200% 计发，法定节假日加班按 300% 计发。"},
     {"key": "salary", "kw": ["工资", "发薪", "薪资", "工资条"], "title": "《薪酬福利制度》第二章 薪资发放",
-     "url": "https://lexiang.example.com/jc/policy/benefit#pay",
+     "url": "/kb?q=工资",
      "answer": "工资每月 10 日发放上月工资，遇节假日提前；工资条通过企微推送，对薪资有疑问可在 5 个工作日内向人事部反馈。"},
     {"key": "resign", "kw": ["离职", "辞职", "交接", "离职证明"], "title": "《员工入离职管理办法》",
-     "url": "https://lexiang.example.com/jc/policy/onboard#leave",
+     "url": "/kb?q=离职",
      "answer": "正式员工离职需提前 30 日书面提出（试用期提前 3 日），完成工作交接清单签字后办理离职手续，离职当日开具离职证明。"},
 ]
 

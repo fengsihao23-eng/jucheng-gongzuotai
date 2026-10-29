@@ -51,9 +51,10 @@ services:
     image: postgres:17
     restart: unless-stopped
     environment: { PGPASSWORD: "${DB_PASSWORD}" }
-    volumes: [./backups:/backups]
-    # 每日 02:30 全量备份，保留 7 天（PRD 9：RPO ≤ 24h）
-    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 'tomorrow 02:30' +%s) - $$(date +%s)) )); pg_dump -h db -U jucheng -Fc jucheng > /backups/jucheng_$$(date +%F).dump && find /backups -name '*.dump' -mtime +7 -delete; done"]
+    # 上传文件卷只读挂载：知识库原件、导入资料、合同归档、报表都在 /data/files
+    volumes: [./backups:/backups, files:/data:ro]
+    # 每日 02:30 备份数据库 + 上传文件，各保留 7 天（PRD 9：RPO ≤ 24h）。只放在本机，异地备份见 docs/KB_AND_IMPORTS.md
+    entrypoint: ["sh", "-c", "while true; do sleep $$(( ($$(date -d 'tomorrow 02:30' +%s) - $$(date +%s)) )); d=$$(date +%F); pg_dump -h db -U jucheng -Fc jucheng > /backups/jucheng_$$d.dump && tar -czf /backups/files_$$d.tar.gz -C /data files; find /backups -name 'jucheng_*.dump' -mtime +7 -delete; find /backups -name 'files_*.tar.gz' -mtime +7 -delete; done"]
     depends_on: [db]
 volumes:
   pgdata: {}

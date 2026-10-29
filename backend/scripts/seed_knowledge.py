@@ -1,6 +1,6 @@
 """知识库 / 客服 / 标书助手演示数据。
 
-- 乐享 Mock 全量同步（29 篇 → kb_document / kb_chunk）
+- 知识库演示语料（29 篇乐享 Mock 文档 → kb_document / kb_chunk，source=lexiang；生产用 scripts/purge_demo_kb.py 清除）
 - 客服字典 cs_category（分类关键词规则，可在线维护）
 - 客服工单 60 条（近 90 天，含 24h 重复报修、已解决带根因与方案、聚类明显的高频问题）
 - 标书样例：samples/tender_xx学校智慧校园.docx、bid_xx学校智慧校园.docx、material_xx学校现场勘察记录.docx
@@ -131,7 +131,8 @@ def _seed_tender(db: Session, ctx) -> dict:
 def seed(db: Session, ctx) -> None:
     for cat, kws in cs_service.DEFAULT_CATEGORY_RULES.items():
         dict_service.put(db, "cs_category", cat, {"keywords": kws}, remark="客服工单自动分类关键词（命中关键词长度加权）")
-    kb_service.sync(db, full=True)
+    kb_service.ensure_categories(db)
+    kb_service.load_demo_corpus(db)
     n = _seed_tickets(db, ctx)
     info = _seed_tender(db, ctx)
     period = prev_month(f"{ctx.T:%Y-%m}")

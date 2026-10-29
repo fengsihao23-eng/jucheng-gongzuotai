@@ -2,7 +2,7 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="客服部" title="客服工单"
-      desc="对话式登记自动分类、24 小时内同客户同症状自动合并；排查建议来自乐享客服手册与历史已解决工单，均附出处。" />
+      desc="对话式登记自动分类、24 小时内同客户同症状自动合并；排查建议来自知识库客服手册与历史已解决工单，均附出处。" />
 
     <div class="jc-grid c4">
       <Kpi label="本月工单" :value="kpi.month_total" unit="张" :hint="kpi.period" />

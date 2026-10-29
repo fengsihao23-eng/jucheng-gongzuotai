@@ -49,6 +49,7 @@ export const MENU_GROUPS = [
     title: '公共',
     items: [
       { key: 'kb', path: '/kb', label: '知识库' },
+      { key: 'imports', path: '/imports', label: '资料导入' },
       { key: 'mcp', path: '/workbuddy', label: 'WorkBuddy 接入' },
       { key: 'admin', path: '/admin', label: '系统管理' },
     ],

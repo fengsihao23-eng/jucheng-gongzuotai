@@ -45,6 +45,6 @@
 - `app.services.profit_service.project_profit(db, start, end, project_codes=None)`：项目收入/成本/毛利（累计至期末 + 本期发生）+ 公共费用，口径来自 sys_dict caliber.profit。周利润表、看板毛利、MCP fin.project_profit 必须共用它，保证三处数字一致。
 - `app.services.dispatch_service`：企微审批 → 台账分发（已完成，勿改）。
 - `app.services.notify_service` / `dict_service` / `codes` / `user_service`。
-- 知识库检索接口（由 knowledge 模块实现，其他模块可调用）：`app.services.kb_service.search(db, query, category=None, limit=5) -> list[dict]`，每项 `{doc_id, title, category, url, heading, snippet, score}`；url 为乐享原文链接（出处）。调用方请 `try/except ImportError` 兜底。
+- 知识库检索接口（其他模块可调用）：`app.services.kb_service.search(db, query, category=None, limit=5, viewer=None) -> list[dict]`，每项 `{doc_id, title, category, subcategory, url, heading, snippet, score}`；url 指向工作台知识库原文。只返回已发布文档；传 `viewer`（Principal）时按其部门/角色过滤可见范围，不传时只返回全员可见文档。说明见 docs/KB_AND_IMPORTS.md。
 - 大模型（由 knowledge 模块实现）：`app.integration.llm.complete(system, user) -> str | None`，未配置 LLM_API_KEY 时返回 None，调用方必须有规则引擎兜底。
 - 样例文件（银行流水、考勤、脏 Excel、招标文件等）放 `backend/samples/`，用于测试与验收演示。

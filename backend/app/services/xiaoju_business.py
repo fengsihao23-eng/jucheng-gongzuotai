@@ -51,7 +51,7 @@ def actor_signature(user_id):
 
 def source_signature():
     return digest({"database": settings.database_url, "mode": settings.data_source_mode,
-                   "sources": {key: settings.source_mode(key) for key in ("wecom", "lemoncloud", "lexiang")}})
+                   "sources": {key: settings.source_mode(key) for key in ("wecom", "lemoncloud")}})
 
 
 def compact(value, depth=0):

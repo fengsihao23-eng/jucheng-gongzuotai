@@ -1,18 +1,8 @@
-"""知识库与客服定时任务：乐享增量同步、客服问题归因报告（周报 + 月报）。"""
+"""客服定时任务：客服问题归因报告（周报 + 月报）。知识库改为自建上传后不再有乐享同步任务。"""
 from datetime import timedelta
 
 from app.core.timeutil import month_range, prev_month, today, week_no, week_range
 from app.jobs.registry import job
-
-
-@job("kb_sync", "乐享知识库增量同步", {"hour": 2, "minute": 0}, "每日 02:00",
-     idempotency=lambda p: None if p.get("full") else f"kb_sync:{today()}")
-def kb_sync(db, params):
-    from app.services import kb_service
-    st = kb_service.sync(db, full=bool(params.get("full")))
-    return {"rows": st.get("added", 0) + st.get("updated", 0),
-            "message": f"新增 {st.get('added', 0)}、更新 {st.get('updated', 0)}、跳过 {st.get('skipped', 0)}，"
-                       f"共 {st['total_docs']} 篇 / {st['total_chunks']} 块"}
 
 
 def _push(db, r, link="/service?tab=analysis"):

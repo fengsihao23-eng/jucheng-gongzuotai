@@ -46,7 +46,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 | 人事部 | 人事中心 | 考勤核对、到期预警、文书与风险提示、人力分析 PPT、招聘 |
 | 产品中心 | 标书助手 | 多轮合规检查、带出处的方案生成 |
 | 客服部 | 客服工单 | 一句话登记、相似工单、排查建议、归因报告 |
-| 公共 | 知识库 / WorkBuddy 接入 / 系统管理 | 乐享检索、MCP 令牌与工具注册表、角色字典任务审计 |
+| 公共 | 知识库 / 资料导入 / WorkBuddy 接入 / 系统管理 | 自建知识库（两级分类、可见范围、审核发布、版本）、全员资料导入（自动分流、待整理池、撤回）、MCP 令牌与工具注册表、角色字典任务审计 |
 
 ## 小聚业务 Agent 与 WorkBuddy 接入
 
@@ -106,7 +106,7 @@ docker compose exec -T api python -m scripts.seed   # 重建演示数据（清�
 
 数据库每日 02:30 全量备份到 `deploy/backups/`，保留 7 天。
 
-上线前：配置企业微信 / 乐享凭证并按数据源启用真实模式；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。企业微信后台回调地址配置为 `https://juchengcc.com/api/v1/wecom/callback`。生产 `DATA_SOURCE_MODE=mock` + `PASSWORD_LOGIN_ENABLED=true` 期间按演示环境运行，切换真实数据源后建议关闭口令登录。
+上线前：配置企业微信凭证并按数据源启用真实模式（知识库已改为自建，不再接乐享，见 [docs/KB_AND_IMPORTS.md](docs/KB_AND_IMPORTS.md)）；企业微信也可由小聚自动读取凭证并验证启用。柠檬云适配器须先按实际账套接口联调，通过前保持 `lemoncloud:mock`。企业微信后台回调地址配置为 `https://juchengcc.com/api/v1/wecom/callback`。生产 `DATA_SOURCE_MODE=mock` + `PASSWORD_LOGIN_ENABLED=true` 期间按演示环境运行，切换真实数据源后建议关闭口令登录。
 
 ## 开发约定
 

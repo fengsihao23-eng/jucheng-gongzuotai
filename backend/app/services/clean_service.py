@@ -848,6 +848,105 @@ def import_job(db: Session, job: CleanJob, user_id: int) -> CleanJob:
     return job
 
 
+def guess_target(db: Session, data: bytes, filename: str) -> tuple[str | None, dict]:
+    """用途描述/文件名认不出时，按表头与各模板的匹配度猜目标台账。返回 (target, 各模板得分)。
+
+    只有一个模板能覆盖全部必填字段、且明显领先第二名时才给出结论，否则返回 None 交给人工判断。
+    """
+    try:
+        rows = read_table(data, filename)
+    except BizError:
+        return None, {}
+    scores = {}
+    for key, tpl in templates(db).items():
+        idx = detect_header(rows, tpl)
+        heads = [norm_header(v)[0] for v in (rows[idx][1] if rows else []) if not _is_blank(v)]
+        hit_fields = {f["key"] for f in tpl["fields"]
+                      if any(header_score(h, f)[0] >= 0.8 for h in heads)}
+        required = {f["key"] for f in tpl["fields"] if f["required"]}
+        scores[key] = {"matched": len(hit_fields), "required_hit": len(hit_fields & required),
+                       "required": len(required)}
+    ok_targets = sorted((v["matched"], k) for k, v in scores.items() if v["required_hit"] == v["required"])
+    if not ok_targets:
+        return None, scores
+    best_n, best = ok_targets[-1]
+    if len(ok_targets) > 1 and ok_targets[-2][0] >= best_n - 1:
+        return None, scores
+    return best, scores
+
+
+def rollback_job(db: Session, job: CleanJob) -> dict:
+    """撤回一次已导入的清洗任务：删除本次写入台账的记录。全有或全无——任一条已被后续业务引用就整体拒绝并列出原因。"""
+    from app.models import BizProjectCost, BizProjectMilestone, FinCashJournal
+    from app.services import payment_service
+    if job.status != "imported":
+        raise BizError(40901, "只有已导入的任务可以撤回")
+    refs = [r["_ref"] for r in job.rows if r.get("_imported") and r.get("_ref")]
+    blockers, plan = [], []
+    for ref in refs:
+        if job.target == "contract":
+            c = db.scalar(select(BizContract).where(BizContract.contract_no == ref))
+            if c is None:
+                continue
+            if c.payments:
+                blockers.append(f"合同 {ref} 已有 {len(c.payments)} 笔回款")
+            elif c.archive_file_id:
+                blockers.append(f"合同 {ref} 已归档原件")
+            else:
+                plan.append(c)
+        elif job.target == "opportunity":
+            o = db.scalar(select(BizOpportunity).where(BizOpportunity.opp_no == ref))
+            if o is not None:
+                plan.append(o)
+        elif job.target == "payment":
+            no, _, pid = ref.partition("#")
+            pay = db.get(BizPayment, int(pid)) if pid.isdigit() else None
+            if pay is None:
+                continue
+            if pay.bank_flow_id:
+                blockers.append(f"回款 {ref} 已关联银行流水")
+            else:
+                plan.append(pay)
+        else:
+            pj = db.scalar(select(BizProject).where(BizProject.project_code == ref))
+            if pj is None:
+                continue
+            used = []
+            if db.scalar(select(func.count(BizContract.id)).where(BizContract.project_code == ref, BizContract.is_deleted.is_(False))):
+                used.append("合同")
+            if db.scalar(select(func.count(BizProjectCost.id)).where(BizProjectCost.project_code == ref)):
+                used.append("成本")
+            if db.scalar(select(func.count(FinCashJournal.id)).where(FinCashJournal.project_code == ref)):
+                used.append("日记账")
+            if db.scalar(select(func.count(BizProjectMilestone.id)).where(BizProjectMilestone.project_id == pj.id)):
+                used.append("流程节点")
+            if used:
+                blockers.append(f"项目 {ref} 已有{'、'.join(used)}")
+            else:
+                plan.append(pj)
+    if blockers:
+        raise BizError(40901, "以下记录已被后续业务使用，不能整批撤回：" + "；".join(blockers[:10])
+                       + (f" 等 {len(blockers)} 条" if len(blockers) > 10 else ""), data={"blockers": blockers})
+    touched = set()
+    for obj in plan:
+        if isinstance(obj, BizPayment):
+            touched.add(obj.contract_id)
+        db.delete(obj)
+    db.flush()
+    for cid in touched:  # 回款删除后按剩余回款重新冲抵计划
+        c = db.get(BizContract, cid)
+        db.refresh(c)
+        for pl in c.plans:
+            pl.received_amount = Decimal("0")
+        for pay in c.payments:
+            pay.plan_id = payment_service.apply_to_plans(c, pay.amount)
+        payment_service.refresh_plan_status(c)
+    job.status = "rolled_back"
+    job.stats = {**job.stats, "rolled_back": len(plan)}
+    db.flush()
+    return {"removed": len(plan), "target": job.target}
+
+
 def build_report(db: Session, job: CleanJob, user_id: int | None = None):
     """清洗报告 xlsx：概览 / 清洗明细 / 原值→新值对照 / 跳过与异常行 / 口径说明。"""
     from openpyxl import Workbook
@@ -877,7 +976,7 @@ def build_report(db: Session, job: CleanJob, user_id: int | None = None):
                  ("已修正", st.get("fixed")), ("重复（跳过）", st.get("duplicate")), ("错误（跳过）", st.get("error")),
                  ("改动单元格数", st.get("changed_cells")), ("已导入台账", st.get("imported", 0)),
                  ("导入失败", st.get("import_failed", 0)), ("跳过的空行/备注行", len(st.get("skipped_rows", []))),
-                 ("任务状态", {"preview": "预览", "imported": "已导入", "cancelled": "已取消"}.get(job.status, job.status))]:
+                 ("任务状态", {"preview": "预览", "imported": "已导入", "cancelled": "已取消", "rolled_back": "已撤回"}.get(job.status, job.status))]:
         ws.append([k, v])
     ws.append([])
     ws.append(["列映射", "源列 → 标准字段（置信度 / 方式）"])

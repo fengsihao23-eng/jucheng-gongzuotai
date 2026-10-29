@@ -177,17 +177,43 @@ class ProdGeneration(TimestampMixin, Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
 
 
-# ---------------- 知识库（乐享镜像，检索在本地进行，出处链接指回乐享） ----------------
+# ---------------- 知识库（自建：上传原件存服务器，正文分块后本地检索） ----------------
+class KbCategory(TimestampMixin, Base):
+    """知识库两级分类目录。一级名与 kb_document.category 对应，二级名对应 kb_document.subcategory。"""
+    __tablename__ = "kb_category"
+    __table_args__ = (UniqueConstraint("parent_id", "name"),)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("kb_category.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(32))
+    sort: Mapped[int] = mapped_column(Integer, default=0)
+    description: Mapped[str | None] = mapped_column(String(255))
+    reviewer_roles: Mapped[list] = mapped_column(JSON, default=list)  # 一级分类有效：可审核发布的角色码
+
+
 class KbDocument(TimestampMixin, Base):
     __tablename__ = "kb_document"
-    source: Mapped[str] = mapped_column(String(16), default="lexiang")
+    source: Mapped[str] = mapped_column(String(16), default="upload")  # upload 上传 | local 系统沉淀 | lexiang 历史镜像
     source_doc_id: Mapped[str] = mapped_column(String(64), unique=True)
     title: Mapped[str] = mapped_column(String(200))
-    category: Mapped[str] = mapped_column(String(16), index=True)  # 制度|售前|方案模板|案例|资质|客服|产品
+    category: Mapped[str] = mapped_column(String(16), index=True)  # 一级分类名
+    subcategory: Mapped[str | None] = mapped_column(String(32))
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    summary: Mapped[str | None] = mapped_column(String(500))
     url: Mapped[str] = mapped_column(String(500))
     content_text: Mapped[str] = mapped_column(Text)
     version: Mapped[str | None] = mapped_column(String(32))
     source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 可见范围：all 全员 | dept 指定部门 | roles 指定角色
+    visibility: Mapped[str] = mapped_column(String(8), default="all", server_default="all")
+    visible_depts: Mapped[list] = mapped_column(JSON, default=list)
+    visible_roles: Mapped[list] = mapped_column(JSON, default=list)
+    # 发布状态：pending 待审核 | published 已发布 | rejected 已驳回 | archived 已下架
+    status: Mapped[str] = mapped_column(String(12), default="published", server_default="published", index=True)
+    file_id: Mapped[int | None] = mapped_column(ForeignKey("sys_file.id"))
+    sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    uploader_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(255))
 
 
 class KbChunk(TimestampMixin, Base):
@@ -206,9 +232,33 @@ class CleanJob(TimestampMixin, Base):
     target: Mapped[str] = mapped_column(String(32))  # contract|opportunity|payment|project
     filename: Mapped[str] = mapped_column(String(255))
     file_id: Mapped[int | None] = mapped_column(ForeignKey("sys_file.id"))
-    status: Mapped[str] = mapped_column(String(16), default="preview")  # preview|imported|cancelled
+    status: Mapped[str] = mapped_column(String(16), default="preview")  # preview|imported|cancelled|rolled_back
     mapping: Mapped[dict] = mapped_column(JSON, default=dict)  # 源列 → 标准字段
     rows: Mapped[list] = mapped_column(JSON, default=list)  # 清洗后行（含 _row, _status, _issues, _changes）
     stats: Mapped[dict] = mapped_column(JSON, default=dict)
     report_file_id: Mapped[int | None] = mapped_column(ForeignKey("sys_file.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+
+
+# ---------------- 统一资料导入 ----------------
+class ImportBatch(TimestampMixin, Base):
+    """同事上传的一份资料。按文件类型分流到台账清洗（clean_job）、知识库（kb_document）或待整理池。"""
+    __tablename__ = "import_batch"
+    filename: Mapped[str] = mapped_column(String(255))
+    file_id: Mapped[int] = mapped_column(ForeignKey("sys_file.id"))
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    purpose: Mapped[str | None] = mapped_column(String(255))  # 上传人写的一句用途说明
+    kind: Mapped[str] = mapped_column(String(12))  # table 表格 | document 文档 | other 其他
+    route: Mapped[str] = mapped_column(String(8))  # clean 台账 | kb 知识库 | pool 待整理池
+    # pending 待上传人确认 | pool 待整理 | done 已入库 | withdrawn 已撤回 | dismissed 已处理（不入库）
+    status: Mapped[str] = mapped_column(String(12), index=True)
+    target: Mapped[str | None] = mapped_column(String(32))  # 台账目标（contract|opportunity|payment|project）
+    clean_job_id: Mapped[int | None] = mapped_column(ForeignKey("clean_job.id"))
+    kb_doc_id: Mapped[int | None] = mapped_column(ForeignKey("kb_document.id", ondelete="SET NULL"))
+    suggestion: Mapped[dict] = mapped_column(JSON, default=dict)  # 系统识别结果与理由
+    note: Mapped[str | None] = mapped_column(String(500))  # 处理说明 / 撤回结果
+    uploader_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
+    dept_code: Mapped[str | None] = mapped_column(String(8))
+    handler_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

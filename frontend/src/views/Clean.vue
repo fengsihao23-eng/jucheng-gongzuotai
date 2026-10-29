@@ -164,7 +164,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api, { openFile } from '@/api/client'
 import { useAuth } from '@/store/auth'
@@ -172,8 +172,9 @@ import { BUSINESS_LINES, OPP_STAGES, datetime, money } from '@/utils/format'
 
 const auth = useAuth()
 const router = useRouter()
+const route = useRoute()
 const STATUS = { ok: { label: '通过', tone: 'up' }, fixed: { label: '已修正', tone: 'brand' }, duplicate: { label: '重复', tone: 'warn' }, error: { label: '错误', tone: 'down' } }
-const JOB_STATUS = { preview: { label: '预览中', tone: 'info' }, imported: { label: '已导入', tone: 'up' }, cancelled: { label: '已取消' } }
+const JOB_STATUS = { preview: { label: '预览中', tone: 'info' }, imported: { label: '已导入', tone: 'up' }, cancelled: { label: '已取消' }, rolled_back: { label: '已撤回' } }
 const LEDGER = { contract: '/contracts', opportunity: '/opportunities', payment: '/contracts', project: '/projects' }
 
 const step = ref(0)
@@ -281,6 +282,10 @@ async function loadHistory() {
 onMounted(async () => {
   templates.value = await api.get('/clean/templates')
   loadHistory()
+  if (route.query.job) {  // 从「资料导入」跳转过来：预览中的任务先核对字段映射
+    await openJob({ id: route.query.job })
+    if (job.value?.status === 'preview') step.value = 1
+  }
 })
 </script>
 

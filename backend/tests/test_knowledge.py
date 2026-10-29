@@ -1,4 +1,4 @@
-"""知识库（乐享集成）/ 客服工单 / 标书助手 / 大模型适配器（PRD FR-06、7.7、7.8、MCP kb.search/kb.bid_check）。
+"""知识库（演示语料检索）/ 客服工单 / 标书助手 / 大模型适配器（PRD FR-06、7.7、7.8、MCP kb.search/kb.bid_check）。
 
 运行：cd backend && TEST_DB=jucheng_test_kb .venv/bin/python -m pytest tests/test_knowledge.py -q
 """
@@ -54,8 +54,8 @@ def test_kb_preview_categories_and_status(client, login):
     doc = data(client.get(f"/api/v1/kb/docs/{hit['doc_id']}", headers=h))
     assert doc["content_text"] and doc["chunks"] and doc["url"] == hit["url"]
     assert any(c["seq"] == hit["seq"] for c in doc["chunks"])  # 前端据 seq 定位命中段落
-    st = data(client.get("/api/v1/kb/sync/status", headers=h))
-    assert st["total_docs"] >= 25 and st["last_success_at"] and st["can_sync"] is False
+    st = data(client.get("/api/v1/kb/meta", headers=h))
+    assert st["total_docs"] >= 25 and st["can_manage"] is False and st["demo_docs"] >= 25
 
 
 def test_kb_corpus_size():
@@ -66,12 +66,13 @@ def test_kb_corpus_size():
     assert {c["name"] for c in MockLexiang().list_categories()} >= {"制度", "售前", "方案模板", "案例", "资质", "客服"}
 
 
-def test_kb_sync_rbac_and_incremental(client, login):
-    assert client.post("/api/v1/kb/sync", headers=login(EMP)).json()["code"] == 40301
-    st = data(client.post("/api/v1/kb/sync", headers=login(ADMIN)))
-    assert st["error"] is None and st["added"] == 0 and st["total_docs"] >= 25  # 增量：无新文档
-    st = data(client.post("/api/v1/kb/sync", params={"full": True}, headers=login(ADMIN)))
-    assert st["updated"] >= 25 and st["total_chunks"] > 100
+def test_kb_sync_endpoints_removed(client, login):
+    """乐享已停用：同步接口与定时任务都已移除。"""
+    assert client.post("/api/v1/kb/sync", headers=login(ADMIN)).status_code in (404, 405)
+    from app.jobs import load_all
+    from app.jobs.registry import JOBS
+    load_all()
+    assert "kb_sync" not in JOBS
 
 
 def test_large_document_chunking_under_one_minute(db):
@@ -196,8 +197,6 @@ def test_attribution_jobs(db):
     e = run_job("cs_attribution_report", {"week": "2026-W42"}, trigger="manual", force=True, db=db)
     assert e.status == "success", e.error_msg
     e = run_job("cs_attribution_monthly", {"period": "2026-09"}, trigger="manual", force=True, db=db)
-    assert e.status == "success", e.error_msg
-    e = run_job("kb_sync", {}, trigger="manual", force=True, db=db)
     assert e.status == "success", e.error_msg
 
 

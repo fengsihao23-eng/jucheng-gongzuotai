@@ -20,6 +20,8 @@ MODULES = [
     "opportunities", "performance", "clean",
     # 人事 / 客服 / 产品 / 知识库
     "hr", "service", "tender", "kb",
+    # 统一资料导入（全员）
+    "imports",
     # MCP 配置
     "mcp_config", "assistant",
 ]

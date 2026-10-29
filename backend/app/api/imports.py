@@ -1,0 +1,86 @@
+"""统一资料导入（全员）：上传 → 自动分流到台账清洗 / 知识库 / 待整理池；整理人（imports:handle）处理待整理池。"""
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
+from sqlalchemy.orm import Session
+
+from app.api.kb import _list
+from app.core.audit import log_op
+from app.core.db import get_db
+from app.core.deps import Principal, client_ip, get_principal
+from app.core.response import ok
+from app.services import import_service as svc
+
+router = APIRouter(prefix="/imports", tags=["imports"])
+User = Depends(get_principal)
+
+
+def _done(db: Session, p: Principal, b, action: str, request: Request, after: dict | None = None):
+    log_op(db, p.id, f"import.{action}", "import_batch", b.id,
+           after={"status": b.status, "route": b.route, **(after or {})}, ip=client_ip(request))
+    db.commit()
+    return svc.view(db, b, p)
+
+
+@router.post("")
+async def upload(request: Request, file: UploadFile = File(...), purpose: str = Form(""), p: Principal = User,
+                 db: Session = Depends(get_db)):
+    data = await file.read()
+    b = svc.create(db, p, data, file.filename or "upload", purpose or None)
+    return ok(_done(db, p, b, "upload", request, {"filename": b.filename, "kind": b.kind, "target": b.target}))
+
+
+@router.get("")
+def batches(scope: str = Query("mine", pattern="^(mine|pool|all)$"), status: str = "", page: int = Query(1, ge=1),
+            page_size: int = Query(20, ge=1, le=100), p: Principal = User, db: Session = Depends(get_db)):
+    out = svc.list_batches(db, p, scope, status or None, page, page_size)
+    db.commit()  # 同步清洗任务状态
+    return ok(out)
+
+
+@router.get("/{batch_id}")
+def batch(batch_id: int, p: Principal = User, db: Session = Depends(get_db)):
+    b = svc._get(db, p, batch_id)
+    db.commit()
+    return ok(svc.view(db, b, p))
+
+
+@router.post("/{batch_id}/confirm-kb")
+def confirm_kb(batch_id: int, request: Request, title: str = Body(""), category: str = Body(""),
+               subcategory: str = Body(""), tags: list[str] | str | None = Body(None), summary: str = Body(""),
+               visibility: str = Body("all"), visible_depts: list[str] | str | None = Body(None),
+               visible_roles: list[str] | str | None = Body(None), p: Principal = User, db: Session = Depends(get_db)):
+    as_list = lambda v: v if isinstance(v, list) else _list(v)  # noqa: E731
+    b = svc.confirm_kb(db, p, batch_id, title=title or None, category=category or None,
+                       subcategory=subcategory or None, tags=as_list(tags), summary=summary or None,
+                       visibility=visibility or "all", visible_depts=as_list(visible_depts),
+                       visible_roles=as_list(visible_roles))
+    return ok(_done(db, p, b, "confirm_kb", request, {"kb_doc_id": b.kb_doc_id}))
+
+
+@router.post("/{batch_id}/to-clean")
+def to_clean(batch_id: int, request: Request, target: str = Body(..., embed=True), p: Principal = User,
+             db: Session = Depends(get_db)):
+    b = svc.to_clean(db, p, batch_id, target)
+    return ok(_done(db, p, b, "to_clean", request, {"target": target, "clean_job_id": b.clean_job_id}))
+
+
+@router.post("/{batch_id}/to-kb")
+def to_kb(batch_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+    return ok(_done(db, p, svc.to_kb(db, p, batch_id), "to_kb", request))
+
+
+@router.post("/{batch_id}/to-pool")
+def to_pool(batch_id: int, request: Request, note: str = Body("", embed=True), p: Principal = User,
+            db: Session = Depends(get_db)):
+    return ok(_done(db, p, svc.to_pool(db, p, batch_id, note), "to_pool", request))
+
+
+@router.post("/{batch_id}/dismiss")
+def dismiss(batch_id: int, request: Request, note: str = Body(..., embed=True), p: Principal = User,
+            db: Session = Depends(get_db)):
+    return ok(_done(db, p, svc.dismiss(db, p, batch_id, note), "dismiss", request, {"note": note}))
+
+
+@router.post("/{batch_id}/withdraw")
+def withdraw(batch_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+    b = svc.withdraw(db, p, batch_id)
+    return ok(_done(db, p, b, "withdraw", request, {"note": b.note}))

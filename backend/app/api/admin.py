@@ -135,7 +135,6 @@ def upsert_dict(body: DictIn, request: Request, p: Principal = Admin, db: Sessio
 def datasources(p: Principal = Admin):
     srcs = {"wecom": ("企业微信", bool(settings.wecom_corp_id and settings.wecom_secret)),
             "lemoncloud": ("柠檬云财务", bool(settings.lemoncloud_app_id)),
-            "lexiang": ("腾讯乐享", bool(settings.lexiang_app_key)),
             "bankflow": ("银行流水", True), "tax": ("税务申报", True),
             "llm": ("大模型（方案生成/归因）", bool(settings.llm_api_key))}
     return ok({"global_mode": settings.data_source_mode, "overrides": settings.data_source_overrides,

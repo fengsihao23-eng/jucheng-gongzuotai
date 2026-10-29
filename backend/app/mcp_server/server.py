@@ -335,7 +335,7 @@ def t_compare(db, p, metric: str = "payment_rate", a: str | None = None, b: str 
 
 def t_kb_search(db, p, query: str, category: str | None = None):
     from app.services import kb_service
-    hits = kb_service.search(db, query, category=category, limit=6)
+    hits = kb_service.search(db, query, category=category, limit=6, viewer=p)
     summary = f"找到 {len(hits)} 条相关内容" + ("：" + "；".join(f"《{h['title']}》" for h in hits[:3]) if hits else "，可换个关键词再试")
     return {"summary": summary, "data": [{**h, "snippet": h["snippet"].replace("<mark>", "").replace("</mark>", "")} for h in hits]}
 
