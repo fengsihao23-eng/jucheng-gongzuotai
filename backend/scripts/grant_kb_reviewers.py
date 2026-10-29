@@ -1,6 +1,7 @@
-"""把「知识库审核人」角色（KB-01）开通给指定账号，并挂到各一级分类的审核人角色上。
+"""把「知识库管理员」角色（KB-01）开通给指定账号，并挂到各一级分类的审核人角色上。
 
-KB-01 是附属角色：不增加菜单、不改变数据范围，只让本人成为知识库分类审核人（可审核发布、传新版）。
+KB-01 是附属角色：只有 kb:manage（知识库完整管理——分类增删改、文档审核/下架/删除、可见全部文档），
+不增加其他菜单，也不改变 data_scope。
 默认只预览；确认后加 --apply 执行。
 
     python -m scripts.grant_kb_reviewers            # 预览
@@ -12,6 +13,7 @@ import sys
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
+from app.core.permissions import ROLE_DEFS
 from app.models import KbCategory, SysRole, SysUser, SysUserRole
 from app.services import kb_service
 
@@ -59,6 +61,8 @@ def main(apply: bool, names: list[str]) -> None:
         need_cat = [c for c in tops if ROLE_CODE not in (c.reviewer_roles or [])]
 
         print(f"角色 {ROLE_CODE}：{'已存在' if role else '待创建'}")
+        if role is not None and role.name != ROLE_DEFS[ROLE_CODE]["name"]:
+            print(f"  角色名称待同步：{role.name} → {ROLE_DEFS[ROLE_CODE]['name']}")
         print(f"匹配到在职账号 {len(found)} 个，其中已有该角色 {len(with_role)} 个")
         for u in found:
             print(f"  {u.id:>4} {u.name:<6} 部门 {u.dept_code or '-':<10} 现有角色 "
@@ -75,8 +79,12 @@ def main(apply: bool, names: list[str]) -> None:
             return
 
         if role is None:
-            role = SysRole(role_code=ROLE_CODE, name="知识库审核人", dept_code="*", permissions={})
+            d = ROLE_DEFS[ROLE_CODE]
+            role = SysRole(role_code=ROLE_CODE, name=d["name"], dept_code=d["dept"], permissions={})
             db.add(role)
+            db.flush()
+        elif role.name != ROLE_DEFS[ROLE_CODE]["name"]:
+            role.name = ROLE_DEFS[ROLE_CODE]["name"]  # 权限仍由 ROLE_DEFS 生效，这里只对齐显示名
             db.flush()
         for u in need_grant:
             db.add(SysUserRole(user_id=u.id, role_id=role.id))
