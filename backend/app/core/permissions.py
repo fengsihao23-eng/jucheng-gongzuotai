@@ -60,6 +60,9 @@ ROLE_DEFS: dict[str, dict] = {
     "EMP": {"name": "普通员工", "dept": "*", "portal": "employee", "data_scope": "self", "menus": [], "buttons": []},
     "ADMIN-01": {"name": "平台管理员", "dept": "ADMIN", "portal": "admin", "data_scope": "all",
                  "menus": list(MENUS), "buttons": ["*"]},
+    # 知识库分类审核人（附属于本人原有角色）。只有审核发布权，不扩菜单、不扩数据范围。
+    "KB-01": {"name": "知识库审核人", "dept": "*", "portal": "employee", "data_scope": "self",
+              "menus": [], "buttons": []},
 }
 
 # 首次登录按部门映射默认角色（FR-01-06）
