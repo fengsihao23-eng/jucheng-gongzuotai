@@ -81,7 +81,7 @@ def refresh_connection_scope(user_id, session_id):
 
 
 def models():
-    return list(dict.fromkeys(x.strip() for x in (settings.assistant_models or settings.llm_model or "deepseek-flash").split(",") if x.strip()))
+    return list(dict.fromkeys(x.strip() for x in (settings.assistant_models or settings.llm_model or "deepseek-v4.1-flash-1017").split(",") if x.strip()))
 
 
 def validate_options(model=None, thinking=None):

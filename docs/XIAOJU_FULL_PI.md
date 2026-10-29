@@ -33,7 +33,7 @@
 
 | 配置 | 默认 / 部署值 |
 | --- | --- |
-| `ASSISTANT_MODELS` | 留空只启用 `LLM_MODEL`；生产配置 `deepseek-flash,deepseek-v4-pro` |
+| `ASSISTANT_MODELS` | 留空只启用 `LLM_MODEL`；生产配置 `deepseek-v4.1-flash-1017` |
 | `ASSISTANT_THINKING_LEVEL` | `medium`，Pi 根据模型支持的等级调整 |
 | `ASSISTANT_TASK_TIMEOUT_SECONDS` | `900` |
 | `ASSISTANT_MAX_TURNS` | `80` |

@@ -8,7 +8,7 @@
 
 ## 执行核心
 
-使用官方 `@earendil-works/pi-coding-agent@1.3.0` 完整 SDK，包含同版本 Agent Core 与 Pi AI。Pi 管理完整会话、自动上下文压缩、Skills、扩展、MCP 和工具循环。Python FastAPI 管理业务权限、凭证、确认与回执；文件和脚本交给独立执行容器。默认使用 `deepseek-flash`，管理员配置 `ASSISTANT_MODELS` 后可在界面切换已启用模型。没有委托到用户全局 Pi CLI 的其他模型账号。详细配置见 [完整 Pi 运行说明](XIAOJU_FULL_PI.md)。
+使用官方 `@earendil-works/pi-coding-agent@1.3.0` 完整 SDK，包含同版本 Agent Core 与 Pi AI。Pi 管理完整会话、自动上下文压缩、Skills、扩展、MCP 和工具循环。Python FastAPI 管理业务权限、凭证、确认与回执；文件和脚本交给独立执行容器。默认使用 `deepseek-v4.1-flash-1017`，管理员配置 `ASSISTANT_MODELS` 后可在界面切换已启用模型。没有委托到用户全局 Pi CLI 的其他模型账号。详细配置见 [完整 Pi 运行说明](XIAOJU_FULL_PI.md)。
 
 API Key 只经独立进程 stdin 传入，不放在命令行、任务文件或 GitHub。npm lockfile 固定依赖；Docker 构建自动安装 Node 和 Pi 核心。本地开发安装一次：
 
@@ -20,8 +20,8 @@ npm ci --ignore-scripts
 服务器 `backend/.env` 示例（实际文件不提交）：
 
 ```dotenv
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-flash
+LLM_BASE_URL=https://ai.ctaigw.cn/v1
+LLM_MODEL=deepseek-v4.1-flash-1017
 LLM_API_KEY=<实际密钥>
 LLM_THINKING_MODE=disabled
 ASSISTANT_HOST_ACCESS=true

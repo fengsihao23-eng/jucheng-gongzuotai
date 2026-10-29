@@ -1,7 +1,7 @@
 """大模型适配器：OpenAI 兼容 Chat Completions（腾讯混元 / DeepSeek / 通义等均兼容）。
 
 - 配置：LLM_BASE_URL / LLM_API_KEY / LLM_MODEL（只来自环境变量）
-- DeepSeek V4.1 Flash：模型名 deepseek-flash；LLM_THINKING_MODE=disabled 可关闭默认思考
+- DeepSeek V4.1 Flash：模型名形如 deepseek-v4.1-flash-1017；LLM_THINKING_MODE=disabled 可关闭默认思考
 - 未配置或调用失败一律返回 None，调用方必须有规则引擎兜底（DEV_GUIDE 约定）
 - 不记录 prompt 原文与密钥，只记录耗时与错误类型
 """
