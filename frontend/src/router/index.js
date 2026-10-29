@@ -41,6 +41,7 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { public: true, title: '登录' } },
     { path: '/login/callback', name: 'login-callback', component: () => import('@/views/LoginCallback.vue'), meta: { public: true } },
+    { path: '/xiaoju/:id?', name: 'xiaoju', component: () => import('@/views/Xiaoju.vue'), meta: { title: '小聚' } },
     { path: '/board/screen', name: 'board-screen', component: () => import('@/views/BoardScreen.vue'), meta: { menu: 'board', title: '经营大屏' } },
     { path: '/', component: () => import('@/layouts/MainLayout.vue'), children: pages },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -50,6 +51,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   document.title = (to.meta.title ? to.meta.title + ' · ' : '') + '聚成数智工作台'
   if (to.meta.public) return true
+  if (to.path === '/' && typeof to.query.xiaoju === 'string') return { name: 'xiaoju', params: { id: to.query.xiaoju } }  // 旧版企业微信回复链接
   if (!getToken()) return { name: 'login', query: { redirect: to.fullPath } }
   const auth = useAuth()
   if (!auth.profile) {

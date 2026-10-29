@@ -36,7 +36,7 @@ async function pageFor(username = 'admin', width = 1440) {
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto(WEB + '/')
   await page.getByRole('button', { name: '小聚', exact: true }).click()
-  await page.getByText('执行引擎已就绪 · 支持自动接入').waitFor()
+  await page.locator('.xj .ready').waitFor()  // 独立页面：执行引擎就绪标记
   return page
 }
 async function finish(page, taskId) {
@@ -117,7 +117,7 @@ try {
   check('员工能通过 Pi 查询自己有权限的真实业务记录', own.state === 'succeeded' && actual(own).length > 0)
   const forbidden = await ask(staff, '帮我查询全公司的合同金额。')
   check('员工不能通过对话绕过财务权限', !actual(forbidden).some((r) => r.operation_id.startsWith('contracts.')))
-  const box = await staff.locator('.integration-assistant').boundingBox()
+  const box = await staff.locator('.xj .main').boundingBox()
   check('业务助手手机布局可用', box.width <= 390 && box.x >= -1)
   await staff.screenshot({ path: path.join(OUT, 'employee-mobile.png'), animations: 'disabled' })
   check('业务组件无浏览器运行错误', errors.length === 0)

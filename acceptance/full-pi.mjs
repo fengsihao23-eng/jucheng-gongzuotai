@@ -32,7 +32,7 @@ try {
   page.on('pageerror',error=>errors.push(error.message))
   await page.goto(WEB)
   await page.getByRole('button',{name:'小聚',exact:true}).click()
-  await page.getByText('执行引擎已就绪 · 支持自动接入').waitFor()
+  await page.locator('.xj .ready').waitFor()  // 独立页面：执行引擎就绪标记
   if(existing.length) await page.waitForFunction(id=>document.querySelector('select[aria-label="历史对话"]')?.value===id,existing[0].id)
   await page.getByRole('button',{name:'新对话',exact:true}).click()
   await page.getByLabel('思考深度').selectOption('off')

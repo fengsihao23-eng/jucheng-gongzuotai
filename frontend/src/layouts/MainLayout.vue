@@ -73,7 +73,6 @@
         </router-view>
       </main>
     </div>
-    <IntegrationAssistant />
   </div>
 </template>
 
@@ -85,7 +84,6 @@ import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { MENU_GROUPS } from '@/config/menu'
 import { fromNow } from '@/utils/format'
-import IntegrationAssistant from '@/components/IntegrationAssistant.vue'
 import { useAssistant } from '@/store/assistant'
 
 const route = useRoute()

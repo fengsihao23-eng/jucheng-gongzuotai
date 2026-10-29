@@ -101,7 +101,7 @@ def test_text_goes_to_xiaoju_and_reply_comes_back(client, monkeypatch, sync_wait
     out = [m["content"] for m in _replies(YX, n)]
     assert out[0] == "收到，正在处理…"
     assert "128 万元" in out[1]
-    assert "需要你确认" in out[3] and "?xiaoju=" in out[3]
+    assert "需要你确认" in out[3] and "/xiaoju/" in out[3]
     # 同一成员沿用同一个企业微信对话
     assert calls[0][2] == calls[1][2] and "企业微信" in calls[0][3]
     from app.models import SysUser

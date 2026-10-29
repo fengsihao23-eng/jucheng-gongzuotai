@@ -269,7 +269,7 @@ def wait_and_reply(row_id: int, user_id: int, wecom_userid: str, task_id: str, s
         if task["state"] in xiaoju_service.TERMINAL:
             break
         time.sleep(poll)
-    url = _abs(f"/?xiaoju={session_id}")
+    url = _abs(f"/xiaoju/{session_id}")
     if task is None or task["state"] not in xiaoju_service.TERMINAL:
         ok_ = reply(wecom_userid, "这件事办得比较久，还没完成。稍后在工作台里查看进度。", title="打开小聚", url=url)
         status, err = "failed", "等待超时"

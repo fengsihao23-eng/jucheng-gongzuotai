@@ -37,7 +37,7 @@ async function pageFor(width = 1440, user = 'admin') {
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()) })
   await page.goto(WEB + '/workbuddy')
   await page.getByRole('button', { name: '小聚', exact: true }).click()
-  await page.getByText('执行引擎已就绪 · 支持自动接入').waitFor()
+  await page.locator('.xj .ready').waitFor()  // 独立页面：执行引擎就绪标记
   return page
 }
 
@@ -98,7 +98,7 @@ try {
   const body = JSON.parse(fs.readFileSync(await downloaded.path(), 'utf8'))
   check('可一键下载已填好的个人配置，密钥不进入模型', Object.values(body.mcpServers)[0].headers.Authorization.startsWith('Bearer jcmcp_'))
   const mobile = await pageFor(390, 'zengli')
-  const box = await mobile.locator('.integration-assistant').boundingBox()
+  const box = await mobile.locator('.xj .main').boundingBox()
   check('手机布局可用', box.width <= 390 && box.x >= -1)
   await mobile.screenshot({ path: path.join(OUT, 'xiaoju-mobile.png'), animations: 'disabled' })
   check('浏览器无页面或控制台错误', errors.length === 0)

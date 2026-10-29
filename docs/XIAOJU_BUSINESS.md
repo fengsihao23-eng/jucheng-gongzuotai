@@ -62,7 +62,7 @@
 - 新对话的文本和完整工具轨迹保存在本人服务端会话，支持跨刷新和进程恢复；模型 API Key 仅经 stdin 进入可信运行时，不写入会话。公司凭证通过独立接入入口保管。
 - 原生文件与 Shell 工具只运行在当前对话的独立容器；容器不包含后端配置、数据库凭证、Docker socket 或其他员工文件，且不连接网络。业务数据仍经原权限执行器访问。凭证下载、确认路由、密码等不加入业务目录。
 
-主要代码：`backend/app/services/xiaoju_business_catalog.py`（目录）、`xiaoju_business.py`（执行与确认）、`xiaoju_business_state.py`（隔离存储）、`xiaoju_service.py`（Pi 任务循环），以及前端 `IntegrationAssistant.vue` 和三个业务结果组件。
+主要代码：`backend/app/services/xiaoju_business_catalog.py`（目录）、`xiaoju_business.py`（执行与确认）、`xiaoju_business_state.py`（隔离存储）、`xiaoju_service.py`（Pi 任务循环），以及前端独立页面 `views/Xiaoju.vue`（路由 `/xiaoju/:id?`，逻辑在 `composables/useXiaoju.js`，界面组件在 `views/xiaoju/`）和三个业务结果组件。
 
 ## 当前外部接入状态
 
