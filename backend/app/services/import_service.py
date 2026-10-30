@@ -535,6 +535,8 @@ def to_clean(db: Session, p, batch_id: int, target: str) -> ImportBatch:
     _start_clean(db, p, b, read_bytes(db.get(SysFile, b.file_id)), target)
     if b.uploader_id != p.id:
         b.handler_id, b.handled_at = p.id, utcnow()
+        # 接手后不再显示「你没有台账导入权限」这类待整理原因，避免和「可导入 5 行」自相矛盾
+        b.suggestion = {**(b.suggestion or {}), "reason": f"已由{p.user.name}接手导入{clean_service.TARGET_NAMES[target]}"}
     db.flush()
     _notify_uploader(db, b, p.id, f"{p.user.name} 正在把《{b.filename}》导入{clean_service.TARGET_NAMES[target]}。")
     return b
