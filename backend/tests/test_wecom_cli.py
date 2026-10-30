@@ -186,3 +186,34 @@ def test_running_task_stops_when_account_password_changes(db):
         assert not result['ok'] and '密码已更新' in result['message']
     finally:
         db.expire_all(); user = db.get(SysUser, user.id); user.password_hash = original; db.commit()
+
+
+@pytest.mark.parametrize("code,help_text,expired", [
+    (851008, "当前机器人未被授权「搜索与获取文档内容」\n若你是智能机器人创建者，可以[点击这里](https://work.weixin.qq.com/ai/aiHelper/authorizationList?a=1)授权",
+     False),
+    (850003, "当前机器人「文档」使用权限已过期\n若你是智能机器人创建者，可以[点击这里](https://work.weixin.qq.com/ai/aiHelper/authorizationList?from=chat&a=2)授权当前机器人文档使用权限",
+     True),
+])
+def test_expired_or_missing_robot_permission_returns_official_link(connection, monkeypatch, code, help_text, expired):
+    uid, _, _ = connection
+    def denied(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps(
+            {"errcode": code, "errmsg": "authorization", "help_message": help_text}, ensure_ascii=False))
+    monkeypatch.setattr(cli.subprocess, "run", denied)
+    with pytest.raises(BizError) as info:
+        cli._run(uid, ["doc", "search", "--json", "{}"])
+    assert info.value.code == 40301
+    assert info.value.data["authorization_url"].startswith("https://work.weixin.qq.com/")
+    assert ("已过期" in info.value.message) == expired
+    assert ("文档" in info.value.message) if expired else ("搜索与获取文档内容" in info.value.message)
+
+
+def test_untrusted_authorization_link_is_not_returned(connection, monkeypatch):
+    uid, _, _ = connection
+    def denied(*args, **kwargs):
+        return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps(
+            {"errcode": 850003, "help_message": "授权过期 [点击这里](https://evil.test/auth)"}, ensure_ascii=False))
+    monkeypatch.setattr(cli.subprocess, "run", denied)
+    with pytest.raises(BizError) as info:
+        cli._run(uid, ["doc", "search", "--json", "{}"])
+    assert info.value.code != 40301 and "850003" in info.value.message

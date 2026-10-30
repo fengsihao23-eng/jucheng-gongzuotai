@@ -116,14 +116,19 @@ def _run(user_id, args, *, workspace_id=None, binding_id=None):
     remote_code = result.get("errcode", 0) if isinstance(result, dict) else 0
     if process.returncode or error or remote_code:
         code = error.get("code", "unknown") if isinstance(error, dict) else remote_code or "unknown"
-        if code == 851008:
+        if code in {850003, 851008}:
             help_text = str(result.get("help_message") or "")
             for url in re.findall(r'https?://[^\s)"<>]+', help_text):
                 try: target = urlsplit(url)
                 except ValueError: continue
                 if target.scheme == "https" and target.hostname in {"work.weixin.qq.com", "open.work.weixin.qq.com"} and not target.username:
-                    scope = re.search(r"未被授权[「『](.*?)[」』]", help_text)
+                    # 850003 是机器人授权过期，851008 是从未开通；两种都要给官方入口，不能只报一个错误码。
+                    scope = (re.search(r"未被授权[「『](.*?)[」』]", help_text)
+                             or re.search(r"[「『](.*?)[」』][^\n]{0,12}使用权限已过期", help_text))
                     label = scope.group(1)[:100] if scope else "当前业务能力"
+                    if code == 850003:
+                        raise BizError(40301, f"企业微信机器人「{label}」使用权限已过期，需要重新授权；机器人创建者可在官方入口确认，其他人请联系机器人创建者处理",
+                                       data={"authorization_url": url, "authorization_label": "重新授权" + label})
                     raise BizError(40301, f"企业微信个人连接已绑定，尚需开通「{label}」；机器人创建者可通过官方入口授权，其他情况需机器人管理员处理",
                                    data={"authorization_url": url, "authorization_label": "开通" + label})
         # Third party errors can echo headers or credentials. Return the code only.
