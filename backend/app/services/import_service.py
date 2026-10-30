@@ -443,11 +443,14 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
 def list_batches(db: Session, p, scope: str = "mine", status: str | None = None, page: int = 1,
                  page_size: int = 20) -> dict:
     q = select(ImportBatch).where(batch_filter(p))
-    if scope in ("pool", "all"):
+    if scope in ("pool", "all", "todo"):
         if not is_handler(p):
             raise forbidden("只有资料整理人可以查看")
         if scope == "pool":
             q = q.where(ImportBatch.status == "pool")
+        elif scope == "todo":
+            # 别人上传、已识别完等待确认的资料；仍受 batch_filter 的部门/接手范围限制
+            q = q.where(ImportBatch.uploader_id != p.id, ImportBatch.status == "pending")
     else:
         q = q.where(ImportBatch.uploader_id == p.id)
     if status:
@@ -464,6 +467,8 @@ def list_batches(db: Session, p, scope: str = "mine", status: str | None = None,
     counts = {}
     if is_handler(p):
         counts["pool"] = db.scalar(select(func.count(ImportBatch.id)).where(ImportBatch.status == "pool", batch_filter(p))) or 0
+        counts["todo"] = db.scalar(select(func.count(ImportBatch.id)).where(
+            ImportBatch.uploader_id != p.id, ImportBatch.status == "pending", batch_filter(p))) or 0
     counts["mine_pending"] = db.scalar(select(func.count(ImportBatch.id)).where(
         ImportBatch.uploader_id == p.id, ImportBatch.status == "pending")) or 0
     processing = select(func.count(ImportBatch.id)).where(ImportBatch.status == "processing", batch_filter(p))

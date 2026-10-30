@@ -9,7 +9,7 @@ from app.core.response import BizError
 from app.integration import llm
 from app.services.kb_extract import extract_document, needs_vision
 from tests.conftest import data
-from tests.test_kb_imports import _found, _import, _pdf, _scan_pdf
+from tests.test_kb_imports import _docx, _found, _import, _pdf, _scan_pdf
 
 OWNER, ADMIN, STRANGER = "zengli", "admin", "wujun"
 
@@ -117,6 +117,19 @@ def test_one_failed_page_rejects_the_whole_document(vision):
     fake.fail_page = 2
     with pytest.raises(BizError, match="第 2 页"):
         extract_document(_scan_pdf(pages=2), "两页扫描件.pdf")
+
+
+def test_admin_todo_tab_lists_others_pending_without_leaking_to_regular_handlers(client, login):
+    owner, handler, admin = login(OWNER), login("songjia"), login(ADMIN)
+    batch = data(_import(client, owner, _docx("待整理的采购合同扫描说明" + uuid.uuid4().hex), "待确认资料.docx"))
+    assert batch["status"] == "pending"
+    # 普通整理人不能浏览别人尚未转交的原件，即使已经识别完待确认
+    denied = data(client.get("/api/v1/imports", params={"scope": "todo"}, headers=handler))
+    assert batch["id"] not in [x["id"] for x in denied["items"]]
+    todo = data(client.get("/api/v1/imports", params={"scope": "todo"}, headers=admin))
+    row = next(x for x in todo["items"] if x["id"] == batch["id"])
+    assert "confirm_kb" in row["actions"] and row["uploader"]
+    assert todo["counts"]["todo"] >= 1
 
 
 def test_text_pdf_does_not_need_vision():

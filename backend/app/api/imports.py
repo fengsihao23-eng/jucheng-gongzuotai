@@ -107,7 +107,7 @@ async def upload(request: Request, background_tasks: BackgroundTasks, file: Uplo
 
 
 @router.get("")
-def batches(scope: str = Query("mine", pattern="^(mine|pool|all)$"), status: str = "", page: int = Query(1, ge=1),
+def batches(scope: str = Query("mine", pattern="^(mine|pool|all|todo)$"), status: str = "", page: int = Query(1, ge=1),
             page_size: int = Query(20, ge=1, le=100), p: Principal = User, db: Session = Depends(get_db)):
     out = svc.list_batches(db, p, scope, status or None, page, page_size)
     db.commit()  # 同步清洗任务状态

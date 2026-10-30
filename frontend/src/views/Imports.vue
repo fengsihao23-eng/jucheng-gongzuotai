@@ -27,8 +27,9 @@
 
     <el-tabs v-model="tab" class="mt-16" @tab-change="changeTab">
       <el-tab-pane :label="`我的导入${counts.mine_pending ? '（' + counts.mine_pending + ' 份待确认）' : ''}`" name="mine" />
+      <el-tab-pane v-if="isHandler" :label="`待我处理${counts.todo ? '（' + counts.todo + '）' : ''}`" name="todo" />
       <el-tab-pane v-if="isHandler" :label="`待整理池${counts.pool ? '（' + counts.pool + '）' : ''}`" name="pool" />
-      <el-tab-pane v-if="isHandler" label="授权处理记录" name="all" />
+      <el-tab-pane v-if="isHandler" label="全部处理记录" name="all" />
     </el-tabs>
     <div class="jc-row between mt-16">
       <span class="jc-muted jc-small">{{ counts.processing ? `${counts.processing} 份正在后台识别，可离开页面后回来查看` : '已发布的知识文档才能供小聚检索；台账按实际成功行数参与统计' }}</span>
@@ -99,7 +100,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="!rows.items.length && !loading" class="jc-muted empty">{{ tab === 'pool' ? '待整理池是空的' : '还没有导入记录，把文件拖到上面试试' }}</div>
+      <div v-if="!rows.items.length && !loading" class="jc-muted empty">{{ tab === 'pool' ? '待整理池是空的' : tab === 'todo' ? '其他同事没有等待你确认的资料' : '还没有导入记录，把文件拖到上面试试' }}</div>
       <div v-if="rows.total > rows.page_size" class="pager">
         <el-pagination v-model:current-page="page" :page-size="rows.page_size" :total="rows.total" layout="prev, pager, next" @current-change="load" />
       </div>
@@ -180,7 +181,7 @@ const auth = useAuth()
 const route = useRoute()
 const router = useRouter()
 const myRoles = computed(() => (auth.profile?.roles || []).map((r) => r.code))
-const tab = ref(route.query.tab === 'pool' ? 'pool' : 'mine')
+const tab = ref(['pool', 'todo', 'all'].includes(route.query.tab) ? route.query.tab : 'mine')
 const page = ref(1)
 const rows = ref({ items: [], total: 0, page_size: 20 })
 const counts = ref({})
