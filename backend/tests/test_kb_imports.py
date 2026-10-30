@@ -42,6 +42,23 @@ def _pdf(text: str) -> bytes:
     return bytes(out)
 
 
+def _scan_pdf(pages: int = 1) -> bytes:
+    """没有文字层的扫描版 PDF（每页一张图），用于验证多模态识别分流。"""
+    import pymupdf
+    from PIL import Image, ImageDraw
+    buf = io.BytesIO()
+    im = Image.new("RGB", (600, 800), "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([40, 40, 560, 300], outline="black", width=4)
+    d.rectangle([60, 80, 540, 120], fill="black")
+    im.save(buf, "PNG")
+    doc = pymupdf.open()
+    for _ in range(pages):
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(pymupdf.Rect(40, 40, 555, 780), stream=buf.getvalue())
+    return doc.tobytes()
+
+
 def _xlsx(rows: list[list]) -> bytes:
     from openpyxl import Workbook
     wb = Workbook()
@@ -174,8 +191,9 @@ def test_extract_pdf_and_rejects(client, login):
     from app.core.response import BizError
     from app.services.kb_extract import extract_text
     assert "Campus network" in extract_text(_pdf("Campus network maintenance guide for schools, version 2026."), "a.pdf")
-    for content, name, msg in [(_pdf(" "), "scan.pdf", "扫描件"), (b"x" * 100, "old.doc", "docx"),
-                               (b"\x89PNG....", "a.png", "OCR"), (b"abc", "a.exe", "暂不支持")]:
+    for content, name, msg in [(_pdf(" "), "blank.pdf", "正文"), (_scan_pdf(), "scan.pdf", "多模态"),
+                               (b"x" * 100, "old.doc", "docx"), (b"\x89PNG....", "a.png", "图片"),
+                               (b"abc", "a.exe", "暂不支持")]:
         try:
             extract_text(content, name)
             raise AssertionError(name)
@@ -267,7 +285,8 @@ def test_import_without_permission_goes_to_pool(client, login):
 def test_import_unknown_and_dismiss(client, login):
     emp, yx = login(EMP), login(YX)
     b = data(_import(client, emp, b"\x89PNG\r\n\x1a\n" + uuid.uuid4().bytes, "名片.png"))
-    assert b["kind"] == "other" and b["status"] == "pool"
+    b = data(client.get(f"/api/v1/imports/{b['id']}", headers=emp))
+    assert b["kind"] == "document" and b["status"] == "pool" and "图片" in b["suggestion"]["reason"]
     car = _xlsx([["日期", "车牌", "里程"], ["2026-10-01", "粤G12345", "120"]])
     b2 = data(_import(client, emp, car, "用车登记.xlsx"))
     assert b2["status"] == "pool" and "模板" in b2["suggestion"]["reason"]

@@ -19,7 +19,8 @@ from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today, utcnow
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
 from app.services import clean_service, kb_service, smart_intake
-from app.services.kb_extract import DOC_EXTS, MAX_BYTES, TABLE_EXTS, ext_of, extract_text
+from app.services.kb_extract import (DOC_EXTS, IMAGE_EXTS, MAX_BYTES, TABLE_EXTS, ext_of,
+                                     extract_document, needs_vision, vision_available)
 from app.services.intake_access import batch_filter, can_view_batch, can_handle_department
 
 STATUS_NAMES = {"processing": "识别中", "pending": "待确认", "pool": "待整理", "done": "已提交", "withdrawn": "已撤回", "dismissed": "已处理"}
@@ -39,7 +40,7 @@ def classify(filename: str) -> str:
     ext = ext_of(filename)
     if ext in TABLE_EXTS or ext == ".xls":
         return "table"
-    if ext in DOC_EXTS or ext in (".doc", ".ppt"):
+    if ext in DOC_EXTS or ext in IMAGE_EXTS or ext in (".doc", ".ppt"):
         return "document"
     return "other"
 
@@ -156,15 +157,21 @@ def _ask_table(db: Session, b: ImportBatch, data: bytes) -> dict | None:
     return smart_intake.describe_table(rows[idx][1], [r[1] for r in rows[idx + 1:idx + 6]], b.filename, b.purpose)
 
 
-def _route_document(db: Session, b: ImportBatch, data: bytes) -> None:
-    try:
-        text = extract_text(data, b.filename)
-    except BizError as exc:
-        _to_pool(b, exc.message)
-        return
+def _route_document(db: Session, b: ImportBatch, data: bytes | None = None, text: str | None = None) -> None:
+    """文档入知识库待确认；text 已存在时直接复用，避免扫描件重复调用模型。"""
+    meta = (b.suggestion or {}).get("extract")
+    if not (text or "").strip():
+        try:
+            out = extract_document(data if data is not None else read_bytes(db.get(SysFile, b.file_id)), b.filename)
+        except BizError as exc:
+            _to_pool(b, exc.message)
+            return
+        text, meta = out.text, out.meta()
+    text = text.strip()
     sug = smart_intake.describe_document(db, b.filename, text, b.purpose)
     b.route, b.status = "kb", "pending"
-    b.suggestion = {**sug, "chars": len(text), "preview": text[:300]}
+    b.content = text
+    b.suggestion = {**sug, "chars": len(text), "preview": text[:300], "extract": meta or {"method": "text"}}
 
 
 ZIP_MAX_ENTRIES = 100
@@ -193,7 +200,8 @@ def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channe
                     dept_code=p.dept_code, channel=channel, archive_name=archive_name)
     db.add(b)
     db.flush()
-    if deferred:
+    # 扫描件/图片要逐页调用多模态模型，耗时远超一次请求；先返回「识别中」，由后台任务处理。
+    if deferred or needs_vision(data, filename):
         b.status = "processing"
         return b
     _classify_batch(db, p, b, data)
@@ -202,10 +210,11 @@ def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channe
 
 def _classify_batch(db, p, b, data):
     source = (b.suggestion or {}).get("external_source")
+    b.kind = classify(b.filename)  # 旧版本把图片记成 other，重新识别时按当前规则升级
     if b.kind == "table":
         _route_table(db, p, b, data)
     elif b.kind == "document":
-        _route_document(db, b, data)
+        _route_document(db, b, data, text=b.content)
     else:
         _to_pool(b, f"系统不能自动识别 {ext_of(b.filename) or '无扩展名'} 文件，需要整理人处理")
     if source:
@@ -371,7 +380,7 @@ def _actions(b: ImportBatch, p) -> list[str]:
     if b.status == "pool" and owner:
         if b.kind == "table" and can_clean(p):
             acts.append("to_clean")
-        if b.kind in ("table", "document"):
+        if b.kind in ("table", "document") or ext_of(b.filename) in IMAGE_EXTS:
             acts.append("to_kb")
         acts.append("retry")
         if handler:
@@ -388,7 +397,7 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
         SysUser.id.in_({b.uploader_id, b.handler_id} - {None}))).all())
     job = db.get(CleanJob, b.clean_job_id) if b.clean_job_id else None
     doc = db.get(KbDocument, b.kb_doc_id) if b.kb_doc_id else None
-    readiness = {"processing": ("processing", "识别中", "原件已保存，正在识别。长时间未完成可重新识别"),
+    readiness = {"processing": ("processing", "识别中", b.note or "原件已保存，正在识别。长时间未完成可重新识别"),
                  "pending": ("confirmation", "待核对", "核对分类、可见范围或表格字段后确认"),
                  "pool": ("needs_help", "待整理", "尚未入库，可选择知识库、台账或重新识别"),
                  "withdrawn": ("withdrawn", "已撤回", "资料不再参与检索或统计"),
@@ -417,6 +426,7 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
             "default_visibility": defaults, "target": b.target,
             "source_snapshot": file_brief(db.get(SysFile, source["raw_file_id"])) if source and source.get("raw_file_id") else None,
             "target_name": clean_service.TARGET_NAMES.get(b.target), "suggestion": b.suggestion or {}, "note": b.note,
+            "content_chars": len(b.content or ""),
             "uploader_id": b.uploader_id, "uploader": names.get(b.uploader_id), "dept_code": b.dept_code,
             "handler": names.get(b.handler_id), "handled_at": b.handled_at, "created_at": b.created_at, "updated_at": b.updated_at,
             "file": file_brief(db.get(SysFile, b.file_id)),
@@ -483,7 +493,8 @@ def confirm_kb(db: Session, p, batch_id: int, **meta) -> ImportBatch:
     owner = build_principal(db.get(SysUser, b.uploader_id))
     if (b.suggestion or {}).get("external_source") and not meta.get("visibility"):
         meta["visibility"] = "private"
-    d = kb_service.upload_document(db, p, data=data, filename=b.filename, owner=owner, **meta)
+    d = kb_service.upload_document(db, p, data=data, filename=b.filename, owner=owner,
+                                   content=(b.content or "").strip() or None, **meta)
     b.kb_doc_id = d.id
     _mark(b, p, "done", "已发布到知识库" if d.status == "published" else "已提交知识库，等待分类审核人审核")
     db.flush()
@@ -509,7 +520,11 @@ def to_clean(db: Session, p, batch_id: int, target: str) -> ImportBatch:
     return b
 
 
-def to_kb(db: Session, p, batch_id: int) -> ImportBatch:
+def to_kb(db: Session, p, batch_id: int) -> tuple[ImportBatch, bool]:
+    """改为知识库。扫描件/图片不在这里同步跑模型：转后台识别，接口立即返回「识别中」。
+
+    返回 (批次, 是否已排入后台)。调用方负责把 queued=True 的批次交给 process_many。
+    """
     b = _get(db, p, batch_id, manage=True)
     if b.status not in ("pending", "pool"):
         raise conflict("这份资料已处理")
@@ -521,13 +536,23 @@ def to_kb(db: Session, p, batch_id: int) -> ImportBatch:
             job.status = "cancelled"
         b.clean_job_id = None
     data = read_bytes(db.get(SysFile, b.file_id))
-    _route_document(db, b, data)
-    if b.status == "pool":
-        raise bad_request(b.suggestion.get("reason") or "文件无法放入知识库")
+    queued = not (b.content or "").strip() and needs_vision(data, b.filename)
+    if queued and not vision_available():
+        # 同步给出明确原因，不让用户以为「点了放入知识库」已经开始识别
+        raise bad_request("这份资料是扫描件或图片，需要用多模态大模型识别；服务器还没有配置可用的视觉模型，"
+                          "请联系管理员配置 LLM_VISION_MODEL 或 LLM_MODEL 后重试")
+    if queued:
+        b.route, b.status = "kb", "processing"
+        b.note = "扫描件正在逐页识别，完成后请核对再入库"
+    else:
+        _route_document(db, b, data, text=b.content)
+        if b.status == "pool":
+            raise bad_request(b.suggestion.get("reason") or "文件无法放入知识库")
+        b.note = None
     if b.uploader_id != p.id:
         b.handler_id, b.handled_at = p.id, utcnow()
     db.flush()
-    return b
+    return b, queued
 
 
 def to_pool(db: Session, p, batch_id: int, note: str | None = None) -> ImportBatch:
@@ -568,6 +593,7 @@ def retry(db: Session, p, batch_id: int) -> ImportBatch:
     if b.status == "processing" and (utcnow() - b.updated_at).total_seconds() < 300:
         raise conflict("资料仍在识别中，请稍后刷新；超过 5 分钟未完成可重试")
     b.status, b.note = "processing", None
+    b.content = None  # 「重新识别」真的重读原件：扫描件会再次逐页调用模型，而不是复用上次结果
     if b.uploader_id != p.id:
         b.handler_id, b.handled_at = p.id, utcnow()
     b.updated_at = utcnow()

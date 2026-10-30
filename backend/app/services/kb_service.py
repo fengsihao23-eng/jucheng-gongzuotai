@@ -743,13 +743,22 @@ def _notify_reviewers(db: Session, d: KbDocument, uploader_name: str) -> None:
 def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: str | None = None,
                     category: str | None = None, subcategory: str | None = None, tags=None,
                     summary: str | None = None, visibility: str | None = None, visible_depts=None,
-                    visible_roles=None, replace_doc_id: int | None = None, owner=None) -> KbDocument:
-    """上传一份文档（或给已有文档传新版本）。审核人直接发布，其他人进入待审核并通知审核人。"""
+                    visible_roles=None, replace_doc_id: int | None = None, owner=None,
+                    content: str | None = None) -> KbDocument:
+    """上传一份文档（或给已有文档传新版本）。审核人直接发布，其他人进入待审核并通知审核人。
+
+    content 用于复用「资料导入」已抽取/识别好的正文（尤其是扫描件），避免确认入库时重复调用多模态模型。
+    """
     from app.core.storage import save_bytes
     from app.services.kb_extract import extract_text
     import hashlib
 
-    content = extract_text(data, filename)
+    content = (content or "").strip()
+    if content:
+        if len(re.sub(r"\s", "", content)) < 10:
+            raise bad_request("没有从文件里读到正文内容")
+    else:
+        content = extract_text(data, filename)
     sha = hashlib.sha256(data).hexdigest()
     owner = owner or viewer
     old = None

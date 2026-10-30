@@ -316,8 +316,14 @@ def _on_media(db: Session, row, user: SysUser, msg: dict) -> None:
         _done(db, row, "failed", exc.message)
         return
     b = r["batches"][0]
+    if b.status == "processing":
+        # 图片/扫描件由多模态模型逐页识别；本流程已在后台线程，等识别完成再回复真实结果。
+        import_service.process_many(p.id, [b.id])
+        db.expire_all()
+        b = import_service._get(db, p, b.id)
     if b.status == "pool":
-        text = f"《{b.filename}》已收到，交给整理人归档。"
+        reason = (b.suggestion or {}).get("reason") or ""
+        text = f"《{b.filename}》已收到，暂时没能自动入库{('：' + reason) if reason else ''}，已交给整理人。"
     elif b.route == "kb":
         s = b.suggestion or {}
         cat = f"「{s['category']}{' / ' + s['subcategory'] if s.get('subcategory') else ''}」" if s.get("category") else ""

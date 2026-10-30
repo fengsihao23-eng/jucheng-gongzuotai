@@ -6,13 +6,13 @@
 
     <WecomImport :purpose="purpose" @imported="externalImported" />
 
-    <el-alert type="info" :closable="false" class="mt-16" title="默认本部门可见，无部门账号默认仅本人；分类审核人和授权资料管理员可按职责处理。上传不会自动记账。" />
+    <el-alert type="info" :closable="false" class="mt-16" title="默认本部门可见，无部门账号默认仅本人；分类审核人和授权资料管理员可按职责处理。上传不会自动记账。扫描件与图片会整页发送到公司已配置的大模型做识别，结果需人工核对。" />
 
     <div class="drop jc-card" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop" @click="input.click()">
       <input ref="input" type="file" multiple hidden @change="onPick" />
       <div class="t">{{ narrow ? '点击选择文件（可多选）' : '拖拽文件到这里，或点击选择（可多选）' }}</div>
-      <div class="jc-muted jc-small">表格：xlsx / csv（台账清洗 ≤ 20MB）　文档：docx / 文字版 pdf / pptx / md / txt（≤ 50MB）　zip：最多 100 个文件</div>
-      <div class="jc-muted jc-small mt-4">图片、扫描件及旧版 Office 文件会保留原件并提示处理方式，不会被标成识别成功。AI 分类仅使用公司已配置的模型和少量正文样例。</div>
+      <div class="jc-muted jc-small">表格：xlsx / csv（台账清洗 ≤ 20MB）　文档：docx / pdf（含扫描版）/ pptx / md / txt　图片：png / jpg / tif（≤ 50MB）　zip：最多 100 个文件</div>
+      <div class="jc-muted jc-small mt-4">扫描版 PDF 和图片由大模型逐页识别，不使用传统 OCR：识别结果会标注「扫描识别」，金额、编号、日期、签章页请对照原件核对后再入库。旧版 doc/xls/ppt 请先另存为新格式。</div>
     </div>
     <div class="purpose" @click.stop>
       <el-input v-model="purpose" placeholder="可选：一句话说明这些资料是什么，例如「我负责的客户合同」「去年的投标文件」" clearable />
@@ -47,7 +47,7 @@
           </div>
           <div class="jc-small jc-muted mt-4">{{ row.route_name }}<span v-if="row.target_name"> · {{ row.target_name }}</span> · {{ datetime(row.created_at) }}
             <span v-if="row.channel === 'wecom'"> · 企业微信</span><span v-if="row.archive_name"> · 来自 {{ row.archive_name }}</span></div>
-          <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span></div>
+          <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span></div>
           <div class="card-ops">
             <el-button size="small" @click="openDetails(row)">识别详情</el-button>
             <el-button v-if="has(row, 'open_clean')" size="small" type="primary" @click="openClean(row)">核对并导入</el-button>
@@ -77,7 +77,7 @@
           <template #default="{ row }"><StatusPill :text="row.status_name" :tone="tone(row)" /></template>
         </el-table-column>
         <el-table-column label="说明" min-width="280">
-          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span><span v-if="row.suggestion.source === 'llm'" class="ai" title="由 AI 识别，以你的确认为准">AI</span></template>
+          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span><span v-if="row.suggestion.source === 'llm'" class="ai" title="由 AI 识别，以你的确认为准">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span></template>
         </el-table-column>
         <el-table-column label="上传时间" width="140"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
@@ -111,6 +111,11 @@
         <p class="jc-small jc-muted">原件仅上传人及授权整理人可访问。文档发布范围：{{ visibilityText(detail) }}</p>
         <p v-if="detail.suggestion.summary">摘要：{{ detail.suggestion.summary }}</p>
         <p v-if="detail.suggestion.reason" class="jc-small">识别依据：{{ detail.suggestion.reason }}</p>
+        <template v-if="detail.suggestion.extract?.method === 'vision'">
+          <el-alert type="warning" :closable="false" class="mt-8"
+            :title="`正文由大模型逐页识别（${detail.suggestion.extract.pages || '—'} 页），不是原件文字层。请核对金额、编号、日期与签章页后再入库。`" />
+          <div class="mt-8"><el-button link type="primary" :loading="textLoading" @click="openText(detail)">查看识别全文（{{ detail.content_chars || 0 }} 字）</el-button></div>
+        </template>
         <template v-if="detail.suggestion.external_source">
           <p class="jc-small">来源：{{ detail.suggestion.external_source.title }} · 本次读取快照，源文件更新不会自动覆盖台账</p>
           <p v-if="detail.suggestion.external_source.url"><a :href="detail.suggestion.external_source.url" target="_blank" rel="noopener noreferrer">查看企业微信原文</a></p>
@@ -128,8 +133,15 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="textDlg" :title="`识别全文 · ${textData?.filename || ''}`" width="min(860px, 94vw)">
+      <p class="jc-small jc-muted">下面是大模型从扫描件/图片读出的文字，不是原件文字层；请对照原件核对关键信息。原件仍可在列表里点文件名打开。</p>
+      <pre class="scan-text">{{ textData?.text || '还没有识别出正文' }}</pre>
+    </el-dialog>
+
     <el-dialog v-model="kbDlg" :title="`放入知识库 · ${cur?.filename || ''}`" width="min(620px, 94vw)" destroy-on-close>
       <div v-if="cur?.suggestion?.preview" class="jc-small jc-muted">读到正文 {{ cur.suggestion.chars }} 字：{{ cur.suggestion.preview.slice(0, 100) }}…</div>
+      <el-alert v-if="cur?.suggestion?.extract?.method === 'vision'" type="warning" :closable="false" class="mt-8"
+        title="这份资料是扫描件/图片，正文由大模型识别。请对照原件核对金额、编号、日期与签章后再提交；必要时先点「查看识别全文」。" />
       <KbDocForm v-model="form" class="mt-16" :tree="tree" :meta="kbMeta" :suggestion="cur?.suggestion" :roles="myRoles" />
       <template #footer>
         <el-button @click="kbDlg = false">取消</el-button>
@@ -184,6 +196,16 @@ const selectable = (row) => has(row, 'confirm_kb') && !!row.suggestion.category
 const detailDlg = ref(false)
 const detail = ref(null)
 function openDetails(row) { detail.value = row; detailDlg.value = true }
+const textDlg = ref(false)
+const textData = ref(null)
+const textLoading = ref(false)
+async function openText(row) {
+  textLoading.value = true
+  try {
+    textData.value = await api.get(`/imports/${row.id}/text`)
+    textDlg.value = true
+  } finally { textLoading.value = false }
+}
 function visibilityText(row) {
   const scope = row.kb_doc || row.default_visibility || {}
   return { all: '全员', dept: `指定部门（${(scope.visible_depts || []).join('、')}）`, roles: '指定角色', private: '仅本人' }[scope.visibility] || '尚未确认'
@@ -346,7 +368,9 @@ async function onMore(row, cmd) {
   if (cmd === 'retry') { await act(row, 'retry'); return ElMessage.success('已重新安排识别，原件仍保留') }
   if (cmd === 'to-kb') {
     const b = await act(row, 'to-kb')
-    return openConfirm(b)
+    const latest = rows.value.items.find((x) => x.id === row.id) || b
+    if (latest.status === 'pending') return openConfirm(latest)
+    return ElMessage.info('扫描件已保存，正在逐页识别；完成后会出现「确认入库」，请先核对识别全文')
   }
   if (cmd === 'to-pool') {
     const r = await ElMessageBox.prompt('说明一下这份资料的情况，方便整理人处理（可不填）', '交给整理人', { inputPlaceholder: '例如：这是客户回款明细，但格式比较乱' })
@@ -383,6 +407,9 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(pollTimer); window.removeE
 .skip { flex-basis: 100%; font-size: 12px; }
 .qi { flex-wrap: wrap; }
 .ai { display: inline-block; margin-left: 6px; padding: 0 5px; font-size: 11px; line-height: 16px; border-radius: 3px; color: var(--jc-brand); background: var(--jc-brand-50); }
+.ai.scan { color: #a15c00; background: #fff5e6; }
+.mt-8 { margin-top: 8px; }
+.scan-text { max-height: 55vh; overflow: auto; padding: 10px 12px; margin: 10px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.7; background: var(--jc-surface-2); border: 1px solid var(--jc-line-2); border-radius: var(--jc-radius); }
 .src { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px; background: var(--jc-surface-2); border: 1px solid var(--jc-line-2); }
 .cards { padding: 4px 12px; }
 .card { padding: 12px 2px; border-bottom: 1px solid var(--jc-line-2); }

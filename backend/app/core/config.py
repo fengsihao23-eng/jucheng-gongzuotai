@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = ""
     llm_thinking_mode: Literal["", "enabled", "disabled"] = ""  # DeepSeek 可显式关闭思考；其他服务默认不传
+    # 扫描件/图片由多模态模型逐页转录（不用传统 OCR）。留空沿用 LLM_MODEL，同一个网关与密钥。
+    llm_vision_model: str = ""
+    llm_vision_max_pages: int = 30  # 单份资料最多识别多少张图/页，超限明确拒绝而不是静默截断
+    llm_vision_workers: int = 3  # 同一份资料并发转录的页数，控制网关压力
+    llm_vision_timeout_seconds: int = 120
 
     # 小聚：Pi 核心在独立 Node 进程运行；主机接入能力仅向平台管理员开放。
     assistant_host_access: bool = False

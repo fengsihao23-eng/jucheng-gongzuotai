@@ -259,6 +259,7 @@ class ImportBatch(TimestampMixin, Base):
     clean_job_id: Mapped[int | None] = mapped_column(ForeignKey("clean_job.id"))
     kb_doc_id: Mapped[int | None] = mapped_column(ForeignKey("kb_document.id", ondelete="SET NULL"))
     suggestion: Mapped[dict] = mapped_column(JSON, default=dict)  # 系统识别结果与理由
+    content: Mapped[str | None] = mapped_column(Text)  # 已抽取/识别出的正文；确认入库时复用，避免重复调用模型
     note: Mapped[str | None] = mapped_column(String(500))  # 处理说明 / 撤回结果
     uploader_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
     dept_code: Mapped[str | None] = mapped_column(String(8))

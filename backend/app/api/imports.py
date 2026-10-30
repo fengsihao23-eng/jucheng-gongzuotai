@@ -99,8 +99,10 @@ async def upload(request: Request, background_tasks: BackgroundTasks, file: Uplo
                       "archive": r["archive"]}, ip=client_ip(request))
     db.commit()
     views = [svc.view(db, b, p) for b in r["batches"]]
-    if background:
-        background_tasks.add_task(svc.process_many, p.id, [b.id for b in r["batches"]])
+    queued = [b.id for b in r["batches"] if b.status == "processing"]
+    if queued:
+        # 扫描件/图片自动转后台逐页识别；普通文档仍在上传请求内完成分流。
+        background_tasks.add_task(svc.process_many, p.id, queued)
     return ok({**views[0], "batches": views, "skipped": r["skipped"], "archive": r["archive"]})
 
 
@@ -117,6 +119,14 @@ def batch(batch_id: int, p: Principal = User, db: Session = Depends(get_db)):
     b = svc._get(db, p, batch_id)
     db.commit()
     return ok(svc.view(db, b, p))
+
+
+@router.get("/{batch_id}/text")
+def batch_text(batch_id: int, p: Principal = User, db: Session = Depends(get_db)):
+    """已抽取/识别出的正文，供上传人和授权整理人核对扫描件转录是否准确。"""
+    b = svc._get(db, p, batch_id)
+    return ok({"id": b.id, "filename": b.filename, "chars": len(b.content or ""), "text": b.content or "",
+               "extract": (b.suggestion or {}).get("extract")})
 
 
 @router.post("/{batch_id}/confirm-kb")
@@ -140,8 +150,14 @@ def to_clean(batch_id: int, request: Request, target: str = Body(..., embed=True
 
 
 @router.post("/{batch_id}/to-kb")
-def to_kb(batch_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
-    return ok(_done(db, p, svc.to_kb(db, p, batch_id), "to_kb", request))
+def to_kb(batch_id: int, request: Request, background_tasks: BackgroundTasks, p: Principal = User,
+          db: Session = Depends(get_db)):
+    b, queued = svc.to_kb(db, p, batch_id)
+    uploader_id = b.uploader_id
+    result = _done(db, p, b, "to_kb", request, {"queued": queued})
+    if queued:
+        background_tasks.add_task(svc.process_many, uploader_id, [batch_id])
+    return ok(result)
 
 
 @router.post("/{batch_id}/to-pool")
