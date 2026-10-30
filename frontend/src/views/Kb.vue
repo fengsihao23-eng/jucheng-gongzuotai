@@ -182,7 +182,7 @@ import { date, datetime } from '@/utils/format'
 import KbDocForm from '@/components/KbDocForm.vue'
 
 const ACCEPT = '.docx,.pdf,.pptx,.xlsx,.md,.markdown,.txt'
-const VIS = { all: '全员可见', dept: '部门可见', roles: '角色可见' }
+const VIS = { private: '仅本人', all: '全员可见', dept: '部门可见', roles: '角色可见' }
 const STATUS_TONE = { published: 'up', pending: 'warn', rejected: 'down', archived: '' }
 const TAB_TITLE = { mine: '我上传的文档', review: '待我审核', archived: '已下架文档' }
 
@@ -293,7 +293,8 @@ async function openDoc(id, seq = null) {
   setTimeout(() => chunkEls[seq]?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250)
 }
 async function refreshAfter(d) {
-  if (d) doc.value = d
+  if (d?.access_limited) { drawer.value = false; doc.value = null }
+  else if (d) doc.value = d
   await loadMeta()
   if (tab.value !== 'categories') searched.value ? runSearch() : loadDocs()
 }
@@ -304,7 +305,8 @@ const editing = ref(false)
 const uploader = ref()
 const file = ref(null)
 const suggestion = ref(null)
-const blank = () => ({ title: '', category: '', subcategory: '', tags: [], summary: '', visibility: 'all', visible_depts: [], visible_roles: [] })
+const blank = () => ({ title: '', category: '', subcategory: '', tags: [], summary: '',
+  ...(meta.value.default_visibility || { visibility: 'private', visible_depts: [], visible_roles: [] }) })
 const form = ref(blank())
 function openUpload(cat = null, sub = null) {
   editing.value = false

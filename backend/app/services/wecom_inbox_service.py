@@ -152,13 +152,12 @@ def _on_click(db: Session, row, user: SysUser, msg: dict) -> None:
 
 
 def _imports_digest(db: Session, user: SysUser) -> str:
-    from app.models import ImportBatch
-    from app.services.import_service import STATUS_NAMES
-    rows = list(db.scalars(select(ImportBatch).where(ImportBatch.uploader_id == user.id)
-                           .order_by(ImportBatch.created_at.desc()).limit(5)))
+    from app.core.deps import build_principal
+    from app.services import import_service
+    rows = import_service.list_batches(db, build_principal(user), page_size=5)["items"]
     if not rows:
         return "你还没有导入过资料。点菜单「上传资料」就能开始。"
-    lines = [f"{i}. {b.filename} · {STATUS_NAMES.get(b.status, b.status)}" for i, b in enumerate(rows, 1)]
+    lines = [f"{i}. {b['filename']} · {b['status_name']}" for i, b in enumerate(rows, 1)]
     return "你最近的导入：\n" + "\n".join(lines)
 
 
@@ -322,7 +321,7 @@ def _on_media(db: Session, row, user: SysUser, msg: dict) -> None:
     elif b.route == "kb":
         s = b.suggestion or {}
         cat = f"「{s['category']}{' / ' + s['subcategory'] if s.get('subcategory') else ''}」" if s.get("category") else ""
-        text = f"《{b.filename}》已识别为知识库资料{('，建议放入' + cat) if cat else ''}。点开确认分类就能入库。"
+        text = f"《{b.filename}》已识别为知识库资料{('，建议放入' + cat) if cat else ''}。请核对分类与可见范围，审核发布后才能检索。"
     else:
         text = f"《{b.filename}》识别为{b.suggestion.get('target_name') or '业务台账'}，请核对字段后导入。"
     reply(user.wecom_userid, text, title="资料已收到", url=_abs("/imports"), card=True)

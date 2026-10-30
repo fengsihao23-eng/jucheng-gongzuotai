@@ -55,12 +55,13 @@ def describe_document(db: Session, filename: str, text: str, purpose: str | None
     """返回 {title, summary, tags, category, subcategory, reason, source}。"""
     title = clean_title(filename)
     rule = kb_service.suggest_category(title, f"{purpose or ''}\n{text}")
-    base = {"title": title, "summary": "", "tags": [], "source": "rule", **rule}
+    paragraphs = [line.strip().lstrip("# ") for line in text.splitlines() if line.strip()]
+    base = {"title": title, "summary": " ".join(paragraphs)[:180], "tags": [], "source": "rule", **rule}
     if not llm.enabled():
         return base
     tree = kb_service.category_tree(db)
     prompt = (f"文件名：{filename}\n上传人说明：{purpose or '无'}\n分类树：\n{_tree_text(tree)}\n\n"
-              f"正文开头：\n{text[:3000]}")
+              f"正文摘录（开头及中后部，不代表全文）：\n{text[:1800]}\n{text[len(text)//2:len(text)//2+600] if len(text)>3000 else ''}\n{text[-600:] if len(text)>3000 else text[1800:3000]}")
     out = _parse_json(llm.complete(DOC_SYSTEM, prompt, temperature=0.2, max_tokens=400, timeout_seconds=12,
                                    json_mode=True))
     if not out:

@@ -31,7 +31,7 @@ MAX_CHUNK = 600
 SNIPPET_LEN = 140
 K1, B = 1.2, 0.75
 STATUS_NAMES = {"pending": "待审核", "published": "已发布", "rejected": "已驳回", "archived": "已下架"}
-VISIBILITY = ("all", "dept", "roles")
+VISIBILITY = ("private", "all", "dept", "roles")
 
 # 默认分类树：(一级名, 说明, 审核角色, [二级名])。一级名同时是各模块检索用的分类键，务必保持稳定。
 DEFAULT_TREE = [
@@ -60,7 +60,7 @@ SUGGEST_RULES = [
      {"投标文件": ["投标", "技术标", "商务标"], "实施方案": ["实施方案", "施工组织"], "安装调试": ["安装", "调试"],
       "验收资料": ["验收"]}),
     ("案例", ["案例", "项目总结", "交付", "复盘", "成功经验"], {}),
-    ("客服", ["排查", "故障", "常见问题", "FAQ", "运维", "维修", "报修", "无信号", "离线"],
+    ("客服", ["排查", "故障", "常见问题", "FAQ", "运维", "巡检", "维修", "报修", "无信号", "离线"],
      {"排查手册": ["排查", "故障"], "常见问题": ["常见问题", "FAQ", "问答"], "运维规范": ["运维", "巡检"]}),
     ("产品", ["产品手册", "产品介绍", "技术参数", "规格书", "彩页", "报价"],
      {"技术参数": ["参数", "规格"], "报价清单": ["报价", "价格"]}),
@@ -191,11 +191,15 @@ def can_review(db: Session, viewer, category: str) -> bool:
     return bool(set(viewer.role_codes) & set(_reviewer_roles(db, category)))
 
 
-def _in_scope(visibility: str, depts, roles, viewer) -> bool:
+def _in_scope(visibility: str, depts, roles, viewer, uploader_id=None) -> bool:
     """可见范围判断（不含状态）。viewer=None 只认全员可见。"""
     if visibility in (None, "", "all"):
         return True
     if viewer is None:
+        return False
+    if _is_manager(viewer) or uploader_id == viewer.id:
+        return True
+    if visibility == "private":
         return False
     if visibility == "dept":
         return bool(viewer.dept_code) and viewer.dept_code in (depts or [])
@@ -211,7 +215,14 @@ def can_view(db: Session, viewer, d: KbDocument) -> bool:
         return True
     if d.status != "published":
         return can_review(db, viewer, d.category)
-    return _in_scope(d.visibility, d.visible_depts, d.visible_roles, viewer)
+    return _in_scope(d.visibility, d.visible_depts, d.visible_roles, viewer, d.uploader_id)
+
+
+def default_visibility(viewer) -> dict:
+    """默认仅本部门；无部门时仅本人。扩大到全员必须明确选择。"""
+    dept = viewer.dept_code if viewer else None
+    return {"visibility": "dept" if dept else "private", "visible_depts": [dept] if dept else [],
+            "visible_roles": []}
 
 
 # ---------------------------------------------------------------- 内存索引
@@ -247,7 +258,8 @@ def _index(db: Session) -> _Index:
             return _INDEX
         q = (select(KbChunk.id, KbChunk.doc_id, KbChunk.seq, KbChunk.heading, KbChunk.chunk_text, KbChunk.terms,
                     KbDocument.title, KbDocument.category, KbDocument.subcategory, KbDocument.tags, KbDocument.url,
-                    KbDocument.source, KbDocument.visibility, KbDocument.visible_depts, KbDocument.visible_roles)
+                    KbDocument.source, KbDocument.visibility, KbDocument.visible_depts, KbDocument.visible_roles,
+                    KbDocument.uploader_id)
              .join(KbDocument, KbDocument.id == KbChunk.doc_id).where(KbDocument.status == "published")
              .order_by(KbChunk.doc_id, KbChunk.seq))
         rows, df, inv, total = [], {}, {}, 0
@@ -260,7 +272,7 @@ def _index(db: Session) -> _Index:
                          "category": r.category, "subcategory": r.subcategory, "tags": list(r.tags or []),
                          "url": r.url, "source": r.source, "terms": tset, "len": max(len(r.chunk_text), 1),
                          "visibility": r.visibility, "depts": list(r.visible_depts or []),
-                         "roles": list(r.visible_roles or [])})
+                         "roles": list(r.visible_roles or []), "uploader_id": r.uploader_id})
             total += len(r.chunk_text)
             for t in tset:
                 df[t] = df.get(t, 0) + 1
@@ -326,7 +338,7 @@ def _score_rows(idx: _Index, terms: list[str], categories: set[str] | None, subc
             continue
         if subcategory and r["subcategory"] != subcategory:
             continue
-        if not _in_scope(r["visibility"], r["depts"], r["roles"], viewer):
+        if not _in_scope(r["visibility"], r["depts"], r["roles"], viewer, r["uploader_id"]):
             continue
         s, matched = 0.0, 0
         norm = K1 * (1 - B + B * r["len"] / idx.avgdl)
@@ -411,12 +423,12 @@ def category_tree(db: Session, viewer=None) -> list[dict]:
     """
     rows = _tree(db)
     docs = db.execute(select(KbDocument.category, KbDocument.subcategory, KbDocument.visibility,
-                             KbDocument.visible_depts, KbDocument.visible_roles)
+                             KbDocument.visible_depts, KbDocument.visible_roles, KbDocument.uploader_id)
                       .where(KbDocument.status == "published")).all()
     top_n: dict[str, int] = {}
     sub_n: dict[tuple, int] = {}
     for r in docs:
-        if not _in_scope(r.visibility, r.visible_depts, r.visible_roles, viewer):
+        if not _in_scope(r.visibility, r.visible_depts, r.visible_roles, viewer, r.uploader_id):
             continue
         top_n[r.category] = top_n.get(r.category, 0) + 1
         if r.subcategory:
@@ -614,7 +626,7 @@ def list_documents(db: Session, category: str | list[str] | None = None, keyword
     if tag:
         rows = [d for d in rows if tag in (d.tags or [])]
     if scope == "published":
-        rows = [d for d in rows if _in_scope(d.visibility, d.visible_depts, d.visible_roles, viewer)]
+        rows = [d for d in rows if _in_scope(d.visibility, d.visible_depts, d.visible_roles, viewer, d.uploader_id)]
     elif scope in ("review", "archived"):
         ok_cats = {c for c in {d.category for d in rows} if can_review(db, viewer, c)}
         rows = [d for d in rows if d.category in ok_cats]
@@ -659,17 +671,35 @@ def get_doc(db: Session, doc_id: int | str, viewer=None) -> dict:
 
 
 def stats(db: Session, viewer=None) -> dict:
-    pub = db.execute(select(KbDocument.visibility, KbDocument.visible_depts, KbDocument.visible_roles)
+    pub = db.execute(select(KbDocument.id, KbDocument.source, KbDocument.visibility, KbDocument.visible_depts,
+                            KbDocument.visible_roles, KbDocument.uploader_id)
                      .where(KbDocument.status == "published")).all()
+    visible = [r for r in pub if _in_scope(r.visibility, r.visible_depts, r.visible_roles, viewer, r.uploader_id)]
     pending = db.scalars(select(KbDocument.category).where(KbDocument.status == "pending")).all()
     ok_cats = {c for c in set(pending) if can_review(db, viewer, c)}
-    return {"total_docs": sum(1 for r in pub if _in_scope(r.visibility, r.visible_depts, r.visible_roles, viewer)),
-            "total_chunks": db.scalar(select(func.count(KbChunk.id))) or 0,
+    return {"total_docs": len(visible),
+            "total_chunks": db.scalar(select(func.count(KbChunk.id)).where(KbChunk.doc_id.in_([r.id for r in visible]))) or 0,
             "pending_review": sum(1 for c in pending if c in ok_cats),
             "my_uploads": db.scalar(select(func.count(KbDocument.id)).where(KbDocument.uploader_id == viewer.id))
             if viewer is not None else 0,
             "can_manage": _is_manager(viewer),
-            "demo_docs": db.scalar(select(func.count(KbDocument.id)).where(KbDocument.source == "lexiang")) or 0}
+            "demo_docs": sum(r.source == "lexiang" for r in visible),
+            "default_visibility": default_visibility(viewer)}
+
+
+def document_chunks(db: Session, viewer, doc_id: int | str, offset=0, limit=5) -> dict:
+    """按权限分页提供完整分块，避免小聚只拿到长文档的截断开头。"""
+    d = _get(db, doc_id)
+    if not can_view(db, viewer, d):
+        raise not_found("知识库文档")
+    offset, limit = max(0, offset), max(1, min(limit, 10))
+    query = select(KbChunk).where(KbChunk.doc_id == d.id)
+    total = db.scalar(select(func.count(KbChunk.id)).where(KbChunk.doc_id == d.id)) or 0
+    rows = db.scalars(query.order_by(KbChunk.seq).offset(offset).limit(limit)).all()
+    return {"doc_id": d.id, "title": d.title, "source": d.source, "status": d.status, "url": d.url,
+            "total_chunks": total, "offset": offset, "next_offset": offset + len(rows) if offset + len(rows) < total else None,
+            "has_more": offset + len(rows) < total,
+            "chunks": [{"seq": c.seq, "heading": c.heading, "text": c.chunk_text} for c in rows]}
 
 
 # ---------------------------------------------------------------- 文档：上传 / 维护
@@ -687,7 +717,7 @@ def _norm_tags(tags) -> list[str]:
 def _norm_visibility(visibility: str | None, depts, roles) -> tuple[str, list, list]:
     visibility = visibility or "all"
     if visibility not in VISIBILITY:
-        raise bad_request("可见范围只能是 全员 / 指定部门 / 指定角色")
+        raise bad_request("可见范围只能是 仅本人 / 全员 / 指定部门 / 指定角色")
     depts = [x for x in (depts or []) if x]
     roles = _clean_roles(roles)
     known = {code for code, _ in DEPARTMENTS}
@@ -702,10 +732,9 @@ def _norm_visibility(visibility: str | None, depts, roles) -> tuple[str, list, l
 
 def _notify_reviewers(db: Session, d: KbDocument, uploader_name: str) -> None:
     from app.services import notify_service
-    roles = _reviewer_roles(db, d.category) or ["ADMIN-01"]
-    users = [u for u in notify_service.users_by_roles(db, roles) if u.id != d.uploader_id]
-    if not users:
-        users = notify_service.users_by_roles(db, ["ADMIN-01"])
+    from app.core.deps import build_principal
+    users = [u for u in db.scalars(select(SysUser).where(SysUser.status == 1, SysUser.is_deleted.is_(False)))
+             if u.id != d.uploader_id and can_review(db, build_principal(u), d.category)]
     notify_service.send(db, users, "kb_review", f"知识库待审核：{d.title}",
                         f"**{uploader_name}** 上传了《{d.title}》（{d.category}{' / ' + d.subcategory if d.subcategory else ''}），请审核发布。",
                         link="/kb?tab=review", ref_type="kb_document", ref_id=str(d.id))
@@ -713,8 +742,8 @@ def _notify_reviewers(db: Session, d: KbDocument, uploader_name: str) -> None:
 
 def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: str | None = None,
                     category: str | None = None, subcategory: str | None = None, tags=None,
-                    summary: str | None = None, visibility: str | None = "all", visible_depts=None,
-                    visible_roles=None, replace_doc_id: int | None = None) -> KbDocument:
+                    summary: str | None = None, visibility: str | None = None, visible_depts=None,
+                    visible_roles=None, replace_doc_id: int | None = None, owner=None) -> KbDocument:
     """上传一份文档（或给已有文档传新版本）。审核人直接发布，其他人进入待审核并通知审核人。"""
     from app.core.storage import save_bytes
     from app.services.kb_extract import extract_text
@@ -722,6 +751,7 @@ def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: s
 
     content = extract_text(data, filename)
     sha = hashlib.sha256(data).hexdigest()
+    owner = owner or viewer
     old = None
     if replace_doc_id:
         old = db.get(KbDocument, replace_doc_id)
@@ -744,7 +774,9 @@ def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: s
         if visibility is None:
             visibility, visible_depts, visible_roles = old.visibility, old.visible_depts, old.visible_roles
     else:
-        dup = db.scalar(select(KbDocument).where(KbDocument.sha256 == sha, KbDocument.status != "archived"))
+        # 不向其他部门泄漏受限文档的标题、编号或是否存在；允许各自保存授权副本。
+        dup = next((d for d in db.scalars(select(KbDocument).where(
+            KbDocument.sha256 == sha, KbDocument.status != "archived")) if can_view(db, owner, d)), None)
         if dup is not None:
             raise conflict(f"同样的文件已经在知识库里：《{dup.title}》", data={"doc_id": dup.id})
     title = (title or "").strip() or Path(filename).stem
@@ -753,16 +785,19 @@ def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: s
         if not category:
             raise bad_request("请选择文档分类")
     _check_category(db, category, subcategory or None)
+    if visibility is None:
+        defaults = default_visibility(owner)
+        visibility, visible_depts, visible_roles = defaults["visibility"], defaults["visible_depts"], defaults["visible_roles"]
     visibility, depts, roles = _norm_visibility(visibility, visible_depts, visible_roles)
     publish = can_review(db, viewer, category)
     now = utcnow()
 
     sid = old.source_doc_id if old is not None else f"up-{uuid.uuid4().hex[:16]}"
     f = save_bytes(db, data=data, filename=Path(filename).name[:200], category="kb", key=f"kb/{sid}",
-                   uploader_id=viewer.id)
+                   uploader_id=owner.id)
     d = old
     if d is None:
-        d = KbDocument(source="upload", source_doc_id=sid, url="", uploader_id=viewer.id)
+        d = KbDocument(source="upload", source_doc_id=sid, url="", uploader_id=owner.id)
         db.add(d)
     d.title, d.category, d.subcategory = title[:200], category, subcategory or None
     d.tags, d.summary = _norm_tags(tags), (summary or "").strip()[:500] or None
@@ -772,13 +807,13 @@ def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: s
     d.reviewer_id, d.reviewed_at = (viewer.id, now) if publish else (None, None)
     d.review_note = None
     d.source_updated_at = d.updated_at = now
-    d.url = f"{settings.public_base_url.rstrip('/')}/kb?doc={d.id}"
     db.flush()
+    d.url = f"{settings.public_base_url.rstrip('/')}/kb?doc={d.id}"
     _rebuild_chunks(db, d)
     db.flush()
     invalidate_index()
     if not publish:
-        _notify_reviewers(db, d, viewer.user.name)
+        _notify_reviewers(db, d, owner.user.name)
     return d
 
 

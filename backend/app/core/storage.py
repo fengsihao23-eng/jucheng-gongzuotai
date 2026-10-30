@@ -8,11 +8,12 @@ import hashlib
 import mimetypes
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import sign_file
+from app.core.response import bad_request
 from app.models import SysFile
 
 
@@ -25,7 +26,15 @@ def _root() -> Path:
 def save_bytes(db: Session, *, data: bytes, filename: str, category: str, key: str | None = None,
                uploader_id: int | None = None, content_type: str | None = None) -> SysFile:
     from app.core.timeutil import today
+    filename = Path(str(filename).replace("\\", "/")).name
+    if filename in ("", ".", ".."):
+        raise bad_request("文件名无效")
     key = key or f"{category}/{today():%Y-%m}/{filename}"
+    if Path(key).is_absolute() or ".." in Path(key).parts or "\\" in key:
+        raise bad_request("文件存储路径无效")
+    if db.bind.dialect.name == "postgresql":
+        lock_key = int(hashlib.sha256(f"storage:{key}".encode()).hexdigest()[:15], 16)
+        db.execute(text("select pg_advisory_xact_lock(:key)"), {"key": lock_key})
     version = (db.scalar(select(func.max(SysFile.version)).where(SysFile.storage_key == key)) or 0) + 1
     path = _root() / key / f"v{version}" / filename
     path.parent.mkdir(parents=True, exist_ok=True)

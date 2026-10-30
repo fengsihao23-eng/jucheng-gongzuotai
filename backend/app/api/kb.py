@@ -15,6 +15,13 @@ router = APIRouter(prefix="/kb", tags=["kb"])
 User = Depends(get_principal)
 
 
+def _document_result(db, p, document):
+    # 审核成功不自动授予已发布原文的阅读权限；返回回执而非提交后再抛 404。
+    if not kb_service.can_view(db, p, document):
+        return {"id": document.id, "status": document.status, "access_limited": True}
+    return kb_service.get_doc(db, document.id, viewer=p)
+
+
 def _list(raw: str | None) -> list[str]:
     """表单里的列表字段：接受 JSON 数组或逗号分隔。"""
     if not raw:
@@ -109,12 +116,19 @@ def doc(doc_id: str, p: Principal = User, db: Session = Depends(get_db)):
     return ok(kb_service.get_doc(db, doc_id, viewer=p))
 
 
+@router.get("/docs/{doc_id}/chunks")
+def doc_chunks(doc_id: str, offset: int = Query(0, ge=0), limit: int = Query(5, ge=1, le=10),
+               p: Principal = User, db: Session = Depends(get_db)):
+    """分页读取本人有权访问的知识正文，每页返回继续位置；不能用摘要代替全文。"""
+    return ok(kb_service.document_chunks(db, p, doc_id, offset, limit))
+
+
 @router.post("/suggest")
 async def suggest(file: UploadFile = File(...), p: Principal = User, db: Session = Depends(get_db)):
     """上传前预读：返回建议的标题、摘要、标签与分类（AI 优先，规则兜底），不落库。"""
     from app.services import smart_intake
     from app.services.kb_extract import extract_text
-    data = await file.read()
+    data = await file.read(50 * 1024 * 1024 + 1)
     name = file.filename or "upload"
     text = extract_text(data, name)
     out = smart_intake.describe_document(db, name, text)
@@ -125,30 +139,30 @@ async def suggest(file: UploadFile = File(...), p: Principal = User, db: Session
 @router.post("/docs")
 async def upload(request: Request, file: UploadFile = File(...), title: str = Form(""), category: str = Form(""),
                  subcategory: str = Form(""), tags: str = Form(""), summary: str = Form(""),
-                 visibility: str = Form("all"), visible_depts: str = Form(""), visible_roles: str = Form(""),
+                 visibility: str = Form(""), visible_depts: str = Form(""), visible_roles: str = Form(""),
                  p: Principal = User, db: Session = Depends(get_db)):
-    data = await file.read()
+    data = await file.read(50 * 1024 * 1024 + 1)
     d = kb_service.upload_document(db, p, data=data, filename=file.filename or "upload", title=title or None,
                                    category=category or None, subcategory=subcategory or None, tags=_list(tags),
-                                   summary=summary or None, visibility=visibility or "all",
+                                   summary=summary or None, visibility=visibility or None,
                                    visible_depts=_list(visible_depts), visible_roles=_list(visible_roles))
     log_op(db, p.id, "kb.upload", "kb_document", d.id, after={"title": d.title, "category": d.category,
                                                               "status": d.status, "visibility": d.visibility},
            ip=client_ip(request))
     db.commit()
-    return ok(kb_service.get_doc(db, d.id, viewer=p))
+    return ok(_document_result(db, p, d))
 
 
 @router.post("/docs/{doc_id}/version")
 async def new_version(doc_id: int, request: Request, file: UploadFile = File(...), p: Principal = User,
                       db: Session = Depends(get_db)):
-    data = await file.read()
+    data = await file.read(50 * 1024 * 1024 + 1)
     d = kb_service.upload_document(db, p, data=data, filename=file.filename or "upload", replace_doc_id=doc_id,
                                    title=None, visibility=None)
     log_op(db, p.id, "kb.version", "kb_document", d.id, after={"version": d.version, "status": d.status},
            ip=client_ip(request))
     db.commit()
-    return ok(kb_service.get_doc(db, d.id, viewer=p))
+    return ok(_document_result(db, p, d))
 
 
 @router.put("/docs/{doc_id}")
@@ -160,7 +174,7 @@ def update_doc(doc_id: int, request: Request, body: dict = Body(...), p: Princip
     log_op(db, p.id, "kb.update", "kb_document", d.id, after={k: fields[k] for k in fields if k != "summary"},
            ip=client_ip(request))
     db.commit()
-    return ok(kb_service.get_doc(db, d.id, viewer=p))
+    return ok(_document_result(db, p, d))
 
 
 @router.post("/docs/{doc_id}/review")
@@ -170,7 +184,7 @@ def review(doc_id: int, request: Request, approve: bool = Body(...), note: str |
     log_op(db, p.id, "kb.review", "kb_document", d.id, after={"status": d.status, "note": d.review_note},
            ip=client_ip(request))
     db.commit()
-    return ok(kb_service.get_doc(db, d.id, viewer=p))
+    return ok(_document_result(db, p, d))
 
 
 @router.post("/docs/{doc_id}/archive")
@@ -179,7 +193,7 @@ def archive(doc_id: int, request: Request, archived: bool = Body(True, embed=Tru
     d = kb_service.set_archived(db, p, doc_id, archived)
     log_op(db, p.id, "kb.archive" if archived else "kb.restore", "kb_document", d.id, ip=client_ip(request))
     db.commit()
-    return ok(kb_service.get_doc(db, d.id, viewer=p))
+    return ok(_document_result(db, p, d))
 
 
 @router.delete("/docs/{doc_id}")

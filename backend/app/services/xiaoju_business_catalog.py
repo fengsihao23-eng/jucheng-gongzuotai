@@ -29,6 +29,7 @@ MODULES = {
     "admin": ("系统管理", "/admin"), "notify": ("我的通知", "/notifications"),
     "mcp_config": ("公司工具接入", "/workbuddy"),
     "wecom_cli": ("企业微信个人连接", "/workbuddy"),
+    "imports": ("资料导入与处理进度", "/imports"),
 }
 LABELS = {
     "list_contracts": "查询合同", "create": "新增记录", "update": "更新记录", "detail": "查看详情",
@@ -63,6 +64,10 @@ LABELS = {
     "jobs": "查询任务", "run_job": "运行后台任务", "audit": "查询操作审计", "approvals": "查询审批归集队列", "retry_approval": "重试审批登记",
     "addressbook_sync": "同步企业通讯录", "my_notifications": "查询我的通知", "mark_read": "标记通知已读", "patch_tool": "调整工具授权",
     "company_directory_status": "检查公司通讯录授权状态", "preview_addressbook": "预览真实公司人员与账号变更",
+    "batches": "查询本人资料导入进度", "batch": "查看资料识别与入库状态", "confirm_kb": "确认资料分类与可见范围并提交知识库",
+    "to_clean": "准备资料台账清洗预览", "to_kb": "将资料改为知识库文档", "to_pool": "交给授权整理人处理",
+    "dismiss": "标记资料已处理但不入库", "withdraw": "撤回资料与关联入库结果", "retry": "重新识别未完成的资料",
+    "doc_chunks": "分页读取知识文档完整正文与出处",
 }
 MCP_IMPLS = {
     "fin.daily_expense_report": "t_daily_expense", "fin.project_profit": "t_project_profit",
@@ -136,7 +141,7 @@ def resolve(schema, components, seen=()):
 def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
-    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data"}: return "confirm"
+    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports"}: return "confirm"
     if module == "flows": return "confirm"
     if path.endswith("/remind") or (module == "hr" and ("/rule" in path or "/template" in path or "/alerts/scan" in path or "/candidates/" in path and path.endswith("/stage"))): return "confirm"
     if module == "clean" and path.endswith("/import"): return "confirm"

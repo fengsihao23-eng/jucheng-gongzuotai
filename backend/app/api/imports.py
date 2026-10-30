@@ -1,5 +1,5 @@
 """统一资料导入（全员）：上传 → 自动分流到台账清洗 / 知识库 / 待整理池；整理人（imports:handle）处理待整理池。"""
-from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.kb import _list
@@ -21,17 +21,20 @@ def _done(db: Session, p: Principal, b, action: str, request: Request, after: di
 
 
 @router.post("")
-async def upload(request: Request, file: UploadFile = File(...), purpose: str = Form(""), p: Principal = User,
+async def upload(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...),
+                 purpose: str = Form(""), background: bool = Form(False), p: Principal = User,
                  db: Session = Depends(get_db)):
     """上传一个文件或一个 zip 压缩包（逐个文件建批次）。返回第一份的视图，并附 batches / skipped。"""
-    data = await file.read()
-    r = svc.create_many(db, p, data, file.filename or "upload", purpose or None)
+    data = await file.read(svc.MAX_BYTES + 1)
+    r = svc.create_many(db, p, data, file.filename or "upload", purpose or None, deferred=background)
     for b in r["batches"]:
         log_op(db, p.id, "import.upload", "import_batch", b.id,
                after={"filename": b.filename, "kind": b.kind, "route": b.route, "status": b.status,
                       "archive": r["archive"]}, ip=client_ip(request))
     db.commit()
     views = [svc.view(db, b, p) for b in r["batches"]]
+    if background:
+        background_tasks.add_task(svc.process_many, p.id, [b.id for b in r["batches"]])
     return ok({**views[0], "batches": views, "skipped": r["skipped"], "archive": r["archive"]})
 
 
@@ -53,12 +56,12 @@ def batch(batch_id: int, p: Principal = User, db: Session = Depends(get_db)):
 @router.post("/{batch_id}/confirm-kb")
 def confirm_kb(batch_id: int, request: Request, title: str = Body(""), category: str = Body(""),
                subcategory: str = Body(""), tags: list[str] | str | None = Body(None), summary: str = Body(""),
-               visibility: str = Body("all"), visible_depts: list[str] | str | None = Body(None),
+               visibility: str = Body(""), visible_depts: list[str] | str | None = Body(None),
                visible_roles: list[str] | str | None = Body(None), p: Principal = User, db: Session = Depends(get_db)):
     as_list = lambda v: v if isinstance(v, list) else _list(v)  # noqa: E731
     b = svc.confirm_kb(db, p, batch_id, title=title or None, category=category or None,
                        subcategory=subcategory or None, tags=as_list(tags), summary=summary or None,
-                       visibility=visibility or "all", visible_depts=as_list(visible_depts),
+                       visibility=visibility or None, visible_depts=as_list(visible_depts),
                        visible_roles=as_list(visible_roles))
     return ok(_done(db, p, b, "confirm_kb", request, {"kb_doc_id": b.kb_doc_id}))
 
@@ -91,3 +94,12 @@ def dismiss(batch_id: int, request: Request, note: str = Body(..., embed=True), 
 def withdraw(batch_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
     b = svc.withdraw(db, p, batch_id)
     return ok(_done(db, p, b, "withdraw", request, {"note": b.note}))
+
+
+@router.post("/{batch_id}/retry")
+def retry(batch_id: int, request: Request, background_tasks: BackgroundTasks, p: Principal = User,
+          db: Session = Depends(get_db)):
+    b = svc.retry(db, p, batch_id)
+    result = _done(db, p, b, "retry", request)
+    background_tasks.add_task(svc.process_many, b.uploader_id, [b.id])
+    return ok(result)

@@ -1,14 +1,15 @@
 """Excel 数据清洗助手（PRD 7.4）。菜单 clean；预览/导入需按钮 clean:import。"""
-from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deps import Principal, client_ip, require_menu
-from app.core.response import BizError, forbidden, not_found, ok, page_data
+from app.core.response import BizError, forbidden, ok, page_data
 from app.models import CleanJob, SysUser
 from app.services import clean_service as svc
+from app.services.intake_access import clean_filter, get_clean_job
 
 router = APIRouter(prefix="/clean", tags=["clean"])
 Menu = Depends(require_menu("clean"))
@@ -19,11 +20,8 @@ def _importer(p: Principal) -> None:
         raise forbidden("无数据清洗导入权限")
 
 
-def _job(db: Session, job_id: int) -> CleanJob:
-    j = db.get(CleanJob, job_id)
-    if not j:
-        raise not_found("清洗任务")
-    return j
+def _job(db: Session, p: Principal, job_id: int, *, lock=False) -> CleanJob:
+    return get_clean_job(db, p, job_id, lock=lock)
 
 
 @router.get("/templates")
@@ -42,7 +40,7 @@ def detect_target(purpose: str = "", filename: str = "", p: Principal = Menu):
 async def preview(request: Request, file: UploadFile = File(...), purpose: str = Form(""), target: str = Form(""),
                   p: Principal = Menu, db: Session = Depends(get_db)):
     _importer(p)
-    data = await file.read()
+    data = await file.read(20 * 1024 * 1024 + 1)
     job = svc.preview(db, p.id, data, file.filename or "upload.xlsx", purpose=purpose or None, target=target or None)
     log_op(db, p.id, "clean.preview", "clean_job", job.id, after={"filename": job.filename, "target": job.target,
                                                                     "stats": {k: v for k, v in job.stats.items() if k != "skipped_rows"}},
@@ -54,9 +52,10 @@ async def preview(request: Request, file: UploadFile = File(...), purpose: str =
 @router.post("/jobs/{job_id}/remap")
 def remap(job_id: int, mapping: dict[str, str | None] | None = Body(default=None, embed=True),
           target: str | None = Body(default=None, embed=True), header_row: int | None = Body(default=None, embed=True),
+          sheet_name: str | None = Body(default=None, embed=True),
           p: Principal = Menu, db: Session = Depends(get_db)):
     _importer(p)
-    job = svc.remap(db, _job(db, job_id), mapping, target, header_row)
+    job = svc.remap(db, _job(db, p, job_id, lock=True), mapping, target, header_row, sheet_name)
     db.commit()
     return ok(svc.job_view(db, job))
 
@@ -64,7 +63,7 @@ def remap(job_id: int, mapping: dict[str, str | None] | None = Body(default=None
 @router.post("/jobs/{job_id}/import")
 def import_(job_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _importer(p)
-    job = _job(db, job_id)
+    job = _job(db, p, job_id, lock=True)
     svc.import_job(db, job, p.id)
     log_op(db, p.id, "clean.import", "clean_job", job.id,
            after={"target": job.target, "imported": job.stats.get("imported"), "skipped": job.stats.get("skipped")},
@@ -76,7 +75,7 @@ def import_(job_id: int, request: Request, p: Principal = Menu, db: Session = De
 @router.post("/jobs/{job_id}/cancel")
 def cancel(job_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     _importer(p)
-    job = _job(db, job_id)
+    job = _job(db, p, job_id, lock=True)
     if job.status != "preview":
         raise BizError(40901, "仅预览中的任务可取消")
     job.status = "cancelled"
@@ -87,16 +86,16 @@ def cancel(job_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
 @router.post("/jobs/{job_id}/report")
 def report(job_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     """生成/刷新清洗报告（预览阶段也可先下载核对）。"""
-    job = _job(db, job_id)
+    job = _job(db, p, job_id, lock=True)
     svc.build_report(db, job, p.id)
     db.commit()
     return ok(svc.job_view(db, job, include_rows=False))
 
 
 @router.get("/jobs")
-def jobs(page: int = 1, page_size: int = 20, target: str = "", status: str = "", p: Principal = Menu,
+def jobs(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), target: str = "", status: str = "", p: Principal = Menu,
          db: Session = Depends(get_db)):
-    q = select(CleanJob)
+    q = select(CleanJob).where(clean_filter(p))
     if target:
         q = q.where(CleanJob.target == target)
     if status:
@@ -118,4 +117,4 @@ def jobs(page: int = 1, page_size: int = 20, target: str = "", status: str = "",
 
 @router.get("/jobs/{job_id}")
 def job(job_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
-    return ok(svc.job_view(db, _job(db, job_id)))
+    return ok(svc.job_view(db, _job(db, p, job_id)))

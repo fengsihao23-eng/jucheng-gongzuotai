@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from difflib import SequenceMatcher
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
 
 from app.core.permissions import BUSINESS_LINES
@@ -286,7 +286,7 @@ def norm_text(v) -> tuple[str | None, list]:
 
 
 # ---------------- 读取文件 ----------------
-def read_table(data: bytes, filename: str) -> list[tuple[int, list]]:
+def read_table(data: bytes, filename: str, sheet_name: str | None = None, metadata: dict | None = None) -> list[tuple[int, list]]:
     """返回 [(源行号, [单元格值...])]；合并单元格以左上角值填充；选数据最多的工作表。"""
     name = filename.lower()
     if name.endswith(".csv") or not (data[:2] == b"PK" or data[:4] == b"\xd0\xcf\x11\xe0"):
@@ -300,32 +300,53 @@ def read_table(data: bytes, filename: str) -> list[tuple[int, list]]:
                 continue
         else:
             raise BizError(42201, "CSV 编码无法识别，请另存为 UTF-8 或 .xlsx")
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",\t;") if text.strip() else csv.excel
-        return [(i, row) for i, row in enumerate(csv.reader(io.StringIO(text), dialect), start=1)]
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",\t;") if text.strip() else csv.excel
+        except csv.Error:
+            dialect = csv.excel
+        rows = []
+        for i, row in enumerate(csv.reader(io.StringIO(text), dialect), start=1):
+            if i > 20000 or len(row) > 200:
+                raise bad_request("表格最多支持 20000 行、200 列，请拆分后上传；未截断导入")
+            rows.append((i, row))
+        if metadata is not None:
+            metadata.update(sheets=[], selected_sheet=None, sheet_confirmed=True)
+        return rows
     if data[:4] == b"\xd0\xcf\x11\xe0":
         raise BizError(42201, "暂不支持旧版 .xls（Excel 97-2003）二进制格式，请在 Excel 中另存为 .xlsx 后上传")
     from openpyxl import load_workbook
+    from app.services.kb_extract import validate_archive
+    validate_archive(data)
     try:
         wb = load_workbook(io.BytesIO(data), data_only=True)
     except Exception as exc:  # noqa: BLE001
         raise BizError(42201, f"Excel 文件无法解析：{exc}") from exc
-    best, best_n = None, -1
-    for ws in wb.worksheets:
-        n = sum(1 for r in ws.iter_rows(values_only=True) if any(not _is_blank(c) for c in r))
-        if n > best_n:
-            best, best_n = ws, n
-    ws = best
-    fill: dict[tuple[int, int], object] = {}
-    for rng in ws.merged_cells.ranges:
-        v = ws.cell(rng.min_row, rng.min_col).value
-        for r in range(rng.min_row, rng.max_row + 1):
-            for c in range(rng.min_col, rng.max_col + 1):
-                fill[(r, c)] = v
-    rows = []
-    for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-        vals = [fill.get((r_idx, c_idx), v) for c_idx, v in enumerate(row, start=1)]
-        rows.append((r_idx, vals))
-    return rows
+    try:
+        if sheet_name and sheet_name not in wb.sheetnames:
+            raise bad_request("指定工作表不存在，请重新选择")
+        sheets, best, best_n = [], None, -1
+        for ws in wb.worksheets:
+            if ws.max_row > 20000 or ws.max_column > 200 or ws.max_row * ws.max_column > 1000000:
+                raise bad_request(f"工作表「{ws.title}」过大，请拆分为每表最多 20000 行、200 列、100 万单元格；未截断导入")
+            n = sum(1 for r in ws.iter_rows(values_only=True) if any(not _is_blank(c) for c in r))
+            sheets.append({"name": ws.title, "rows": n})
+            if n > best_n:
+                best, best_n = ws, n
+        ws = wb[sheet_name] if sheet_name else best
+        if ws is None:
+            raise bad_request("文件里没有可读取的工作表")
+        if metadata is not None:
+            metadata.update(sheets=sheets, selected_sheet=ws.title, sheet_confirmed=bool(sheet_name) or len(sheets) == 1)
+        fill: dict[tuple[int, int], object] = {}
+        for rng in ws.merged_cells.ranges:
+            v = ws.cell(rng.min_row, rng.min_col).value
+            for r in range(rng.min_row, rng.max_row + 1):
+                for c in range(rng.min_col, rng.max_col + 1):
+                    fill[(r, c)] = v
+        return [(r_idx, [fill.get((r_idx, c_idx), v) for c_idx, v in enumerate(row, start=1)])
+                for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1)]
+    finally:
+        wb.close()
 
 
 # ---------------- 表头识别 + 列映射 ----------------
@@ -658,9 +679,10 @@ def clean_rows(db: Session, target: str, rows: list[tuple[int, list]], header_id
 
 # ---------------- 任务：预览 / 改映射 / 导入 / 报告 ----------------
 def _analyze(db: Session, data: bytes, filename: str, target: str, mapping_override: dict | None = None,
-             header_row: int | None = None) -> dict:
+             header_row: int | None = None, sheet_name: str | None = None) -> dict:
     tpl = templates(db)[target]
-    rows = read_table(data, filename)
+    metadata = {}
+    rows = read_table(data, filename, sheet_name, metadata)
     if not any(any(not _is_blank(x) for x in vals) for _, vals in rows):
         raise BizError(42201, "文件中没有数据")
     if header_row:
@@ -691,6 +713,7 @@ def _analyze(db: Session, data: bytes, filename: str, target: str, mapping_overr
             and any(m["field"] == "project_code" for m in mapping):
         missing.remove("业务线")  # 可由项目编码补全
     stats["missing_required_fields"] = missing
+    stats.update(metadata)
     return {"mapping": mapping, "rows": out, "stats": stats, "template": tpl}
 
 
@@ -723,7 +746,10 @@ def preview(db: Session, user_id: int, data: bytes, filename: str, purpose: str 
     if not tgt:
         raise bad_request("无法识别文件用途，请选择目标台账（合同台账/商机表/回款登记/项目建档）或描述如「导入合同台账」")
     res = _analyze(db, data, filename, tgt)
-    f = save_bytes(db, data=data, filename=filename, category="clean", uploader_id=user_id)
+    from pathlib import Path
+    import uuid
+    filename = Path(filename.replace("\\", "/")).name
+    f = save_bytes(db, data=data, filename=filename, category="clean", key=f"clean/{user_id}/{uuid.uuid4().hex}", uploader_id=user_id)
     job = CleanJob(target=tgt, filename=filename, file_id=f.id, status="preview",
                    mapping={"columns": res["mapping"], "purpose": purpose, "detected_target": tgt},
                    rows=res["rows"], stats=res["stats"], created_by=user_id)
@@ -733,7 +759,7 @@ def preview(db: Session, user_id: int, data: bytes, filename: str, purpose: str 
 
 
 def remap(db: Session, job: CleanJob, mapping: dict[str, str | None] | None, target: str | None = None,
-          header_row: int | None = None) -> CleanJob:
+          header_row: int | None = None, sheet_name: str | None = None) -> CleanJob:
     from app.core.storage import read_bytes
     from app.models import SysFile
     if job.status != "preview":
@@ -743,7 +769,8 @@ def remap(db: Session, job: CleanJob, mapping: dict[str, str | None] | None, tar
     tgt = target or job.target
     data = read_bytes(db.get(SysFile, job.file_id))
     res = _analyze(db, data, job.filename, tgt, mapping_override=mapping if tgt == job.target else None,
-                   header_row=header_row)
+                   header_row=header_row, sheet_name=sheet_name or (
+                       job.stats.get("selected_sheet") if job.stats.get("sheet_confirmed") else None))
     job.target, job.rows, job.stats = tgt, res["rows"], res["stats"]
     job.mapping = {**job.mapping, "columns": res["mapping"]}
     db.flush()
@@ -821,6 +848,30 @@ def import_job(db: Session, job: CleanJob, user_id: int) -> CleanJob:
         raise BizError(40901, "任务已导入或已取消")
     if job.stats.get("missing_required_fields"):
         raise bad_request("必填字段未映射：" + "、".join(job.stats["missing_required_fields"]))
+    if len(job.stats.get("sheets", [])) > 1 and not job.stats.get("sheet_confirmed"):
+        raise bad_request("文件包含多个工作表，请先明确选择并核对要导入的工作表；其他工作表不会自动导入")
+    if not job.stats.get("importable"):
+        raise bad_request("没有可导入的有效记录，请先修正错误或重复数据；尚未写入台账")
+    # 不同经理可以同时预览同一批业务，提交时必须重新查重；只给任务加锁不够。
+    if db.bind.dialect.name == "postgresql":
+        import zlib
+        db.execute(sql_text("select pg_advisory_xact_lock(:key)"), {"key": zlib.crc32(f"clean:{job.target}".encode())})
+    current = _Lookups(db, job.target)
+    fields = templates(db)[job.target]["fields"]
+    for row in job.rows:
+        if row["_status"] not in ("ok", "fixed"):
+            continue
+        values = dict(row)
+        for field in fields:
+            key = field["key"]
+            if values.get(key) is not None:
+                if field["type"] == "money":
+                    values[key] = _dec(values[key])
+                elif field["type"] == "date":
+                    values[key] = _dt(values[key])
+        duplicate = _db_duplicate(job.target, values, current)
+        if duplicate:
+            raise BizError(40901, f"第 {row['_row']} 行在预览后已有对应记录：{duplicate}。请重新应用映射刷新校验，尚未写入本批数据")
     reserved = {r["contract_no"] for r in job.rows if r.get("contract_no")}
     imported = failed = 0
     rows = []
@@ -972,6 +1023,7 @@ def build_report(db: Session, job: CleanJob, user_id: int | None = None):
 
     ws = sheet("概览", ["项目", "值"], first=True)
     for k, v in [("源文件", job.filename), ("目标台账", TARGET_NAMES[job.target]), ("用途描述", job.mapping.get("purpose")),
+                 ("本次工作表", st.get("selected_sheet") or "CSV"),
                  ("表头所在行", st.get("header_row")), ("数据行数", st.get("total")), ("通过（无需修改）", st.get("ok")),
                  ("已修正", st.get("fixed")), ("重复（跳过）", st.get("duplicate")), ("错误（跳过）", st.get("error")),
                  ("改动单元格数", st.get("changed_cells")), ("已导入台账", st.get("imported", 0)),

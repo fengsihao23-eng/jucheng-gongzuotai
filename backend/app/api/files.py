@@ -10,6 +10,7 @@ from app.core.response import BizError, not_found, ok
 from app.core.security import verify_file_sig
 from app.core.storage import file_brief, file_path
 from app.models import SysFile
+from app.services.intake_access import PROTECTED_FILE_CATEGORIES, require_file_access
 
 router = APIRouter(prefix="/files", tags=["文件"])
 
@@ -19,6 +20,7 @@ def file_info(file_id: int, p: Principal = Depends(get_principal), db: Session =
     f = db.get(SysFile, file_id)
     if not f:
         raise not_found("文件")
+    require_file_access(db, p, f)
     return ok(file_brief(f))
 
 
@@ -29,7 +31,12 @@ def download(file_id: int, exp: int, sig: str, request: Request, db: Session = D
     f = db.get(SysFile, file_id)
     if not f or not file_path(f).exists():
         raise not_found("文件")
-    log_op(db, None, "file.download", f.category, f.id, after={"filename": f.filename, "version": f.version},
+    actor_id = None
+    if f.category in PROTECTED_FILE_CATEGORIES:
+        p = get_principal(request, db)
+        require_file_access(db, p, f)
+        actor_id = p.id
+    log_op(db, actor_id, "file.download", f.category, f.id, after={"filename": f.filename, "version": f.version},
            ip=client_ip(request))
     db.commit()
     return FileResponse(file_path(f), media_type=f.content_type, filename=f.filename)

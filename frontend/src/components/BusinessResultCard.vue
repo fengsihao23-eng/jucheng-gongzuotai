@@ -3,6 +3,8 @@
     <header><b>{{ result.title }}</b><span :class="result.ok ? 'success' : 'failure'">{{ result.reused ? '复用已有回执' : result.ok ? '已执行' : '未完成' }}</span></header>
     <p v-if="result.data_mode === 'mock'" class="demo-note">演示环境数据</p>
     <p v-else-if="result.data_source === 'wecom_cli'" class="demo-note">企业微信真实数据 · 个人授权</p>
+    <p v-else-if="result.data_mode === 'local'" class="demo-note">工作台资料 · 以资料来源和发布状态为准</p>
+    <p v-if="result.data_truncated" class="demo-note">当前展示摘要，可查看完整结果</p>
     <p class="result-message">{{ result.message }}</p>
     <div v-if="result.files?.length" class="result-files"><FileLink v-for="file in result.files" :key="file.id || file.url" :file="file" /></div>
     <div v-if="result.links?.length" class="result-files"><a v-for="link in result.links" :key="link.url" :href="link.url" target="_blank" rel="noopener noreferrer">{{ link.label }} ↗</a></div>

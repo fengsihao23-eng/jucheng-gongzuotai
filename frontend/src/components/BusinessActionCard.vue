@@ -2,6 +2,7 @@
   <article class="business-action" aria-label="业务操作确认单">
     <header><b>{{ action.title }}</b><span>{{ labels[action.state] || action.state }}</span></header>
     <p v-if="action.data_mode === 'mock'" class="action-note">演示环境数据</p>
+    <p v-else-if="action.data_mode === 'local'" class="action-note">工作台资料 · 请核对分类、共享范围与实际处理状态</p>
     <p v-if="action.state === 'pending'" class="action-note">请核对目标记录和执行内容。确认后，小聚将按此单提交。</p>
     <BusinessData v-if="action.request" :value="requestView" />
     <div v-if="action.targets" class="action-targets"><b>本次实际接收范围</b><BusinessData :value="action.targets" /></div>

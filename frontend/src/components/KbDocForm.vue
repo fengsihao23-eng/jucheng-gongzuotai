@@ -29,10 +29,12 @@
     </el-form-item>
     <el-form-item label="可见范围">
       <el-radio-group v-model="model.visibility">
+        <el-radio value="private">仅本人</el-radio>
         <el-radio value="all">全员</el-radio>
         <el-radio value="dept">指定部门</el-radio>
         <el-radio value="roles">指定角色</el-radio>
       </el-radio-group>
+      <div class="jc-small jc-muted hint">默认不向全公司公开。知识库管理员可管理资料，待审核资料会交给分类审核人。</div>
       <el-select v-if="model.visibility === 'dept'" v-model="model.visible_depts" multiple placeholder="选择部门" class="mt-8" style="width: 100%">
         <el-option v-for="d in meta.departments || []" :key="d.code" :label="d.name" :value="d.code" />
       </el-select>
@@ -60,7 +62,14 @@ const reviewHint = computed(() => {
 </script>
 
 <style scoped>
-.gap { gap: 8px; }
+.gap { gap: 8px; flex-wrap: wrap; width: 100%; }
+.gap .el-select { flex: 1 1 150px; max-width: 100%; }
 .hint { margin-top: 4px; line-height: 1.5; }
 .mt-8 { margin-top: 8px; }
+@media (max-width: 620px) {
+  .kbf :deep(.el-form-item) { display: block; }
+  .kbf :deep(.el-form-item__label) { width: auto !important; display: block; text-align: left; height: auto; }
+  .kbf :deep(.el-form-item__content) { margin-left: 0 !important; }
+  .kbf :deep(.el-radio-group) { display: flex; flex-wrap: wrap; }
+}
 </style>

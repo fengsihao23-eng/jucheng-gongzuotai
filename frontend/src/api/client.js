@@ -26,8 +26,11 @@ http.interceptors.response.use(
     }
     return body
   },
-  (err) => {
-    const body = err.response?.data
+  async (err) => {
+    let body = err.response?.data
+    if (body instanceof Blob && body.type.includes('json')) {
+      try { body = JSON.parse(await body.text()) } catch { /* 保留网络错误提示 */ }
+    }
     if (body && typeof body === 'object' && 'code' in body) return Promise.reject(bizError(body, err.config))
     const e = new Error(err.code === 'ECONNABORTED' ? '请求超时，请稍后重试' : '网络异常，请检查连接')
     if (!err.config?.silent) ElMessage.error(e.message)
@@ -67,10 +70,12 @@ export const api = {
   /** 以当前登录身份下载接口返回的二进制（如导出 xlsx） */
   download: async (url, params, filename) => {
     const resp = await http.get(url, { params, responseType: 'blob' })
-    if (resp.data.type?.includes('json')) {
+    if (resp.data.type?.includes('json') && !resp.headers['content-disposition']) {
       const body = JSON.parse(await resp.data.text())
-      ElMessage.error(body.message || '导出失败')
-      throw new Error(body.message)
+      if (body && typeof body === 'object' && 'code' in body && body.code !== 0) {
+        ElMessage.error(body.message || '导出失败')
+        throw new Error(body.message)
+      }
     }
     const cd = resp.headers['content-disposition'] || ''
     const m = cd.match(/filename\*=UTF-8''([^;]+)/) || cd.match(/filename="?([^";]+)"?/)
@@ -85,7 +90,13 @@ export const api = {
 
 /** 打开后端签名链接（报表/归档文件），url 来自接口返回的 file.url */
 export function openFile(url) {
-  if (url) window.open(url, '_blank')
+  if (!url) return
+  const target = new URL(url, window.location.origin)
+  if (target.origin === window.location.origin && target.pathname.startsWith('/api/v1/files/')) {
+    // 原件下载必须携带本人登录态，复制签名链接不能绕过文档权限。
+    return api.download(target.pathname.slice('/api/v1'.length) + target.search).catch(() => {})
+  }
+  window.open(url, '_blank', 'noopener')
 }
 
 export default api

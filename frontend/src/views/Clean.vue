@@ -51,6 +51,16 @@
           <el-option v-for="t in templates" :key="t.target" :label="t.name" :value="t.target" />
         </el-select>
       </template>
+      <div v-if="job.stats.sheets?.length > 1" class="foot">
+        <div>
+          <span class="jc-small">文件有 {{ job.stats.sheets.length }} 个工作表，本次只导入：</span>
+          <el-select :model-value="job.stats.selected_sheet" style="width: 220px" @change="selectSheet">
+            <el-option v-for="s in job.stats.sheets" :key="s.name" :label="`${s.name}（${s.rows} 行）`" :value="s.name" />
+          </el-select>
+          <el-button v-if="!job.stats.sheet_confirmed" size="small" :loading="busy" @click="selectSheet(job.stats.selected_sheet)">确认使用此表</el-button>
+        </div>
+        <span class="jc-small jc-muted">{{ job.stats.sheet_confirmed ? '已确认工作表，其他工作表不在本次导入范围内' : '请明确核对工作表，系统不会静默忽略其他表' }}</span>
+      </div>
       <el-alert v-if="job.stats.missing_required_fields?.length" type="warning" show-icon :closable="false" class="alert"
         :title="`必填字段未映射：${job.stats.missing_required_fields.join('、')}，请在下方指定对应列`" />
       <el-table :data="job.mapping" size="small">
@@ -78,7 +88,7 @@
         <span class="jc-muted jc-small">低置信度（橙色）请人工确认；修改后点「应用映射」重新清洗。</span>
         <div>
           <el-button :disabled="!mappingDirty" :loading="busy" @click="remap(edits)">应用映射</el-button>
-          <el-button type="primary" :disabled="mappingDirty || !!job.stats.missing_required_fields?.length" @click="step = 2">下一步：清洗预览</el-button>
+          <el-button type="primary" :disabled="mappingDirty || !!job.stats.missing_required_fields?.length || (job.stats.sheets?.length > 1 && !job.stats.sheet_confirmed)" @click="step = 2">下一步：清洗预览</el-button>
         </div>
       </div>
     </Panel>
@@ -125,7 +135,7 @@
     </template>
 
     <!-- ④ 结果 -->
-    <Panel v-if="step === 3 && job" class="mt-16" title="导入完成">
+    <Panel v-if="step === 3 && job" class="mt-16" :title="!job.stats.imported ? '未导入有效记录' : job.stats.error || job.stats.import_failed ? '部分记录已入库，请处理异常' : '导入完成'">
       <div class="jc-grid c4">
         <Kpi label="已导入台账" :value="job.stats.imported" unit="行" :hint="job.target_name" />
         <Kpi label="已修正后导入" :value="job.stats.fixed" unit="行" :hint="`改动单元格 ${job.stats.changed_cells} 处`" />
@@ -223,6 +233,13 @@ async function remap(mapping, tgt) {
     ElMessage.success('已按新映射重新清洗')
   } finally { busy.value = false }
 }
+async function selectSheet(sheetName) {
+  busy.value = true
+  try {
+    setJob(await api.post(`/clean/jobs/${job.value.id}/remap`, { sheet_name: sheetName }))
+    ElMessage.success('已重新识别所选工作表，请核对字段映射')
+  } finally { busy.value = false }
+}
 const confTone = (c) => (c >= 0.9 ? 'up' : c >= 0.6 ? 'brand' : 'warn')
 
 const statCards = computed(() => {
@@ -257,7 +274,8 @@ async function doImport() {
   try {
     setJob(await api.post(`/clean/jobs/${job.value.id}/import`))
     step.value = 3
-    ElMessage.success(`已导入 ${job.value.stats.imported} 行`)
+    const s = job.value.stats
+    ElMessage[s.imported && !s.import_failed && !s.error ? 'success' : 'warning'](`已导入 ${s.imported} 行，跳过 ${s.skipped} 行${s.import_failed ? `，写入失败 ${s.import_failed} 行` : ''}；请核对报告`)
     loadHistory()
   } finally { busy.value = false }
 }

@@ -286,8 +286,11 @@ def _stable(value):
 
 def result_view(record):
     data = record["data"]
+    preview = compact(data)
     return {"ok": record["ok"], "status": record["status"], "result_id": record["id"], "operation_id": record["operation_id"],
-            "title": record["title"], "message": record["message"], "page": record["page"], "data": compact(data),
+            "title": record["title"], "message": record["message"], "page": record["page"], "data": preview,
+            "data_truncated": preview != data,
+            "data_notice": "当前为摘要，不能据此当作全部记录。请分页查询原接口或使用完整导出/汇总接口核验。" if preview != data else "",
             "files": files_in(data), "links": _wecom_links(data) if record.get("data_source") == "wecom_cli" else [],
             "data_mode": record["data_mode"], "data_source": record.get("data_source"), "reused": record.get("reused", False)}
 
@@ -311,13 +314,23 @@ def _wecom_links(data):
     return list(links.values())[:20]
 
 
+def operation_data_mode(op):
+    if op.source == "wecom_cli":
+        return "live"
+    if op.module in {"imports", "kb"}:
+        return "local"  # 上传资料不是模拟连接；每份资料仍以其来源、审核状态为准。
+    if op.id in {"admin.preview_addressbook", "admin.addressbook_sync"}:
+        return settings.source_mode("wecom")
+    return settings.data_source_mode
+
+
 def save_result(op, user_id, task_id, workflow_id, data, message, result_id=None):
     failed = isinstance(data, dict) and isinstance(data.get("status"), str) and data["status"] in {"failed", "error"} and bool(data.get("error"))
     record = {"id": result_id or uuid.uuid4().hex, "user_id": user_id, "task_id": task_id, "workflow_id": workflow_id,
               "operation_id": op.id, "title": op.title, "page": op.page, "ok": not failed,
               "status": "failed" if failed else "succeeded", "message": redact(str(data.get("error"))) if failed else redact(str(message))[:4000],
               "data": encode(safe_value(data)), "actor_signature": actor_signature(user_id),
-              "data_mode": "live" if op.source == "wecom_cli" else settings.source_mode("wecom") if op.id in {"admin.preview_addressbook", "admin.addressbook_sync"} else settings.data_source_mode,
+              "data_mode": operation_data_mode(op),
               "data_source": op.source, "created_at": time.time()}
     state.write("results", record)
     with SessionLocal() as db:
@@ -360,7 +373,8 @@ def read_result(result_id, user_id, full=False):
     if record.get("actor_signature") != actor_signature(user_id): raise forbidden("账号权限已变化，请重新查询业务数据")
     with SessionLocal() as db: record["data"] = _refresh_file_links(record["data"], db)
     result = result_view(record)
-    if full: result["data"] = record["data"]
+    if full:
+        result.update(data=record["data"], data_truncated=False, data_notice="")
     return result
 
 
@@ -437,7 +451,7 @@ class BusinessExecutor:
                    "通讯录": ["admin", "wecom_cli"], "公司人员": ["admin"], "员工账号": ["admin"], "组织架构": ["admin"], "人员导入": ["admin"],
                    "日程": ["wecom_cli"], "微盘": ["wecom_cli"], "待办": ["wecom_cli"], "群聊": ["wecom_cli"],
                    "文档": ["wecom_cli", "kb", "tender"], "表格": ["wecom_cli"], "邮件": ["wecom_cli"], "会议": ["wecom_cli"],
-                   "导入": ["clean", "flows", "hr", "finance_data"], "汇报": ["submissions", "market"], "审批": ["portal", "admin"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
+                   "资料": ["imports", "kb"], "导入": ["imports", "clean", "flows", "hr", "finance_data"], "汇报": ["submissions", "market"], "审批": ["portal", "admin"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
         selected = {module for word, modules in aliases.items() if word in text for module in modules}
         selected.update(module for module in counts if module in text or catalog.MODULES[module][0] in text)
         listed = [op for op in ops.values() if not selected or op.module in selected]
@@ -492,7 +506,7 @@ class BusinessExecutor:
                 record = {"id": uuid.uuid4().hex, "user_id": self.user_id, "task_id": self.task_id, "workflow_id": self.workflow_id,
                           "fingerprint": fingerprint, "operation_id": op.id, "title": op.title, "page": op.page, "request": request,
                           "before": _snapshot(op, request, self.user_id), "actor_signature": actor_signature(self.user_id),
-                          "source_signature": source_signature(), "data_mode": "live" if op.source == "wecom_cli" else settings.source_mode("wecom") if op.id == "admin.addressbook_sync" else settings.data_source_mode,
+                          "source_signature": source_signature(), "data_mode": operation_data_mode(op),
                           "connection_id": op.connection_id,
                           "targets": targets,
                           "state": "pending", "created_at": time.time(), "expires_at": time.time() + 1800}

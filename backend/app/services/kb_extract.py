@@ -17,6 +17,20 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".webp",
 MAX_TABLE_ROWS = 20000
 
 
+def validate_archive(data: bytes) -> None:
+    """OOXML 本身也是压缩包，解析前限制展开体积，避免小文件占满服务内存。"""
+    import zipfile
+    if not data.startswith(b"PK"):
+        return
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 5000 or sum(i.file_size for i in entries) > 200 * 1024 * 1024:
+                raise bad_request("文件展开后过大，请拆分文件后上传")
+    except zipfile.BadZipFile:
+        raise bad_request("文件压缩结构损坏，请重新另存为 Office 新格式") from None
+
+
 def ext_of(filename: str) -> str:
     return Path(filename or "").suffix.lower()
 
@@ -99,17 +113,20 @@ def _xlsx(data: bytes) -> str:
 
     wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     out, total = [], 0
-    for ws in wb.worksheets:
-        out.append(f"## {ws.title}")
-        for row in ws.iter_rows(values_only=True):
-            cells = ["" if v is None else str(v).strip() for v in row]
-            if any(cells):
-                out.append(" | ".join(cells).rstrip(" |"))
-                total += 1
-                if total >= MAX_TABLE_ROWS:
-                    break
-        if total >= MAX_TABLE_ROWS:
-            break
+    try:
+        for ws in wb.worksheets:
+            if ws.max_column > 200 or ws.max_row > MAX_TABLE_ROWS:
+                raise bad_request("表格过大，请拆分为每表最多 20000 行、200 列；不会只截取部分内容入库")
+            out.append(f"## {ws.title}")
+            for row in ws.iter_rows(values_only=True):
+                cells = ["" if v is None else str(v).strip() for v in row]
+                if any(cells):
+                    total += 1
+                    if total > MAX_TABLE_ROWS:
+                        raise bad_request("表格正文超过 20000 行，请拆分后上传；不会只截取部分内容入库")
+                    out.append(" | ".join(cells).rstrip(" |"))
+    finally:
+        wb.close()
     return "\n".join(out)
 
 
@@ -126,6 +143,7 @@ def extract_text(data: bytes, filename: str) -> str:
     """返回抽取后的正文；不支持或无文字时抛 bad_request（文案直接给上传人看）。"""
     if len(data) > MAX_BYTES:
         raise bad_request("文件超过 50MB，请拆分后再上传")
+    validate_archive(data)
     ext = ext_of(filename)
     if ext in LEGACY:
         raise bad_request(f"暂不支持旧版 {ext} 格式，请用 Office/WPS 另存为 {LEGACY[ext]} 后再上传")

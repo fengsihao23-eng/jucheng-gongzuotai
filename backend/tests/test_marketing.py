@@ -298,7 +298,7 @@ def test_clean_remap_and_import(client, login, db):
     assert db.scalar(select(func.count()).select_from(BizContract).where(BizContract.contract_no == "HT-2026-0818")) == 0
     # 报告可打开
     rep = done["report_file"]
-    r = client.get(rep["url"])
+    r = client.get(rep["url"], headers=h)
     assert r.status_code == 200
     wb = load_workbook(io.BytesIO(r.content))
     assert {"概览", "清洗明细", "原值新值对照", "跳过与异常行", "口径说明"} <= set(wb.sheetnames)

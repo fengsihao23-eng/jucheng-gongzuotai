@@ -102,7 +102,7 @@ def test_upload_pending_review_then_publish(client, login):
     assert sug["category"] == "制度" and sug["subcategory"] == "财务制度"
 
     d = data(_upload(client, emp, content, "差旅费用管理办法.docx", category="制度", subcategory="财务制度",
-                     tags="差旅,报销"))
+                     tags="差旅,报销", visibility="all"))
     assert d["status"] == "pending" and d["tags"] == ["差旅", "报销"] and d["has_file"]
     assert d["chunks"] and d["chunks"][0]["heading"] == "差旅费用管理办法"
     # 未发布：检索不到；上传人能看到；无关的人 404
@@ -122,7 +122,8 @@ def test_upload_pending_review_then_publish(client, login):
     assert hits[0]["doc_id"] == d["id"] and hits[0]["subcategory"] == "财务制度"
     # 原件可下载
     f = pub["file"]
-    assert f and client.get(f["url"]).status_code == 200
+    assert f and client.get(f["url"], headers=emp).status_code == 200
+    assert client.get(f["url"]).status_code == 401
     # 重复上传同一文件
     assert _upload(client, emp, content, "副本.docx", category="制度").json()["code"] == 40901
 
