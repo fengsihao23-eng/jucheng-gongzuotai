@@ -98,6 +98,12 @@ def _value(field, value):
     return json.dumps(value, ensure_ascii=False), True
 
 
+def _label(value, index):
+    """子表名可能为空或在接口里缺失；给可核对的占位名，不能把 null 当成表名。"""
+    text = re.sub(r"[\r\n\t]+", " ", str(value)).strip() if value is not None else ""
+    return text[:100] or f"未命名子表 {index}"
+
+
 def table_xlsx(title, fields, records):
     from openpyxl import Workbook
     if not fields or len(fields) > MAX_COLUMNS or len(records) > MAX_ROWS:
@@ -129,7 +135,7 @@ def table_xlsx(title, fields, records):
         rows.append(row)
     wb = Workbook()
     ws = wb.active
-    ws.title = re.sub(r"[\\/*?:\[\]]", "", title)[:31] or "数据"
+    ws.title = re.sub(r"[\\/*?:\[\]]", "", str(title or "数据"))[:31] or "数据"
     for row in [titles, *rows]:
         ws.append(row)
         for cell in ws[ws.max_row]:
@@ -147,9 +153,14 @@ def smart_table(fetch, source, table_id):
     sheets = catalog.get("sheets")
     if not isinstance(sheets, list):
         raise bad_request("没有读取到智能表格的子表清单")
-    choices = [{"id": s.get("sheet_id"), "name": s.get("title") or s.get("sheet_title"),
-                "rows": s.get("record_count"), "columns": s.get("field_count")}
-               for s in sheets if s.get("type") in {"smartsheet", "sheet"}]
+    choices = []
+    for index, sheet in enumerate(sheets, 1):
+        if sheet.get("type") not in {"smartsheet", "sheet"}:
+            continue
+        if not isinstance(sheet.get("sheet_id"), str) or not sheet["sheet_id"].strip():
+            raise bad_request("智能表格子表清单缺少标识，无法可靠选择要读取的子表")
+        choices.append({"id": sheet["sheet_id"], "name": _label(sheet.get("title") or sheet.get("sheet_title"), index),
+                        "rows": sheet.get("record_count"), "columns": sheet.get("field_count")})
     source.update(title=catalog.get("name") or source["title"], tables=choices)
     if not table_id:
         return None
@@ -172,8 +183,13 @@ def online_table(fetch, source, table_id):
     sheets = catalog.get("sheets")
     if not isinstance(sheets, list):
         raise bad_request("没有读取到在线表格的子表清单")
-    choices = [{"id": s.get("sheet_id"), "name": s.get("name"), "range": s.get("range")}
-               for s in sheets if s.get("type", "sheet") == "sheet"]
+    choices = []
+    for index, sheet in enumerate(sheets, 1):
+        if sheet.get("type", "sheet") != "sheet":
+            continue
+        if not isinstance(sheet.get("sheet_id"), str) or not sheet["sheet_id"].strip():
+            raise bad_request("在线表格子表清单缺少标识，无法可靠选择要读取的工作表")
+        choices.append({"id": sheet["sheet_id"], "name": _label(sheet.get("name"), index), "range": sheet.get("range")})
     source["tables"] = choices
     if not table_id:
         return None

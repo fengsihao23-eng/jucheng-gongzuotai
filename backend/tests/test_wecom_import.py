@@ -149,9 +149,9 @@ def smart_responses(responses, *, complex_field=False):
     responses["smartsheet.records.list"] = records
 
 
-def select_table(client, headers, source):
+def select_table(client, headers, source, table_id="business"):
     initial = data(client.post("/api/v1/imports/wecom/preview", headers=headers,
-                              json={"source_id": source["id"], "table_id": "business"}))
+                              json={"source_id": source["id"], "table_id": table_id}))
     return data(client.get(f"/api/v1/imports/wecom/sources/{initial['id']}", headers=headers))
 
 
@@ -257,3 +257,66 @@ def test_same_remote_table_snapshot_is_reused_across_fresh_previews(remote, clie
     second = select_table(client, headers, preview(client, headers, "https://doc.weixin.qq.com/smartsheet/s3_example"))
     two = data(client.post("/api/v1/imports/wecom/confirm", headers=headers, json={"source_id": second["id"]}))
     assert two["reused"] and two["id"] == one["id"]
+
+
+def test_share_links_ignore_scode_and_accept_published_smartpage():
+    published = svc.parse_link("https://page.weixin.qq.com/smartpage/p/b1_example?scode=share&from=timeline")
+    assert published == {"kind": "smartpage", "docid": "b1_example",
+                         "url": "https://page.weixin.qq.com/smartpage/p/b1_example"}
+    edit = svc.parse_link("https://doc.weixin.qq.com/smartpage/a1_example?scode=share")
+    assert edit["docid"] == "a1_example" and "scode" not in edit["url"]
+    for rejected in ("https://page.weixin.qq.com/doc/d3_example", "https://page.weixin.qq.com/smartpage/p/",
+                     "https://doc.weixin.qq.com/smartpage/p/b1_example"):
+        with pytest.raises(BizError): svc.parse_link(rejected)
+
+
+def test_published_smartpage_link_reads_by_docid_without_share_code(remote, client, login):
+    _, _, calls, responses = remote
+    responses["smartpage.pages.get"] = lambda p, w: {"doc_title": "发布态资料", "rev": 1,
+        "pages": [{"page_id": "root", "content_file_inner": "发布态只读正文，仅本次读取快照。"}]}
+    result = preview(client, login("songjia"), "https://page.weixin.qq.com/smartpage/p/b1_published?scode=share")
+    assert result["state"] == "ready" and result["url"].endswith("/smartpage/p/b1_published")
+    assert calls[0] == ("smartpage.pages.get", {"docid": "b1_published", "content_type": "markdown"})
+
+
+def test_subtable_without_a_title_uses_placeholder_instead_of_null(remote, client, login):
+    _, _, _, responses = remote
+    responses["smartsheet.sheets.list"] = {"name": "无标题台账", "sheets": [
+        {"sheet_id": "business", "type": "smartsheet", "record_count": 1}]}
+    responses["smartsheet.fields.list"] = {"fields": [{"field_title": "客户", "field_type": "text"}], "has_more": False}
+    responses["smartsheet.records.list"] = {"records": [{"record_id": "r1", "values": {"客户": "合成客户"}}],
+                                            "total": 1, "has_more": False}
+    headers = login("songjia")
+    catalog = preview(client, headers, "https://doc.weixin.qq.com/smartsheet/s3_example")
+    assert catalog["state"] == "choose_table" and catalog["tables"][0]["name"] == "未命名子表 1"
+    loaded = select_table(client, headers, catalog)
+    assert loaded["state"] == "ready" and loaded["table_name"] == "未命名子表 1" and loaded["row_count"] == 1
+
+
+def test_online_sheet_without_a_name_uses_placeholder_instead_of_null(remote, client, login):
+    _, _, _, responses = remote
+    responses["sheet.workbook.get"] = {"sheets": [{"sheet_id": "online", "range": "A1:A1"}]}
+    responses["sheet.cells.get"] = {"truncated": False, "cells": [[{"value": "合计"}]]}
+    headers = login("songjia")
+    source = preview(client, headers, "https://doc.weixin.qq.com/sheet/e3_example")
+    assert source["state"] == "choose_table" and source["tables"][0]["name"] == "未命名子表 1"
+    loaded = select_table(client, headers, source, table_id="online")
+    assert loaded["state"] == "ready" and loaded["table_name"] == "未命名子表 1"
+
+
+def test_subtable_list_missing_identifiers_is_reported_not_guessed(remote, client, login):
+    _, _, _, responses = remote
+    responses["smartsheet.sheets.list"] = {"name": "异常台账", "sheets": [{"title": "没有标识", "type": "smartsheet"}]}
+    result = preview(client, login("songjia"), "https://doc.weixin.qq.com/smartsheet/s3_example")
+    assert result["state"] == "failed" and "缺少标识" in result["message"]
+
+
+def test_search_reports_unsupported_types_instead_of_empty_results(remote, client, login):
+    _, _, _, responses = remote
+    responses["doc.search"] = {"docs": [
+        {"docid": "d3_ok", "doc_name": "巡检手册", "doc_type": "doc", "url": "https://doc.weixin.qq.com/doc/d3_ok"},
+        {"docid": "p3_skip", "doc_name": "培训幻灯片", "doc_type": "ppt"}], "has_more": False}
+    found = data(client.post("/api/v1/imports/wecom/search", headers=login("songjia"),
+                             json={"kind": "doc", "keywords": "巡检"}))
+    assert [item["title"] for item in found["items"]] == ["巡检手册"]
+    assert found["skipped"] == 1 and found["skipped_kinds"] == ["幻灯片"]

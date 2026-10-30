@@ -26,6 +26,12 @@ from app.services.xiaoju_tools import private_bytes, private_write
 TTL = 3600
 SUPPORTED = {"file", "doc", "word", "smartpage", "smartsheet", "sheet"}
 KINDS = {"file": "微盘文件", "doc": "在线文档", "word": "在线文档", "smartpage": "智能文档", "smartsheet": "智能表格", "sheet": "在线表格"}
+# 搜索结果里能看到、但当前没有正文读取接口的类型：如实告知，不能当作没有搜到。
+UNSUPPORTED = {"ppt": "幻灯片", "collect": "收集表", "mind": "思维导图", "flow": "流程图", "journal": "汇报",
+               "pdf": "PDF 文档", "image": "图片", "videoaudio": "音视频", "design": "设计稿",
+               "folder": "文件夹", "space": "共享空间"}
+DOC_PATH = re.compile(r"/(doc|smartpage|smartsheet|sheet)/([A-Za-z0-9_-]{1,200})/?")
+PUBLISHED_PATH = re.compile(r"/smartpage/(?:p/)?([A-Za-z0-9_-]{2,200})/?")
 
 
 def _folder(user_id):
@@ -135,11 +141,16 @@ def parse_link(raw):
         if len(ticket) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", ticket[0]):
             raise bad_request("微盘分享链接缺少有效的文件标识")
         return {"kind": "file", "url": f"https://drive.weixin.qq.com/s?k={ticket[0]}", "disk": True}
-    if url.hostname in {"doc.weixin.qq.com", "page.weixin.qq.com"}:
-        match = re.fullmatch(r"/(doc|smartpage|smartsheet|sheet)/([A-Za-z0-9_-]{1,200})/?", url.path)
-        if match and (url.hostname != "page.weixin.qq.com" or match[1] == "smartpage"):
-            return {"kind": match[1], "docid": match[2], "url": f"https://{url.hostname}/{match[1]}/{match[2]}"}
-    raise bad_request("暂支持企微微盘文件、在线文档、智能文档、在线表格及智能表格链接；请提供具体资料链接")
+    # 分享链接里的 scode 只是分享码，官方接口调用时忽略；这里统一去掉，只保留可复核的原文地址。
+    if url.hostname == "page.weixin.qq.com":
+        match = PUBLISHED_PATH.fullmatch(url.path)
+        if match:
+            return {"kind": "smartpage", "docid": match[1], "url": f"https://page.weixin.qq.com/smartpage/p/{match[1]}"}
+    if url.hostname == "doc.weixin.qq.com":
+        match = DOC_PATH.fullmatch(url.path)
+        if match:
+            return {"kind": match[1], "docid": match[2], "url": f"https://doc.weixin.qq.com/{match[1]}/{match[2]}"}
+    raise bad_request("暂支持企微微盘文件、在线文档、智能文档（含发布态分享链接）、在线表格及智能表格链接；请提供具体资料链接")
 
 
 def status(p):
@@ -165,16 +176,19 @@ def search(p, kind, keywords, cursor="", space=""):
     items = result.get("files" if kind == "disk" else "docs")
     if not isinstance(items, list):
         raise bad_request("企微未返回资料列表，未将异常响应当作空列表")
-    output = []
+    output, skipped = [], {}
     for item in items[:20]:
         resource_kind = item.get("type") or item.get("doc_type")
         if resource_kind not in SUPPORTED:
+            label = UNSUPPORTED.get(resource_kind, "其他类型")
+            skipped[label] = skipped.get(label, 0) + 1
             continue
         source = _new(p, state="selection", kind=resource_kind, title=str(item.get("file_name") or item.get("doc_name") or "企业微信资料")[:200],
                       file_id=item.get("id") if kind == "disk" else None, docid=item.get("docid"), disk=kind == "disk",
                       url=item.get("doc_url") or item.get("url") or "", source_updated_at=item.get("update_time"))
         output.append(view(source))
-    return {"items": output, "has_more": bool(result.get("has_more")), "next_cursor": result.get("next_cursor") or ""}
+    return {"items": output, "has_more": bool(result.get("has_more")), "next_cursor": result.get("next_cursor") or "",
+            "skipped": sum(skipped.values()), "skipped_kinds": list(skipped)}
 
 
 def start(p, *, url="", source_id="", table_id=""):
@@ -331,6 +345,8 @@ def view(record):
     result = {key: record.get(key) for key in ("id", "state", "kind", "title", "tables", "columns", "sample_rows", "row_count",
         "table_name", "page_count", "warnings", "preview_text", "message", "expires_at", "created_at", "captured_at", "byte_size", "batch_id", "authorization_url")}
     result["kind_name"] = KINDS.get(record.get("kind"), "企业微信资料")
+    if not isinstance(result.get("table_name"), str) or not result["table_name"].strip():
+        result["table_name"] = ""
     try: result["url"] = parse_link(record.get("url", ""))["url"]
     except BizError: result["url"] = ""
     result["default_visibility"] = "private"

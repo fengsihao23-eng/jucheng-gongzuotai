@@ -47,12 +47,12 @@
         <a v-if="official(item.authorization_url)" :href="item.authorization_url" target="_blank" rel="noopener noreferrer">前往企业微信开通此项功能</a>
         <div v-if="item.state === 'choose_table'" class="jc-row">
           <el-select v-model="tableChoice[item.id]" placeholder="明确选择本次要读取的子表" style="min-width: 240px">
-            <el-option v-for="table in item.tables" :key="table.id" :value="table.id" :label="table.name + (table.rows !== undefined ? `（${table.rows} 条）` : '')" />
+            <el-option v-for="table in item.tables" :key="table.id" :value="table.id" :label="(table.name || '未命名子表') + (table.rows !== undefined ? `（${table.rows} 条）` : '')" />
           </el-select>
           <el-button :disabled="!tableChoice[item.id] || busy" @click="read(item, tableChoice[item.id])">读取这个子表</el-button>
         </div>
         <template v-if="item.state === 'ready'">
-          <p class="jc-small jc-muted">{{ item.page_count ? `已读取 ${item.page_count} 页正文` : item.row_count !== null ? `子表：${item.table_name} · 已读取 ${item.row_count} 条数据` : '原件已读取' }} · 待核对保存</p>
+          <p class="jc-small jc-muted">{{ item.page_count ? `已读取 ${item.page_count} 页正文` : item.row_count !== null ? `子表：${item.table_name || '未命名子表'} · 已读取 ${item.row_count} 条数据` : '原件已读取' }} · 待核对保存</p>
           <p v-if="item.preview_text" class="text-preview">{{ item.preview_text }}</p>
           <el-table v-if="item.sample_rows?.length" :data="item.sample_rows" size="small">
             <el-table-column v-for="(col, i) in item.columns" :key="i" :label="col || `列${i + 1}`" min-width="120"><template #default="{ row }">{{ row[i] }}</template></el-table-column>
@@ -124,7 +124,14 @@ async function search(more) {
     const r = await api.post('/imports/wecom/search', { kind: searchKind.value, keywords: keywords.value,
       cursor: more ? nextCursor.value : '', space: space.value }, { silent: true })
     results.value = r.items; chosen.value = []; nextCursor.value = r.has_more ? r.next_cursor : ''
-    if (!r.items.length) ElMessage.info('本次搜索没有找到可接入的文件或文档，可更换关键词或粘贴具体链接')
+    const kinds = (r.skipped_kinds || []).join('、')
+    if (!r.items.length) {
+      ElMessage.info(r.skipped
+        ? `搜到的 ${r.skipped} 份资料类型暂不支持自动读取（${kinds}），请在企微导出后上传`
+        : '本次搜索没有找到可接入的文件或文档，可更换关键词或粘贴具体链接')
+    } else if (r.skipped) {
+      ElMessage.info(`另有 ${r.skipped} 份资料类型暂不支持自动读取（${kinds}），请在企微导出后上传`)
+    }
   } catch (e) { fail(e) }
   finally { busy.value = false }
 }
