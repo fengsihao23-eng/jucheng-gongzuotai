@@ -91,15 +91,19 @@ def _owned(user_id, binding_id=None):
     return document
 
 
-def _run(user_id, args):
-    _owned(user_id)
+def _run(user_id, args, *, workspace_id=None, binding_id=None):
+    _owned(user_id, binding_id)
     folder = home(user_id)
     work = folder / "work"
+    if workspace_id is not None:
+        if not re.fullmatch(r"[a-f0-9]{32}", workspace_id):
+            raise bad_request("企业微信导入工作区无效")
+        work = work / "imports" / workspace_id
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
     env = {key: value for key, value in os.environ.items() if not key.startswith("WECOM_CLI_")}
     env["WECOM_CLI_CONFIG_DIR"] = str(folder / "config")
     try:
-        process = subprocess.run([str(launcher()), *args], capture_output=True, text=True, timeout=70,
+        process = subprocess.run([str(launcher()), *args, *(["--output-dir", str(work)] if workspace_id else [])], capture_output=True, text=True, timeout=70,
                                  cwd=work, env=env)
     except subprocess.TimeoutExpired:
         raise bad_request("企业微信调用超时，写入结果需要先核实，不能自动重复提交") from None
@@ -124,7 +128,39 @@ def _run(user_id, args):
                                    data={"authorization_url": url, "authorization_label": "开通" + label})
         # Third party errors can echo headers or credentials. Return the code only.
         raise bad_request(f"企业微信调用未完成（错误码 {code}），请检查该账号的授权与业务参数")
+    _owned(user_id, binding_id)
     return result
+
+
+# 专用资料入口可下载微盘原件，但通用模型工具仍不能自由传入文件路径。
+IMPORT_READ_METHODS = frozenset({"disk.files.search", "disk.files.get", "disk.files.download", "doc.search",
+    "doc.contents.get", "smartpage.pages.get", "smartpage.databases.get", "smartsheet.sheets.list",
+    "smartsheet.fields.list", "smartsheet.records.list", "sheet.workbook.get", "sheet.cells.get"})
+
+
+def import_read(user_id, method, payload, binding_id, workspace_id):
+    document = _owned(user_id, binding_id)
+    declared = {m.get("name") for s in document.get("services", []) for m in s.get("methods", [])}
+    if method not in IMPORT_READ_METHODS or method not in declared:
+        raise forbidden("当前企业微信连接未提供这项资料读取功能")
+    schema = _run(user_id, ["schema", "get", method], binding_id=binding_id)
+    if schema.get("method") != method:
+        raise bad_request("企业微信接口定义不匹配，请重新连接后再试")
+    request = resolve(schema.get("request", {}), schema.get("schemas", {}))
+    # CLI 的部分数组参数把元素枚举写在数组本层（如 include），按其接口语义规范化。
+    def normalize(node):
+        if isinstance(node, list): return [normalize(x) for x in node]
+        if not isinstance(node, dict): return node
+        value = {k: normalize(v) for k, v in node.items()}
+        if value.get("type") == "array" and value.get("enum") and not any(isinstance(x, list) for x in value["enum"]):
+            value["items"] = {**value.get("items", {}), "enum": value.pop("enum")}
+        return value
+    request = normalize(request)
+    request["additionalProperties"] = False
+    if list(Draft202012Validator(request).iter_errors(payload)):
+        raise bad_request("当前企业微信接口参数已变化，请联系管理员核对读取适配")
+    return _run(user_id, [*method.split("."), "--json", json.dumps(payload, ensure_ascii=False)],
+                binding_id=binding_id, workspace_id=workspace_id)
 
 
 def resolve(schema, definitions, trail=()):

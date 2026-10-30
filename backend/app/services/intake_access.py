@@ -71,7 +71,8 @@ def require_file_access(db, p, file):
                         .where(current_file.storage_key == file.storage_key))
         allowed = can_view(db, p, doc) if doc else p.is_admin or file.uploader_id == p.id
     elif file.category == "import":
-        batch = db.scalar(select(ImportBatch).where(ImportBatch.file_id == file.id))
+        batch = db.scalar(select(ImportBatch).where(or_(ImportBatch.file_id == file.id,
+            ImportBatch.suggestion["external_source"]["raw_file_id"].as_integer() == file.id)))
         allowed = can_view_batch(p, batch) if batch else p.is_admin or file.uploader_id == p.id
     elif file.category in {"clean", "clean_report"}:
         allowed = bool(db.scalar(select(CleanJob.id).where(

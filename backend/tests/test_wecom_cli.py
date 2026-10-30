@@ -49,6 +49,31 @@ def test_only_binding_owner_gets_cli_operations(connection, db):
     assert not calls
 
 
+def test_special_import_runner_is_read_only_and_uses_private_output_directory(connection):
+    uid, manifest, calls = connection
+    request_id = uuid.uuid4().hex
+    result = cli.import_read(uid, "doc.search", {"keywords": ["验收样例"]}, manifest["binding_id"], request_id)
+    assert result["docs"]
+    args, kwargs = calls[-1]
+    assert args[-2] == "--output-dir" and args[-1].endswith(f"/{uid}/work/imports/{request_id}")
+    assert kwargs["env"]["WECOM_CLI_CONFIG_DIR"].endswith(f"/{uid}/config")
+    with pytest.raises(BizError): cli.import_read(uid, "doc.create", {}, manifest["binding_id"], request_id)
+    with pytest.raises(BizError): cli.import_read(uid, "doc.search", {"file_path": "/etc/passwd"}, manifest["binding_id"], request_id)
+
+
+def test_import_adapter_handles_actual_array_enum_schema_without_allowing_unknown_items(connection, monkeypatch):
+    uid, manifest, _ = connection
+    manifest["services"].append({"name": "sheet", "methods": [{"name": "sheet.cells.get"}]})
+    private_write(cli.home(uid) / "binding.json", manifest)
+    def run(user_id, args, **kwargs):
+        if args[0] == "schema": return {"method": "sheet.cells.get", "request": {"type": "object", "properties": {
+            "include": {"type": "array", "enum": ["formula", "style"], "items": {"type": "string"}}}}}
+        return {"cells": []}
+    monkeypatch.setattr(cli, "_run", run)
+    assert cli.import_read(uid, "sheet.cells.get", {"include": ["formula"]}, manifest["binding_id"], uuid.uuid4().hex) == {"cells": []}
+    with pytest.raises(BizError): cli.import_read(uid, "sheet.cells.get", {"include": ["secret"]}, manifest["binding_id"], uuid.uuid4().hex)
+
+
 def test_actual_cli_query_is_recorded_as_live_and_no_credentials_in_args(connection, monkeypatch):
     uid, manifest, calls = connection
     monkeypatch.setenv("WECOM_CLI_ACCESS_TOKEN", "unrelated-account-token")

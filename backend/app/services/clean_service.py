@@ -772,6 +772,8 @@ def remap(db: Session, job: CleanJob, mapping: dict[str, str | None] | None, tar
                    header_row=header_row, sheet_name=sheet_name or (
                        job.stats.get("selected_sheet") if job.stats.get("sheet_confirmed") else None))
     job.target, job.rows, job.stats = tgt, res["rows"], res["stats"]
+    if job.mapping.get("blocked_source_columns"):
+        job.stats = {**job.stats, "blocked_source_columns": job.mapping["blocked_source_columns"]}
     job.mapping = {**job.mapping, "columns": res["mapping"]}
     db.flush()
     return job
@@ -846,6 +848,9 @@ def _insert(db: Session, job: CleanJob, r: dict, user_id: int, reserved: set[str
 def import_job(db: Session, job: CleanJob, user_id: int) -> CleanJob:
     if job.status != "preview":
         raise BizError(40901, "任务已导入或已取消")
+    blocked = set(job.mapping.get("blocked_source_columns", []))
+    if any(m.get("field") and m["col"] in blocked for m in job.mapping.get("columns", [])):
+        raise bad_request("源表附件、关联或公式等复杂列不能直接作为台账字段，请在字段映射中忽略这些列；原始类型已保留在来源快照")
     if job.stats.get("missing_required_fields"):
         raise bad_request("必填字段未映射：" + "、".join(job.stats["missing_required_fields"]))
     if len(job.stats.get("sheets", [])) > 1 and not job.stats.get("sheet_confirmed"):

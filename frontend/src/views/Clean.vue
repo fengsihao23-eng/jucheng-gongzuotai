@@ -63,6 +63,8 @@
       </div>
       <el-alert v-if="job.stats.missing_required_fields?.length" type="warning" show-icon :closable="false" class="alert"
         :title="`必填字段未映射：${job.stats.missing_required_fields.join('、')}，请在下方指定对应列`" />
+      <el-alert v-if="job.stats.blocked_source_columns?.length" type="warning" show-icon :closable="false" class="alert"
+        title="源表含附件、关联或公式等复杂列。原始类型已保留，台账映射时请忽略这些列；未自动下载附件或展开关联。" />
       <el-table :data="job.mapping" size="small">
         <el-table-column label="源列" min-width="150">
           <template #default="{ row }"><b>{{ row.header }}</b><span v-if="row.unit" class="jc-muted jc-small">（{{ row.unit }}）</span></template>

@@ -91,6 +91,16 @@ def _start_clean(db: Session, p, b: ImportBatch, data: bytes, target: str) -> No
     job = clean_service.preview(db, p.id, data, b.filename, purpose=b.purpose, target=target)
     job.mapping = {**job.mapping, "import_batch_id": b.id}
     b.route, b.status, b.target, b.clean_job_id = "clean", "pending", target, job.id
+    _source_rules(db, b)
+
+
+def _source_rules(db, b):
+    source = (b.suggestion or {}).get("external_source")
+    if source and b.clean_job_id:
+        job = db.get(CleanJob, b.clean_job_id)
+        if job:
+            job.mapping = {**job.mapping, "blocked_source_columns": source.get("complex_columns", [])}
+            job.stats = {**job.stats, "blocked_source_columns": source.get("complex_columns", [])}
 
 
 def _route_table(db: Session, p, b: ImportBatch, data: bytes) -> None:
@@ -191,12 +201,16 @@ def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channe
 
 
 def _classify_batch(db, p, b, data):
+    source = (b.suggestion or {}).get("external_source")
     if b.kind == "table":
         _route_table(db, p, b, data)
     elif b.kind == "document":
         _route_document(db, b, data)
     else:
         _to_pool(b, f"系统不能自动识别 {ext_of(b.filename) or '无扩展名'} 文件，需要整理人处理")
+    if source:
+        b.suggestion = {**(b.suggestion or {}), "external_source": source}
+        _source_rules(db, b)
     db.flush()
 
 
@@ -393,11 +407,15 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
     elif b.status == "done":
         readiness = ("removed", "入库记录已移除", "原件仍保留；如需重新入库，请撤回本次记录后重新上传")
     defaults = {"visibility": "dept" if b.dept_code else "private", "visible_depts": [b.dept_code] if b.dept_code else [], "visible_roles": []}
+    source = (b.suggestion or {}).get("external_source")
+    if source:
+        defaults = {"visibility": "private", "visible_depts": [], "visible_roles": []}
     return {"id": b.id, "filename": b.filename, "size": b.size, "purpose": b.purpose, "kind": b.kind,
             "channel": b.channel, "archive_name": b.archive_name,
             "route": b.route, "route_name": "待识别" if b.status == "processing" else ROUTE_NAMES.get(b.route), "status": b.status,
             "status_name": readiness[1], "stage": readiness[0], "next_step": readiness[2], "ready": readiness[0] == "ready",
             "default_visibility": defaults, "target": b.target,
+            "source_snapshot": file_brief(db.get(SysFile, source["raw_file_id"])) if source and source.get("raw_file_id") else None,
             "target_name": clean_service.TARGET_NAMES.get(b.target), "suggestion": b.suggestion or {}, "note": b.note,
             "uploader_id": b.uploader_id, "uploader": names.get(b.uploader_id), "dept_code": b.dept_code,
             "handler": names.get(b.handler_id), "handled_at": b.handled_at, "created_at": b.created_at, "updated_at": b.updated_at,
@@ -463,6 +481,8 @@ def confirm_kb(db: Session, p, batch_id: int, **meta) -> ImportBatch:
     data = read_bytes(db.get(SysFile, b.file_id))
     from app.core.deps import build_principal
     owner = build_principal(db.get(SysUser, b.uploader_id))
+    if (b.suggestion or {}).get("external_source") and not meta.get("visibility"):
+        meta["visibility"] = "private"
     d = kb_service.upload_document(db, p, data=data, filename=b.filename, owner=owner, **meta)
     b.kb_doc_id = d.id
     _mark(b, p, "done", "已发布到知识库" if d.status == "published" else "已提交知识库，等待分类审核人审核")

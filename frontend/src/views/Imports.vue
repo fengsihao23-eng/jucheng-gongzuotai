@@ -4,6 +4,8 @@
     <PageHeader eyebrow="全员 · 资料导入" title="资料导入"
       desc="上传资料，核对系统建议，再确认去向。合同、商机、回款、项目表格经校验后入台账；参考资料按分类和可见范围进入知识库。上传成功不等于已入库，下面会显示每份资料的真实进度。" />
 
+    <WecomImport :purpose="purpose" @imported="externalImported" />
+
     <el-alert type="info" :closable="false" class="mt-16" title="默认本部门可见，无部门账号默认仅本人；分类审核人和授权资料管理员可按职责处理。上传不会自动记账。" />
 
     <div class="drop jc-card" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop" @click="input.click()">
@@ -109,6 +111,12 @@
         <p class="jc-small jc-muted">原件仅上传人及授权整理人可访问。文档发布范围：{{ visibilityText(detail) }}</p>
         <p v-if="detail.suggestion.summary">摘要：{{ detail.suggestion.summary }}</p>
         <p v-if="detail.suggestion.reason" class="jc-small">识别依据：{{ detail.suggestion.reason }}</p>
+        <template v-if="detail.suggestion.external_source">
+          <p class="jc-small">来源：{{ detail.suggestion.external_source.title }} · 本次读取快照，源文件更新不会自动覆盖台账</p>
+          <p v-if="detail.suggestion.external_source.url"><a :href="detail.suggestion.external_source.url" target="_blank" rel="noopener noreferrer">查看企业微信原文</a></p>
+          <p v-for="warning in detail.suggestion.external_source.warnings" :key="warning" class="jc-small">{{ warning }}</p>
+          <FileLink v-if="detail.source_snapshot" :file="detail.source_snapshot" label="下载原始字段与类型快照" />
+        </template>
         <p v-if="detail.suggestion.preview" class="detail-preview">正文摘录：{{ detail.suggestion.preview }}</p>
         <template v-if="detail.suggestion.table_profile">
           <p class="jc-small jc-muted">{{ detail.suggestion.table_profile.note }}</p>
@@ -150,6 +158,7 @@ import api, { openFile } from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 import KbDocForm from '@/components/KbDocForm.vue'
+import WecomImport from '@/components/WecomImport.vue'
 
 const TONE = { processing: 'info', confirmation: 'warn', needs_help: 'warn', review: 'warn', rejected: 'down', failed: 'down', removed: 'warn', partial: 'warn', ready: 'up' }
 const tone = (row) => TONE[row.stage] || ''
@@ -182,6 +191,7 @@ function visibilityText(row) {
 const has = (row, a) => row.actions.includes(a)
 const narrow = ref(window.innerWidth < 760)
 const onResize = () => { narrow.value = window.innerWidth < 760 }
+async function externalImported() { tab.value = 'mine'; page.value = 1; await load() }
 function summarize(batches) {
   const n = (f) => batches.filter(f).length
   return [[n((b) => b.status === 'processing'), '份识别中'], [n((b) => b.route === 'kb'), '份待核对知识分类'], [n((b) => b.route === 'clean'), '份待核对台账'], [n((b) => b.status === 'pool'), '份待整理']]
