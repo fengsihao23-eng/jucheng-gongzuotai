@@ -143,6 +143,21 @@ def _route_table(db: Session, p, b: ImportBatch, data: bytes) -> None:
         _start_clean(db, p, b, data, target)
     except BizError as exc:
         _to_pool(b, f"表格解析失败：{exc.message}")
+        return
+    job = db.get(CleanJob, b.clean_job_id) if b.clean_job_id else None
+    if job and (job.stats or {}).get("not_a_ledger"):
+        # 自动猜的台账一行都导不进，说明是进度表/凭证/分析表之类；转知识库，别让人卡在字段映射。
+        why = job.stats.get("not_a_ledger_reason") or "表头与台账模板不匹配"
+        target_name = clean_service.TARGET_NAMES.get(target, target)
+        job.status = "cancelled"
+        b.clean_job_id, b.target = None, None
+        _route_document(db, b, data)
+        if b.route == "kb":
+            b.suggestion = {**(b.suggestion or {}), "auto_rerouted": True,
+                            "reroute": {"from": target_name, "reason": why}}
+            b.note = f"这张表不像{target_name}，已自动转为知识库资料：{why}"
+        else:
+            _to_pool(b, f"这张表不像{target_name}：{why}")
 
 
 def _ask_table(db: Session, b: ImportBatch, data: bytes) -> dict | None:

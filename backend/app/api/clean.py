@@ -52,10 +52,10 @@ async def preview(request: Request, file: UploadFile = File(...), purpose: str =
 @router.post("/jobs/{job_id}/remap")
 def remap(job_id: int, mapping: dict[str, str | None] | None = Body(default=None, embed=True),
           target: str | None = Body(default=None, embed=True), header_row: int | None = Body(default=None, embed=True),
-          sheet_name: str | None = Body(default=None, embed=True),
+          sheet_name: str | None = Body(default=None, embed=True), ai: bool = Body(default=False, embed=True),
           p: Principal = Menu, db: Session = Depends(get_db)):
     _importer(p)
-    job = svc.remap(db, _job(db, p, job_id, lock=True), mapping, target, header_row, sheet_name)
+    job = svc.remap(db, _job(db, p, job_id, lock=True), mapping, target, header_row, sheet_name, ai=ai)
     db.commit()
     return ok(svc.job_view(db, job))
 

@@ -1,8 +1,8 @@
 """Excel 数据清洗助手（PRD 7.4 专项，P1）。
 
-流程：上传文件 + 用途（target 或自由文本「导入合同台账」）→ 表头识别 → 列映射（同义词/模糊/值特征推断，带置信度）
-→ 格式统一（日期/金额/编码/客户名/阶段/业务线）→ 去重（文件内 + 库内）→ 校验错误清单 → 预览（用户可改映射）
-→ 确认导入对应台账（跳过 error/duplicate）→ 清洗报告 xlsx。任务记录 clean_job。
+流程：上传文件 + 用途（target 或自由文本「导入合同台账」）→ 表头识别（多行表头/合并分组行）→ 列映射（同义词/模糊/值特征；
+规则不足时调用大模型判断表头和映射）→ 客户/业务线自动补齐 → 格式统一（日期/金额/编码/客户名/阶段/业务线）→ 去重（文件内 + 库内）
+→ 校验错误清单 → 预览（自动映射可直接导入，也可改映射）→ 确认导入对应台账（跳过 error/duplicate）→ 清洗报告 xlsx。任务记录 clean_job。
 
 清洗模板配置在 sys_dict(clean_template)，key = target，value = {name, fields:[{key,label,type,required,synonyms}]}
 每行输出：_row 源行号、_status ok|fixed|duplicate|error、_issues 问题、_changes [{field,label,from,to}]
@@ -22,7 +22,7 @@ from app.core.permissions import BUSINESS_LINES
 from app.core.response import BizError, bad_request
 from app.core.timeutil import today
 from app.models import BizContract, BizOpportunity, BizPayment, BizProject, CleanJob, SysUser
-from app.services import dict_service
+from app.services import dict_service, smart_intake
 
 TARGET_NAMES = {"contract": "合同台账", "opportunity": "商机信息表", "payment": "回款登记", "project": "项目建档"}
 
@@ -34,18 +34,24 @@ def _f(key, label, type_, required=False, synonyms=()):
 DEFAULT_TEMPLATES: dict[str, dict] = {
     "contract": {"name": "合同台账", "fields": [
         _f("contract_no", "合同编号", "contract_no", False, ["合同号", "合同编码", "编号", "合同序号", "contract no", "contract_no"]),
-        _f("name", "合同名称", "text", False, ["合同名", "项目名称", "标的", "合同标题", "contract name"]),
+        _f("name", "合同名称", "text", False, ["合同名", "项目名称", "标的", "合同标题", "contract name",
+                                          "项目合同名称", "项目/合同名称", "合同/项目名称"]),
         _f("project_code", "项目编码", "project_code", False, ["项目编号", "项目代码", "所属项目", "项目号", "project code", "project_code"]),
-        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "单位名称", "customer", "采购人", "采购单位", "建设单位", "甲方单位", "业主"]),
-        _f("amount", "合同金额", "money", True, ["金额", "合同额", "含税金额", "总价", "合同总价", "签约金额", "合同价款", "amount"]),
-        _f("sign_date", "签订日期", "date", True, ["签订日", "签约日期", "日期", "签署日期", "签约日", "合同日期", "sign date"]),
-        _f("business_line", "业务线", "business_line", True, ["业务板块", "业务类型", "产品线", "板块", "业务", "business line"]),
+        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "单位名称", "customer", "采购人", "采购单位", "建设单位", "甲方单位", "业主",
+                                                       "对接单位", "合作单位", "客户单位", "对方单位", "签约对方", "业主单位", "甲方名称"]),
+        _f("amount", "合同金额", "money", True, ["金额", "合同额", "含税金额", "总价", "合同总价", "签约金额", "合同价款", "amount",
+                                             "合同总金额", "合同总额", "总金额"]),
+        _f("sign_date", "签订日期", "date", True, ["签订日", "签约日期", "日期", "签署日期", "签约日", "合同日期", "sign date",
+                                              "签订时间", "签约时间", "签署时间"]),
+        _f("business_line", "业务线", "business_line", True, ["业务板块", "业务类型", "产品线", "板块", "业务", "business line",
+                                                         "所属业务", "业务分类"]),
         _f("owner", "销售负责人", "user", False, ["负责人", "销售", "经办人", "业务员", "签约人", "owner", "跟进人"]),
         _f("remark", "备注", "text", False, ["说明", "附注", "remark", "备注说明"]),
     ]},
     "opportunity": {"name": "商机信息表", "fields": [
         _f("name", "商机名称", "text", True, ["商机", "项目名称", "机会名称", "名称", "opportunity"]),
-        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "单位名称", "customer", "采购人", "采购单位", "业主"]),
+        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "单位名称", "customer", "采购人", "采购单位", "业主",
+                                                       "对接单位", "合作单位", "客户单位", "建设单位"]),
         _f("business_line", "业务线", "business_line", True, ["业务板块", "业务类型", "产品线", "板块", "业务"]),
         _f("stage", "商机阶段", "stage", False, ["阶段", "进展", "状态", "进度", "stage"]),
         _f("amount", "预计金额", "money", True, ["金额", "预算", "预计合同额", "预算金额", "商机金额", "预估金额", "amount"]),
@@ -64,7 +70,8 @@ DEFAULT_TEMPLATES: dict[str, dict] = {
     "project": {"name": "项目建档", "fields": [
         _f("project_code", "项目编码", "project_code", False, ["项目编号", "项目代码", "编号"]),
         _f("name", "项目名称", "text", True, ["项目", "名称", "工程名称"]),
-        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "建设单位", "业主", "采购人"]),
+        _f("customer_name", "客户名称", "customer", True, ["客户", "甲方", "建设单位", "业主", "采购人",
+                                                       "对接单位", "合作单位", "客户单位"]),
         _f("business_line", "业务线", "business_line", True, ["业务板块", "业务类型", "板块", "业务"]),
         _f("budget_amount", "预算金额", "money", False, ["预算", "投标额", "金额", "项目金额"]),
         _f("start_date", "开工日期", "date", False, ["开始日期", "启动日期", "开工日"]),
@@ -82,7 +89,7 @@ STAGE_ALIASES = {"线索": "lead", "初步接触": "contact", "接触": "contact
                  "未中标": "lost"}
 TARGET_RULES = [("payment", ["回款", "到账", "收款"]), ("opportunity", ["商机", "线索", "机会"]),
                 ("project", ["项目建档", "建档", "项目台账", "项目清单", "立项"]), ("contract", ["合同", "签约", "业绩"])]
-SKIP_ROW = re.compile(r"^\s*(合计|总计|小计|汇总|备注|说明|注[:：]|填表|制表|审核|total)", re.I)
+SKIP_ROW = re.compile(r"^\s*(合计|总计|小计|共计|汇总|备注|说明|注[:：]|填表|制表|审核|total)", re.I)
 CN_NUM = {"〇": 0, "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 PROJECT_RE = re.compile(r"^JC[-_ ]?([A-Z]{2})[-_ ]?(\d{4})[-_ ]?(\d{1,3})$")
 CONTRACT_RE = re.compile(r"^HT[-_ ]?(\d{4})[-_ ]?(\d{1,4})$")
@@ -90,8 +97,29 @@ CONTRACT_RE = re.compile(r"^HT[-_ ]?(\d{4})[-_ ]?(\d{1,4})$")
 
 # ---------------- 模板 ----------------
 def templates(db: Session) -> dict[str, dict]:
+    """库内模板优先，但补齐代码里的新字段/新同义词，避免升级后库里的旧模板让新识别规则失效。"""
     stored = dict_service.items(db, "clean_template")
-    return {k: stored.get(k) or v for k, v in DEFAULT_TEMPLATES.items()}
+    out: dict[str, dict] = {}
+    for key, default in DEFAULT_TEMPLATES.items():
+        saved = stored.get(key)
+        if not saved or not isinstance(saved.get("fields"), list):
+            out[key] = default
+            continue
+        saved_fields = {f.get("key"): f for f in saved["fields"] if isinstance(f, dict) and f.get("key")}
+        fields = []
+        for df in default["fields"]:
+            sf = saved_fields.pop(df["key"], None)
+            if sf is None:
+                fields.append(df)
+                continue
+            merged = {**df, **sf}
+            merged["synonyms"] = list(dict.fromkeys([*(sf.get("synonyms") or []), *df.get("synonyms", [])]))
+            fields.append(merged)
+        fields.extend(saved_fields.values())
+        out[key] = {**default, **saved, "fields": fields}
+    for key, saved in stored.items():
+        out.setdefault(key, saved)
+    return out
 
 
 def detect_target(purpose: str | None, filename: str = "") -> str | None:
@@ -140,6 +168,75 @@ def display(v) -> str | None:
     if isinstance(v, Decimal):
         return format(v.normalize(), "f") if v == v.to_integral() else f"{v}"
     return str(v)
+
+
+# ---------------- 表头/分组行/客户与业务线推断 ----------------
+HEADER_MAX_LEN = 30
+NUMBER_ONLY = re.compile(r"^[\d.,%+\-—–/年月日:：\s]+$")
+OUR_MARKERS = ("聚成", "聚成数智")
+PARTY_SPLIT = re.compile(r"^(.{2,30}?)(?:与|和|及)(.{2,40}?)(?:关于|就|签订|签署|合作|的|项目)")
+CUSTOMER_LABEL = re.compile(r"(?:甲方|客户|采购人|采购单位|建设单位|业主)[：:]\s*([^，,；;（(]{2,40})")
+CUSTOMER_SUFFIX = ("公司", "局", "学校", "学院", "大学", "中学", "小学", "中心", "医院", "政府", "银行", "研究院", "委员会", "厂", "店", "社")
+LINE_HINTS = [
+    ("XY", ("校园", "教学", "教室", "实训", "实验室", "教育", "课堂", "学校")),
+    ("KP", ("考评", "考试", "测评", "评价", "阅卷", "题库")),
+    ("AF", ("安防", "监控", "信号覆盖", "设备租赁", "弱电", "智能化", "门禁", "广播", "巡检")),
+    ("YW", ("运维", "维保", "技术服务", "维护", "技术支持", "运营")),
+]
+
+
+def _header_cell_like(v) -> bool:
+    if isinstance(v, (int, float, Decimal, date, datetime)):
+        return False
+    s = nfkc(v).strip()
+    return bool(s) and len(s) <= HEADER_MAX_LEN and not NUMBER_ONLY.fullmatch(s)
+
+
+def _is_band_row(vals) -> bool:
+    """合并单元格形成的分组行（如整行「已签约」），不是表头也不是数据。"""
+    texts = [nfkc(v).strip() for v in vals if not _is_blank(v)]
+    return len(texts) >= 3 and len(set(texts)) == 1
+
+
+def _header_row_like(vals) -> bool:
+    texts = [v for v in vals if not _is_blank(v)]
+    if len(texts) < 2:
+        return False
+    return sum(1 for v in texts if _header_cell_like(v)) / len(texts) >= 0.6
+
+
+def _short_customer_values(values) -> bool:
+    vals = [nfkc(v).strip() for v in values if not _is_blank(v)]
+    if not vals:
+        return False
+    short = sum(1 for s in vals if len(s) <= 6 and not any(s.endswith(x) for x in CUSTOMER_SUFFIX))
+    return short / len(vals) >= 0.6
+
+
+def extract_customer(value, fallback=None) -> str | None:
+    """从合同/项目名称里提取客户：优先「甲方：X」，其次「X与Y关于…」的第一方（我司在第一位时取第二方）。"""
+    s = nfkc(value or "").strip()
+    if not s:
+        return fallback
+    m = CUSTOMER_LABEL.search(s)
+    if m:
+        return m.group(1).strip() or fallback
+    m = PARTY_SPLIT.match(s)
+    if m:
+        first = m.group(1).strip(" ：:，,、")
+        second = m.group(2).strip(" ：:，,、")
+        if any(x in first for x in OUR_MARKERS):
+            return second or fallback
+        return first or fallback
+    return fallback
+
+
+def infer_business_line(*values) -> str | None:
+    text = " ".join(nfkc(v) for v in values if not _is_blank(v))
+    for code, words in LINE_HINTS:
+        if any(w in text for w in words):
+            return code
+    return None
 
 
 # ---------------- 字段解析器：返回 (值, 问题列表[(level, msg)]) ----------------
@@ -358,6 +455,8 @@ def header_score(h: str, field: dict) -> tuple[float, str]:
     """表头与标准字段的匹配度：完全命中同义词 1.0 / 包含 0.8 / 模糊 ≤0.75。"""
     if not h:
         return 0.0, ""
+    if field["key"] == "contract_no" and h in {"序号", "行号", "no", "no.", "index"}:
+        return 0.0, ""  # 序号不是合同编号，不能拿 1/2/3 当合同号写台账
     syns = _synonyms(field)
     if h in syns:
         return (1.0 if h == syns[0] else 0.95), "同义词"
@@ -372,16 +471,22 @@ def header_score(h: str, field: dict) -> tuple[float, str]:
 
 
 def detect_header(rows: list[tuple[int, list]], tpl: dict) -> int:
-    """在前 15 行中找与模板字段匹配最多的一行作为表头（表头不在第一行、上方有标题/说明行）。"""
+    """在前 15 行中找表头：跳过合并分组行与数据行；连续两行表头时取更靠下的一行。"""
     best_i, best_s = 0, -1.0
+    scores: dict[int, float] = {}
     for i, (_, vals) in enumerate(rows[:15]):
-        cells = [norm_header(v)[0] for v in vals if not _is_blank(v)]
-        if len(cells) < 2:
+        if _is_band_row(vals) or not _header_row_like(vals):
             continue
-        s = sum(max((header_score(c, f)[0] for f in tpl["fields"]), default=0) for c in cells)
-        s += 0.01 * len(cells)
+        cells = [norm_header(v)[0] for v in vals if not _is_blank(v)]
+        s = sum(max((header_score(c, f)[0] for f in tpl["fields"]), default=0) for c in cells) + 0.01 * len(cells)
+        scores[i] = s
         if s > best_s:
             best_i, best_s = i, s
+    while True:  # 两行表头：第 2 行是「已收 / 未收」这类子表头，数据从它之后开始
+        nxt = best_i + 1
+        if nxt not in scores or scores[nxt] < max(2.0, best_s * 0.6):
+            break
+        best_i, best_s = nxt, scores[nxt]
     return best_i
 
 
@@ -424,7 +529,7 @@ def _infer_by_values(values: list) -> list[tuple[str, float]]:
 def build_mapping(db: Session, rows: list[tuple[int, list]], tpl: dict, header_idx: int) -> list[dict]:
     """返回列映射 [{col, header, unit, field, label, confidence, method, samples}]。"""
     header = rows[header_idx][1] if rows else []
-    data_rows = [vals for _, vals in rows[header_idx + 1:header_idx + 40]]
+    data_rows = [vals for _, vals in rows[header_idx + 1:header_idx + 40] if not _is_band_row(vals)]
     ncol = max([len(header)] + [len(v) for v in data_rows]) if rows else 0
     fields = tpl["fields"]
     cands: list[tuple[float, int, str, str]] = []
@@ -439,6 +544,8 @@ def build_mapping(db: Session, rows: list[tuple[int, list]], tpl: dict, header_i
             continue
         for f in fields:
             sc, how = header_score(h, f)
+            if f["key"] == "customer_name" and "我方" in h:
+                sc = 0.0  # 「我方签约主体」是我司，不是客户
             if sc >= 0.45:
                 cands.append((sc, c, f["key"], how))
         if max((header_score(h, f)[0] for f in fields), default=0) < 0.8:
@@ -606,21 +713,63 @@ def jsonable(v):
     return v
 
 
+def _apply_derived(derived: dict | None, v: dict, raw: dict, vals: list, fields: dict,
+                   changes: list, warns: list) -> None:
+    """补齐表里没有的必填信息：客户名称从合同名称提取，业务线按名称关键词推断。"""
+    if not derived:
+        return
+    spec = derived.get("customer_name")
+    if spec:
+        name_col, fallback_col = spec.get("name_col"), spec.get("fallback_col")
+        name_val = vals[name_col] if isinstance(name_col, int) and name_col < len(vals) else None
+        fallback = vals[fallback_col] if isinstance(fallback_col, int) and fallback_col < len(vals) else None
+        customer = extract_customer(name_val, fallback=fallback)
+        if customer:
+            old = v.get("customer_name")
+            if old != customer:
+                v["customer_name"] = customer
+                raw["customer_name"] = display(old) or display(fallback) or display(name_val)
+                changes.append({"field": "customer_name", "label": fields["customer_name"]["label"],
+                                "from": display(old) or display(fallback), "to": customer,
+                                "note": spec.get("note") or "按合同名称推断"})
+                warns.append(f"客户名称按合同名称推断为「{customer}」" + (f"（原值：{display(old)}）" if old else ""))
+    spec = derived.get("business_line")
+    if spec and not v.get("business_line"):
+        name_col = spec.get("name_col")
+        name_val = vals[name_col] if isinstance(name_col, int) and name_col < len(vals) else None
+        line = spec.get("value") if spec.get("mode") == "constant" else infer_business_line(
+            name_val, raw.get("remark"), v.get("name"))
+        line = line or spec.get("default")
+        if line:
+            v["business_line"] = line
+            changes.append({"field": "business_line", "label": fields["business_line"]["label"],
+                            "from": None, "to": line, "note": spec.get("note") or "按名称推断"})
+            warns.append(f"业务线按名称推断为「{BUSINESS_LINES.get(line, line)}」")
+
+
 def clean_rows(db: Session, target: str, rows: list[tuple[int, list]], header_idx: int, mapping: list[dict],
-               tpl: dict) -> tuple[list[dict], dict]:
+               tpl: dict, derived: dict | None = None) -> tuple[list[dict], dict]:
     fields = {f["key"]: f for f in tpl["fields"]}
     colmap = {m["col"]: m for m in mapping if m.get("field") in fields}
     lk = _Lookups(db, target)
     out, skipped = [], []
     seen: dict[tuple, int] = {}
+    section: str | None = None  # 「已签约 / 未签约」这类合并分组行的当前分组
     for src_row, vals in rows[header_idx + 1:]:
         if all(_is_blank(x) for x in vals):
             skipped.append({"_row": src_row, "reason": "空行"})
             continue
-        first = next((nfkc(x) for x in vals if not _is_blank(x)), "")
+        first = next((nfkc(x).strip() for x in vals if not _is_blank(x)), "")
         nonblank = sum(1 for x in vals if not _is_blank(x))
+        if _is_band_row(vals):
+            section = first
+            skipped.append({"_row": src_row, "reason": f"分组/合并行：{first[:30]}"})
+            continue
         if SKIP_ROW.match(first) or (nonblank == 1 and len(first) > 12):
             skipped.append({"_row": src_row, "reason": f"备注/合计行：{first[:30]}"})
+            continue
+        if target == "contract" and section and any(w in section for w in ("未签约", "作废", "已终止")):
+            skipped.append({"_row": src_row, "reason": f"「{section}」分组，未导入合同台账"})
             continue
         v: dict = {}
         raw: dict = {}
@@ -647,6 +796,7 @@ def clean_rows(db: Session, target: str, rows: list[tuple[int, list]], header_id
                 changes.append({"field": f["key"], "label": f["label"], "from": display(cell), "to": display(jsonable(val))})
             elif val is None and not _is_blank(cell) and not iss:
                 changes.append({"field": f["key"], "label": f["label"], "from": display(cell), "to": None})
+        _apply_derived(derived, v, raw, vals, fields, changes, warns)
         _validate(target, v, lk, add)
         if v.pop("_line_inferred", False):
             changes.append({"field": "business_line", "label": fields["business_line"]["label"],
@@ -678,8 +828,65 @@ def clean_rows(db: Session, target: str, rows: list[tuple[int, list]], header_id
 
 
 # ---------------- 任务：预览 / 改映射 / 导入 / 报告 ----------------
+def _missing_required(tpl: dict, mapping: list[dict], derived: dict | None, target: str) -> list[str]:
+    mapped = {m["field"] for m in mapping if m.get("field")} | set(derived or {})
+    missing = [f["label"] for f in tpl["fields"] if f["required"] and f["key"] not in mapped]
+    if missing and target in ("contract", "opportunity", "project") and "业务线" in missing \
+            and any(m.get("field") == "project_code" for m in mapping):
+        missing.remove("业务线")  # 可由项目编码补全
+    return missing
+
+
+def _rule_derived(target: str, rows: list[tuple[int, list]], idx: int, mapping: list[dict]) -> dict:
+    """表里没有的必填字段：客户从合同名称提取，业务线按名称推断。规则先做，AI 再补充。"""
+    if target not in ("contract", "opportunity", "project"):
+        return {}
+    by_field = {m["field"]: m["col"] for m in mapping if m.get("field")}
+    name_col, cust_col = by_field.get("name"), by_field.get("customer_name")
+    data = [vals for _, vals in rows[idx + 1:idx + 40] if not _is_band_row(vals)]
+    derived: dict = {}
+    if name_col is not None:
+        cust_values = [v[cust_col] for v in data if cust_col is not None and cust_col < len(v)]
+        if cust_col is None or _short_customer_values(cust_values):
+            derived["customer_name"] = {"mode": "from_name", "name_col": name_col, "fallback_col": cust_col,
+                                        "note": "按合同名称补全客户"}
+    if "business_line" not in by_field:
+        names = [v[name_col] for v in data[:20] if name_col is not None and name_col < len(v)]
+        line = infer_business_line(*names)
+        if line:
+            derived["business_line"] = {"mode": "constant", "value": line, "note": "按合同名称推断"}
+        elif name_col is not None:
+            derived["business_line"] = {"mode": "from_name", "name_col": name_col, "note": "按合同名称推断"}
+    return derived
+
+
+def _apply_ai_mapping(mapping: list[dict], plan: dict, tpl: dict) -> list[dict]:
+    labels = {f["key"]: f["label"] for f in tpl["fields"]}
+    ai_map = plan["mapping"]
+    used = set(ai_map.values())
+    for m in mapping:
+        if m["col"] in ai_map:
+            fk = ai_map[m["col"]]
+            m.update(field=fk, label=labels.get(fk), confidence=0.82, method="AI 判断")
+        elif m.get("field") in used:
+            m.update(field=None, label=None, confidence=0.0, method="未匹配")
+    return mapping
+
+
+def _apply_plan_derived(derived: dict, plan: dict, mapping: list[dict]) -> dict:
+    by_field = {m["field"]: m["col"] for m in mapping if m.get("field")}
+    name_col, cust_col = by_field.get("name"), by_field.get("customer_name")
+    if plan.get("customer_from_name") and name_col is not None:
+        derived["customer_name"] = {"mode": "from_name", "name_col": name_col, "fallback_col": cust_col,
+                                    "note": "AI 从合同名称提取"}
+    if plan.get("business_line") and "business_line" not in by_field:
+        derived["business_line"] = {"mode": "constant", "value": plan["business_line"], "note": "AI 判断业务线"}
+    return derived
+
+
 def _analyze(db: Session, data: bytes, filename: str, target: str, mapping_override: dict | None = None,
-             header_row: int | None = None, sheet_name: str | None = None) -> dict:
+             header_row: int | None = None, sheet_name: str | None = None, purpose: str | None = None,
+             ai: bool = False) -> dict:
     tpl = templates(db)[target]
     metadata = {}
     rows = read_table(data, filename, sheet_name, metadata)
@@ -707,12 +914,42 @@ def _analyze(db: Session, data: bytes, filename: str, target: str, mapping_overr
                 if m["field"] in used:
                     raise bad_request(f"标准字段「{m['label']}」被多列映射（第 {used[m['field']] + 1} 列与第 {m['col'] + 1} 列）")
                 used[m["field"]] = m["col"]
-    out, stats = clean_rows(db, target, rows, idx, mapping, tpl)
-    missing = [f["label"] for f in tpl["fields"] if f["required"] and f["key"] not in {m["field"] for m in mapping}]
-    if missing and target in ("contract", "opportunity", "project") and "业务线" in missing \
-            and any(m["field"] == "project_code" for m in mapping):
-        missing.remove("业务线")  # 可由项目编码补全
+    derived = _rule_derived(target, rows, idx, mapping) if mapping_override is None else {}
+    out, stats = clean_rows(db, target, rows, idx, mapping, tpl, derived)
+    missing = _missing_required(tpl, mapping, derived, target)
+    ai_plan = None
+    plan = None
+    # 规则认不全（缺必填、整表都报错）或用户主动要求时，再让模型看表头和样例。
+    need_ai = mapping_override is None and (ai or bool(missing) or (stats["total"] > 0 and stats["error"] == stats["total"]))
+    if need_ai:
+        plan = smart_intake.plan_table(tpl.get("name") or TARGET_NAMES[target], filename, purpose, rows[:15], tpl)
+        if plan:
+            idx2 = next((i for i, (r, _) in enumerate(rows) if r == plan["header_row"]), idx)
+            map2 = _apply_ai_mapping(build_mapping(db, rows, tpl, idx2), plan, tpl)
+            derived2 = _apply_plan_derived(_rule_derived(target, rows, idx2, map2), plan, map2)
+            out2, stats2 = clean_rows(db, target, rows, idx2, map2, tpl, derived2)
+            missing2 = _missing_required(tpl, map2, derived2, target)
+            score = lambda s, m: (len(m), s["error"], -s["importable"])  # noqa: E731
+            if score(stats2, missing2) <= score(stats, missing):
+                idx, mapping, derived, out, stats, missing = idx2, map2, derived2, out2, stats2, missing2
+                ai_plan = {"used": True, "header_row": plan["header_row"], "reason": plan.get("reason"),
+                           "derived_fields": sorted(derived), "source": "llm"}
+            else:
+                ai_plan = {"used": False, "reason": "AI 建议未改善结果，保留规则识别"}
     stats["missing_required_fields"] = missing
+    stats["derived_fields"] = sorted(derived)
+    stats["ai_plan"] = ai_plan
+    not_a_ledger, why = False, ""
+    if stats["total"] > 0 and stats["importable"] == 0:
+        mapped = {m["field"] for m in mapping if m.get("field")}
+        if plan and not plan.get("fits", True):
+            not_a_ledger, why = True, plan.get("reason") or "AI 判断这张表不属于当前台账"
+        elif target in ("project", "opportunity") and "name" not in mapped:
+            not_a_ledger, why = True, "这类台账必须有项目/商机名称，但表里找不到对应列"
+        elif len(mapped) < 3:
+            not_a_ledger, why = True, "表头与台账模板不匹配，没有足够的可导入字段"
+    stats["not_a_ledger"] = not_a_ledger
+    stats["not_a_ledger_reason"] = why
     stats.update(metadata)
     return {"mapping": mapping, "rows": out, "stats": stats, "template": tpl}
 
@@ -724,6 +961,7 @@ def job_view(db: Session, job: CleanJob, include_rows: bool = True) -> dict:
     d = {"id": job.id, "target": job.target, "target_name": TARGET_NAMES.get(job.target), "filename": job.filename,
          "status": job.status, "stats": job.stats, "mapping": job.mapping.get("columns", []),
          "purpose": job.mapping.get("purpose"), "header_row": job.stats.get("header_row"),
+         "batch_id": job.mapping.get("import_batch_id"),
          "fields": [{k: f[k] for k in ("key", "label", "type", "required")} for f in tpl.get("fields", [])],
          "created_at": job.created_at, "updated_at": job.updated_at, "created_by": job.created_by,
          "file": file_brief(db.get(SysFile, job.file_id)) if job.file_id else None,
@@ -745,7 +983,7 @@ def preview(db: Session, user_id: int, data: bytes, filename: str, purpose: str 
     tgt = target if target in TARGET_NAMES else detect_target(purpose, filename)
     if not tgt:
         raise bad_request("无法识别文件用途，请选择目标台账（合同台账/商机表/回款登记/项目建档）或描述如「导入合同台账」")
-    res = _analyze(db, data, filename, tgt)
+    res = _analyze(db, data, filename, tgt, purpose=purpose)
     from pathlib import Path
     import uuid
     filename = Path(filename.replace("\\", "/")).name
@@ -759,7 +997,7 @@ def preview(db: Session, user_id: int, data: bytes, filename: str, purpose: str 
 
 
 def remap(db: Session, job: CleanJob, mapping: dict[str, str | None] | None, target: str | None = None,
-          header_row: int | None = None, sheet_name: str | None = None) -> CleanJob:
+          header_row: int | None = None, sheet_name: str | None = None, ai: bool = False) -> CleanJob:
     from app.core.storage import read_bytes
     from app.models import SysFile
     if job.status != "preview":
@@ -770,7 +1008,8 @@ def remap(db: Session, job: CleanJob, mapping: dict[str, str | None] | None, tar
     data = read_bytes(db.get(SysFile, job.file_id))
     res = _analyze(db, data, job.filename, tgt, mapping_override=mapping if tgt == job.target else None,
                    header_row=header_row, sheet_name=sheet_name or (
-                       job.stats.get("selected_sheet") if job.stats.get("sheet_confirmed") else None))
+                       job.stats.get("selected_sheet") if job.stats.get("sheet_confirmed") else None),
+                   purpose=job.mapping.get("purpose"), ai=ai)
     job.target, job.rows, job.stats = tgt, res["rows"], res["stats"]
     if job.mapping.get("blocked_source_columns"):
         job.stats = {**job.stats, "blocked_source_columns": job.mapping["blocked_source_columns"]}

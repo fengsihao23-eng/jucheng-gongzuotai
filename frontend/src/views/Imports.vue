@@ -48,7 +48,7 @@
           </div>
           <div class="jc-small jc-muted mt-4">{{ row.route_name }}<span v-if="row.target_name"> · {{ row.target_name }}</span> · {{ datetime(row.created_at) }}
             <span v-if="row.channel === 'wecom'"> · 企业微信</span><span v-if="row.archive_name"> · 来自 {{ row.archive_name }}</span></div>
-          <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span></div>
+          <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span><span v-if="row.suggestion.auto_rerouted" class="ai scan" title="这张表不属于台账，已自动转为知识库资料">自动改道</span></div>
           <div class="card-ops">
             <el-button size="small" @click="openDetails(row)">识别详情</el-button>
             <el-button v-if="has(row, 'open_clean')" size="small" type="primary" @click="openClean(row)">核对并导入</el-button>
@@ -78,7 +78,7 @@
           <template #default="{ row }"><StatusPill :text="row.status_name" :tone="tone(row)" /></template>
         </el-table-column>
         <el-table-column label="说明" min-width="280">
-          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span><span v-if="row.suggestion.source === 'llm'" class="ai" title="由 AI 识别，以你的确认为准">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span></template>
+          <template #default="{ row }"><span class="jc-small">{{ explain(row) }}</span><span v-if="row.suggestion.source === 'llm'" class="ai" title="由 AI 识别，以你的确认为准">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span><span v-if="row.suggestion.auto_rerouted" class="ai scan" title="这张表不属于台账，已自动转为知识库资料">自动改道</span></template>
         </el-table-column>
         <el-table-column label="上传时间" width="140"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
@@ -112,6 +112,7 @@
         <p class="jc-small jc-muted">原件仅上传人及授权整理人可访问。文档发布范围：{{ visibilityText(detail) }}</p>
         <p v-if="detail.suggestion.summary">摘要：{{ detail.suggestion.summary }}</p>
         <p v-if="detail.suggestion.reason" class="jc-small">识别依据：{{ detail.suggestion.reason }}</p>
+        <p v-if="detail.suggestion.reroute" class="jc-small">已自动改为知识库资料（原目标：{{ detail.suggestion.reroute.from }}）：{{ detail.suggestion.reroute.reason }}</p>
         <template v-if="detail.suggestion.extract?.method === 'vision'">
           <el-alert type="warning" :closable="false" class="mt-8"
             :title="`正文由大模型逐页识别（${detail.suggestion.extract.pages || '—'} 页），不是原件文字层。请核对金额、编号、日期与签章页后再入库。`" />

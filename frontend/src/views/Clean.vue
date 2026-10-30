@@ -61,8 +61,20 @@
         </div>
         <span class="jc-small jc-muted">{{ job.stats.sheet_confirmed ? '已确认工作表，其他工作表不在本次导入范围内' : '请明确核对工作表，系统不会静默忽略其他表' }}</span>
       </div>
+      <el-alert v-if="job.stats.not_a_ledger" type="warning" show-icon :closable="false" class="alert"
+        :title="`这张表不像${job.target_name}：${job.stats.not_a_ledger_reason}`">
+        <div class="jc-small">不建议硬套字段。{{ job.batch_id ? '可以一键转为知识库资料，再确认分类和可见范围。' : '请重新选择目标台账，或回到资料导入改为知识库资料。' }}</div>
+        <el-button v-if="job.batch_id" type="primary" size="small" class="mt-8" :loading="busy" @click="toKnowledge">转为知识库资料</el-button>
+      </el-alert>
       <el-alert v-if="job.stats.missing_required_fields?.length" type="warning" show-icon :closable="false" class="alert"
-        :title="`必填字段未映射：${job.stats.missing_required_fields.join('、')}，请在下方指定对应列`" />
+        :title="`必填字段未映射：${job.stats.missing_required_fields.join('、')}，可让 AI 重新识别或手动指定`" />
+      <div v-if="job.stats.missing_required_fields?.length" class="alert-actions">
+        <el-button type="primary" size="small" :loading="busy" @click="aiRemap">让 AI 自动匹配字段</el-button>
+      </div>
+      <el-alert v-if="aiPlan?.used" type="success" show-icon :closable="false" class="alert"
+        :title="`AI 已自动识别表头（第 ${aiPlan.header_row} 行）并匹配字段${derivedLabels.length ? `；${derivedLabels.join('、')}由名称推断` : ''}`"
+        :description="aiPlan.reason" />
+      <el-alert v-else-if="aiPlan && !aiPlan.used" type="info" show-icon :closable="false" class="alert" :title="aiPlan.reason" />
       <el-alert v-if="job.stats.blocked_source_columns?.length" type="warning" show-icon :closable="false" class="alert"
         title="源表含附件、关联或公式等复杂列。原始类型已保留，台账映射时请忽略这些列；未自动下载附件或展开关联。" />
       <el-table :data="job.mapping" size="small">
@@ -89,6 +101,7 @@
       <div class="foot">
         <span class="jc-muted jc-small">低置信度（橙色）请人工确认；修改后点「应用映射」重新清洗。</span>
         <div>
+          <el-button size="small" :loading="busy" @click="aiRemap">让 AI 重新识别</el-button>
           <el-button :disabled="!mappingDirty" :loading="busy" @click="remap(edits)">应用映射</el-button>
           <el-button type="primary" :disabled="mappingDirty || !!job.stats.missing_required_fields?.length || (job.stats.sheets?.length > 1 && !job.stats.sheet_confirmed)" @click="step = 2">下一步：清洗预览</el-button>
         </div>
@@ -103,8 +116,14 @@
           <span class="jc-muted jc-small">{{ c.label }}</span><b class="jc-num">{{ c.value }}</b>
         </button>
       </div>
+      <el-alert v-if="derivedLabels.length" type="warning" show-icon :closable="false" class="mt-16"
+        :title="`${derivedLabels.join('、')}不由原表列直接提供，已按合同名称/业务关键词推断；请核对后再确认导入`" />
+      <el-alert v-if="job.stats.not_a_ledger" type="warning" show-icon :closable="false" class="mt-16"
+        :title="`这张表不像${job.target_name}：${job.stats.not_a_ledger_reason}，不建议导入台账`">
+        <el-button v-if="job.batch_id" type="primary" size="small" class="mt-8" :loading="busy" @click="toKnowledge">转为知识库资料</el-button>
+      </el-alert>
       <Panel class="mt-16" :title="`清洗预览 · ${job.target_name}`" :padding="false"
-        :sub="`修正单元格 ${job.stats.changed_cells} 处；跳过空行/备注行 ${job.stats.skipped_rows?.length || 0} 行；悬停已修正单元格查看原值`">
+        :sub="`修正单元格 ${job.stats.changed_cells} 处；跳过分组/合计/空行 ${job.stats.skipped_rows?.length || 0} 行；悬停已修正单元格查看原值`">
         <template #extra>
           <el-button size="small" @click="step = 1">返回映射</el-button>
           <el-button size="small" :loading="busy" @click="previewReport">下载预览报告</el-button>
@@ -130,7 +149,14 @@
           </el-table-column>
         </el-table>
         <div class="foot">
-          <span class="jc-small">将导入 <b class="jc-num">{{ job.stats.importable }}</b> 行（通过 + 已修正），跳过重复 {{ job.stats.duplicate }} 行、错误 {{ job.stats.error }} 行。</span>
+          <span class="jc-small">将导入 <b class="jc-num">{{ job.stats.importable }}</b> 行（通过 + 已修正），跳过重复 {{ job.stats.duplicate }} 行、错误 {{ job.stats.error }} 行。
+            <el-popover v-if="job.stats.skipped_rows?.length" placement="top" :width="460" trigger="click">
+              <template #reference><el-button link type="primary" size="small">查看已跳过的 {{ job.stats.skipped_rows.length }} 行</el-button></template>
+              <div class="skipped-list">
+                <div v-for="s in job.stats.skipped_rows" :key="s._row" class="jc-small">第 {{ s._row }} 行：{{ s.reason }}</div>
+              </div>
+            </el-popover>
+          </span>
           <el-button type="primary" :loading="busy" :disabled="!job.stats.importable" @click="doImport">确认导入{{ job.target_name }}</el-button>
         </div>
       </Panel>
@@ -205,6 +231,17 @@ const hPage = ref(1)
 
 const tplOf = (t) => templates.value.find((x) => x.target === t)
 const targetName = (t) => tplOf(t)?.name || t
+const aiPlan = computed(() => job.value?.stats?.ai_plan || null)
+const derivedLabels = computed(() => {
+  const labels = { customer_name: '客户名称', business_line: '业务线' }
+  const keys = job.value?.stats?.derived_fields || aiPlan.value?.derived_fields || []
+  return keys.map((k) => labels[k] || k)
+})
+const canPreview = computed(() => {
+  const s = job.value?.stats || {}
+  const sheetsOk = !(s.sheets?.length > 1) || s.sheet_confirmed
+  return !!job.value && !(s.missing_required_fields?.length) && (s.importable || 0) > 0 && sheetsOk
+})
 let guessTimer
 function guess() {
   clearTimeout(guessTimer)
@@ -222,8 +259,13 @@ async function upload() {
   busy.value = true
   try {
     setJob(await api.upload('/clean/preview', file.value, { purpose: purpose.value, target: target.value }))
-    step.value = 1
     loadHistory()
+    if (canPreview.value) {
+      step.value = 2
+      ElMessage.success('已自动识别表头和字段，请核对预览后确认导入')
+    } else {
+      step.value = 1
+    }
   } finally { busy.value = false }
 }
 const mappingDirty = computed(() => job.value && job.value.mapping.some((m) => (m.field || null) !== (edits.value[m.col] || null)))
@@ -233,6 +275,26 @@ async function remap(mapping, tgt) {
     const body = tgt ? { target: tgt } : { mapping: Object.fromEntries(Object.entries(mapping).map(([k, v]) => [k, v || null])) }
     setJob(await api.post(`/clean/jobs/${job.value.id}/remap`, body))
     ElMessage.success('已按新映射重新清洗')
+  } finally { busy.value = false }
+}
+async function aiRemap() {
+  busy.value = true
+  try {
+    setJob(await api.post(`/clean/jobs/${job.value.id}/remap`, { ai: true }))
+    if (canPreview.value) {
+      step.value = 2
+      ElMessage.success('AI 已重新识别表头和字段，请核对预览')
+    } else {
+      ElMessage.warning('AI 仍无法确定全部必填字段，请在下方手动指定对应列')
+    }
+  } finally { busy.value = false }
+}
+async function toKnowledge() {
+  busy.value = true
+  try {
+    await api.post(`/imports/${job.value.batch_id}/to-kb`)
+    ElMessage.success('已转为知识库资料，请核对分类和可见范围后提交')
+    router.push({ path: '/imports' })
   } finally { busy.value = false }
 }
 async function selectSheet(sheetName) {
@@ -293,7 +355,7 @@ function restart() {
 async function openJob(row) {
   const j = await api.get(`/clean/jobs/${row.id}`)
   setJob(j)
-  step.value = j.status === 'imported' ? 3 : j.status === 'preview' ? 2 : 2
+  step.value = j.status === 'imported' ? 3 : j.status === 'preview' ? (canPreview.value ? 2 : 1) : 2
 }
 async function loadHistory() {
   history.value = await api.get('/clean/jobs', { page: hPage.value, page_size: 10 })
@@ -302,9 +364,8 @@ async function loadHistory() {
 onMounted(async () => {
   templates.value = await api.get('/clean/templates')
   loadHistory()
-  if (route.query.job) {  // 从「资料导入」跳转过来：预览中的任务先核对字段映射
+  if (route.query.job) {  // 从「资料导入」跳转过来：能自动映射的直接看预览，否则先核对字段
     await openJob({ id: route.query.job })
-    if (job.value?.status === 'preview') step.value = 1
   }
 })
 </script>
@@ -315,6 +376,7 @@ onMounted(async () => {
 .fld { display: inline-block; margin: 2px 8px 2px 0; }
 .fld b { color: var(--jc-down); font-weight: 500; }
 .alert { margin: 12px 18px 0; width: auto; }
+.alert-actions { margin: 8px 18px 0; }
 .foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--jc-line-2); flex-wrap: wrap; }
 .stat {
   display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 14px 16px; cursor: pointer; font: inherit;
@@ -328,4 +390,5 @@ onMounted(async () => {
 .stat.ok b { color: var(--jc-up); }
 .cell.fixed { color: var(--jc-brand); border-bottom: 1px dashed var(--jc-brand-100); cursor: help; }
 .link { color: var(--jc-brand); cursor: pointer; }
+.skipped-list { max-height: 320px; overflow: auto; }
 </style>
