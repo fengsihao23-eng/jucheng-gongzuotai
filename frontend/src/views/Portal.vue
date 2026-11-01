@@ -99,6 +99,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -184,6 +185,7 @@ async function persist(prefs) {
 const saveLayout = () => persist({ card_order: draft.value.map((c) => c.key), hidden_cards: draft.value.filter((c) => c.hidden).map((c) => c.key) })
 const resetLayout = () => persist({ card_order: [], hidden_cards: [] })
 
+useBusinessRefresh(() => load(true))
 onMounted(() => load())
 </script>
 

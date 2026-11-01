@@ -73,6 +73,51 @@ def test_ai_plan_takes_over_when_headers_are_opaque(client, login, monkeypatch):
     assert {r["business_line"] for r in job["rows"]} == {"XY"}
 
 
+def test_mixed_business_lines_are_inferred_per_row_and_saved(client, login, db):
+    from app.models import BizContract
+    content = _book([
+        ["合同名称", "客户名称", "合同金额", "签订日期"],
+        ["逐行识别智慧校园合同", "逐行识别校园客户", 128601, "2026-10-20"],
+        ["逐行识别园区安防合同", "逐行识别安防客户", 300001, "2026-10-20"],
+    ])
+    job = _preview(client, login, content, "混合业务合同.xlsx")
+    assert [r["business_line"] for r in job["rows"]] == ["XY", "AF"]
+    assert job["stats"]["importable"] == 2
+    result = data(client.post(f"/api/v1/clean/jobs/{job['id']}/import", headers=login("admin")))
+    assert result["stats"]["imported"] == 2
+    saved = db.scalars(select(BizContract).where(BizContract.name.in_([
+        "逐行识别智慧校园合同", "逐行识别园区安防合同"]))).all()
+    assert {c.name: c.business_line for c in saved} == {
+        "逐行识别智慧校园合同": "XY", "逐行识别园区安防合同": "AF"}
+
+
+def test_unknown_row_does_not_inherit_other_rows_business_line(client, login):
+    content = _book([
+        ["合同名称", "客户名称", "合同金额", "签订日期"],
+        ["逐行识别智慧校园合同B", "逐行识别校园客户B", 128602, "2026-10-20"],
+        ["无法确定类型的采购合同", "逐行识别未知客户", 300002, "2026-10-20"],
+    ])
+    job = _preview(client, login, content, "缺少业务线合同.xlsx")
+    assert job["rows"][0]["business_line"] == "XY"
+    assert not job["rows"][1].get("business_line")
+    assert job["rows"][1]["_status"] == "error"
+    assert job["stats"]["importable"] == 1
+
+
+def test_ai_file_hint_does_not_override_recognizable_row(client, login, monkeypatch):
+    from app.services import smart_intake
+    monkeypatch.setattr(smart_intake, "plan_table", lambda *a, **k: {
+        "header_row": 1, "mapping": {0: "name", 1: "customer_name", 2: "amount", 3: "sign_date"},
+        "business_line": "XY", "reason": "主要是数字校园合同"})
+    job = _preview(client, login, _book([
+        ["A列", "B列", "C列", "D列"],
+        ["智慧校园采购合同", "AI逐行校园客户", 128603, "2026-10-20"],
+        ["园区安防采购合同", "AI逐行安防客户", 300003, "2026-10-20"],
+    ]), "AI混合合同.xlsx")
+    assert job["stats"]["ai_plan"]["used"]
+    assert [r["business_line"] for r in job["rows"]] == ["XY", "AF"]
+
+
 def test_unfitted_table_is_automatically_moved_to_knowledge(client, login):
     """进度汇报/凭证这类表硬套台账会一行都导不进，应自动改道知识库，而不是让人卡在字段映射。"""
     content = _book([["项目", "进度情况", "下一步计划", "项目最终结果"],

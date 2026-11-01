@@ -161,7 +161,7 @@ async function poll() {
 async function save(item) {
   saving.value = item.id; error.value = ''
   try {
-    const result = await api.post('/imports/wecom/confirm', { source_id: item.id, purpose: props.purpose }, { silent: true })
+    const result = await api.post('/imports/wecom/confirm', { source_id: item.id, purpose: props.purpose, intelligent: true }, { silent: true })
     item.state = 'imported'; item.batch_id = result.id
     emit('imported', result)
     ElMessage.success(result.reused ? '该快照已保存，已复用本人已有记录' : '快照已保存，请在我的导入核对分类、审核或台账字段')

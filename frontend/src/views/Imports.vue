@@ -2,16 +2,16 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="全员 · 资料导入" title="资料导入"
-      desc="上传资料，核对系统建议，再确认去向。合同、商机、回款、项目表格经校验后入台账；参考资料按分类和可见范围进入知识库。上传成功不等于已入库，下面会显示每份资料的真实进度。" />
+      desc="把文件或压缩包交给小聚。它会读取内容、筛选有效数据、核对重复并整理导入清单；弹窗说明去向和影响，你只需决定是或否。确认后按清单导入，下面显示实际结果。" />
 
     <WecomImport :purpose="purpose" @imported="externalImported" />
 
-    <el-alert type="info" :closable="false" class="mt-16" title="默认本部门可见，无部门账号默认仅本人；分类审核人和授权资料管理员可按职责处理。上传不会自动记账。扫描件与图片会整页发送到公司已配置的大模型做识别，结果需人工核对。" />
+    <el-alert type="info" :closable="false" class="mt-16" title="小聚整理完成后会自动弹出具体清单，未确认前不会写入业务数据。原件默认本部门或仅本人可见；台账沿用原有权限。扫描件和图片使用公司已配置的模型识别。" />
 
     <div class="drop jc-card" :class="{ over }" @dragover.prevent="over = true" @dragleave="over = false" @drop.prevent="onDrop" @click="input.click()">
       <input ref="input" type="file" multiple hidden @change="onPick" />
       <div class="t">{{ narrow ? '点击选择文件（可多选）' : '拖拽文件到这里，或点击选择（可多选）' }}</div>
-      <div class="jc-muted jc-small">表格：xlsx / csv（台账清洗 ≤ 20MB）　文档：docx / pdf（含扫描版）/ pptx / md / txt　图片：png / jpg / tif（≤ 50MB）　zip：最多 100 个文件</div>
+      <div class="jc-muted jc-small">表格、Word、PDF、PPT、文本、图片：单文件 ≤ 50MB；ZIP 压缩包 ≤ {{ Math.floor(limits.zip_bytes / 1024 / 1024) }}MB，最多 {{ limits.zip_files }} 个文件，解压后 ≤ 2GB</div>
       <div class="jc-muted jc-small mt-4">扫描版 PDF 和图片由大模型逐页识别，不使用传统 OCR：识别结果会标注「扫描识别」，金额、编号、日期、签章页请对照原件核对后再入库。旧版 doc/xls/ppt 请先另存为新格式。</div>
     </div>
     <div class="purpose" @click.stop>
@@ -51,6 +51,8 @@
           <div class="jc-small mt-4">{{ explain(row) }}<span v-if="row.suggestion.source === 'llm'" class="ai">AI</span><span v-if="row.suggestion.extract?.method === 'vision'" class="ai scan" title="扫描件/图片由大模型逐页识别，需对照原件核对">扫描识别</span><span v-if="row.suggestion.auto_rerouted" class="ai scan" title="这张表不属于台账，已自动转为知识库资料">自动改道</span></div>
           <div class="card-ops">
             <el-button size="small" @click="openDetails(row)">识别详情</el-button>
+            <el-button v-if="has(row, 'confirm_agent')" size="small" type="primary" @click="openDecision(row)">查看清单并决定</el-button>
+            <el-button v-if="has(row, 'analyze_agent') && !row.agent_plan?.version" size="small" @click="analyzeRow(row)">让小聚整理</el-button>
             <el-button v-if="has(row, 'open_clean')" size="small" type="primary" @click="openClean(row)">核对并导入</el-button>
             <el-button v-if="has(row, 'confirm_kb')" size="small" type="primary" @click="openConfirm(row)">确认入库</el-button>
             <el-button v-if="has(row, 'to_clean')" size="small" @click="openToClean(row)">导入台账</el-button>
@@ -84,6 +86,8 @@
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link @click="openDetails(row)">详情</el-button>
+            <el-button v-if="has(row, 'confirm_agent')" link type="primary" @click="openDecision(row)">查看清单并决定</el-button>
+            <el-button v-if="has(row, 'analyze_agent') && !row.agent_plan?.version" link @click="analyzeRow(row)">让小聚整理</el-button>
             <el-button v-if="has(row, 'open_clean')" link type="primary" @click="openClean(row)">核对并导入</el-button>
             <el-button v-if="has(row, 'confirm_kb')" link type="primary" @click="openConfirm(row)">确认入库</el-button>
             <el-button v-if="has(row, 'to_clean')" link type="primary" @click="openToClean(row)">导入台账</el-button>
@@ -105,6 +109,8 @@
         <el-pagination v-model:current-page="page" :page-size="rows.page_size" :total="rows.total" layout="prev, pager, next" @current-change="load" />
       </div>
     </Panel>
+
+    <ImportDecision v-model="decisionOpen" :batch-id="decisionId" @decided="load" />
 
     <el-dialog v-model="detailDlg" :title="detail?.filename || '识别详情'" width="min(760px, 94vw)">
       <template v-if="detail">
@@ -173,6 +179,7 @@ import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 import KbDocForm from '@/components/KbDocForm.vue'
 import WecomImport from '@/components/WecomImport.vue'
+import ImportDecision from '@/components/ImportDecision.vue'
 
 const TONE = { processing: 'info', confirmation: 'warn', needs_help: 'warn', review: 'warn', rejected: 'down', failed: 'down', removed: 'warn', partial: 'warn', ready: 'up' }
 const tone = (row) => TONE[row.stage] || ''
@@ -186,6 +193,11 @@ const tab = ref(['pool', 'todo', 'all'].includes(route.query.tab) ? route.query.
 const page = ref(1)
 const rows = ref({ items: [], total: 0, page_size: 20 })
 const counts = ref({})
+const limits = ref({ zip_bytes: 512 * 1024 * 1024, zip_files: 500 })
+const decisionOpen = ref(false), decisionId = ref(null)
+const autoSeen = new Set(), completedSeen = new Set()
+function openDecision(row) { decisionId.value = row.id; decisionOpen.value = true; autoSeen.add(`${row.id}:${row.agent_plan?.version}`) }
+async function analyzeRow(row) { await act(row, 'analyze'); ElMessage.success('小聚已开始整理，完成后会弹出导入清单') }
 const isHandler = ref(false)
 const loading = ref(false)
 const busy = ref(false)
@@ -197,7 +209,7 @@ const selected = ref([])
 const selectable = (row) => has(row, 'confirm_kb') && !!row.suggestion.category
 const detailDlg = ref(false)
 const detail = ref(null)
-function openDetails(row) { detail.value = row; detailDlg.value = true }
+function openDetails(row) { if (row.agent_plan?.version) return openDecision(row); detail.value = row; detailDlg.value = true }
 const textDlg = ref(false)
 const textData = ref(null)
 const textLoading = ref(false)
@@ -223,6 +235,7 @@ function summarize(batches) {
 }
 
 function explain(row) {
+  if (row.agent_plan?.summary && row.stage === 'confirmation') return row.agent_plan.summary.length > 90 ? row.agent_plan.summary.slice(0, 90) + '…' : row.agent_plan.summary
   if (row.next_step && ['processing', 'review', 'rejected', 'archived', 'partial', 'failed', 'removed', 'ready'].includes(row.stage)) return row.next_step
   if (row.note) return row.note
   if (row.status === 'pending' && row.route === 'clean') {
@@ -238,6 +251,8 @@ function explain(row) {
 }
 function more(row) {
   const m = []
+  if (has(row, 'analyze_agent') && row.agent_plan?.version) m.push({ cmd: 'analyze', label: '让小聚重新整理' })
+  if (has(row, 'retry_agent')) m.push({ cmd: 'retry-agent', label: '检查整理进度 / 重试' })
   if (has(row, 'retry')) m.push({ cmd: 'retry', label: '重新识别' })
   if (has(row, 'to_kb') && row.status === 'pending') m.push({ cmd: 'to-kb', label: '改为放入知识库' })
   if (has(row, 'to_pool')) m.push({ cmd: 'to-pool', label: '交给整理人' })
@@ -257,6 +272,21 @@ async function load() {
     rows.value = r
     counts.value = r.counts
     isHandler.value = r.is_handler
+    for (const b of r.items) {
+      if (b.agent_plan?.state === 'completed' && !completedSeen.has(b.id)) {
+        completedSeen.add(b.id)
+        localStorage.setItem('jc-business-revision', `${Date.now()}:${b.id}`)
+        window.dispatchEvent(new CustomEvent('business-data-changed'))
+      }
+    }
+    if (tab.value === 'mine' && !decisionOpen.value && r.counts.mine_pending) {
+      let candidates = r.items
+      if (!candidates.some(b => b.agent_plan?.state === 'draft' && !autoSeen.has(`${b.id}:${b.agent_plan.version}`))) {
+        candidates = (await api.get('/imports', { scope: 'mine', status: 'pending', page_size: 100 })).items
+      }
+      const ready = candidates.find(b => b.agent_plan?.state === 'draft' && !autoSeen.has(`${b.id}:${b.agent_plan.version}`))
+      if (ready) openDecision(ready)
+    }
     for (const item of queue.value) {
       const batches = r.items.filter((b) => item.ids?.includes(b.id))
       if (batches.length === item.ids?.length && batches.length) item.state = batches.map((b) => b.status_name).join('、')
@@ -276,17 +306,20 @@ async function upload(files) {
   const items = files.map((f, i) => ({ key: `${Date.now()}-${i}`, name: f.name, file: f, state: '等待上传', error: '' }))
   queue.value = items
   for (const it of items) {
-    if (it.file.size > 50 * 1024 * 1024) { it.error = '文件超过 50MB，请拆分后上传'; continue }
+    const max = /\.zip$/i.test(it.file.name) ? limits.value.zip_bytes : 50 * 1024 * 1024
+    if (it.file.size > max) { it.error = `文件超过 ${Math.floor(max / 1024 / 1024)}MB，请拆分后上传`; continue }
     it.state = '上传识别中…'
     try {
-      const b = await api.upload('/imports', it.file, { purpose: purpose.value, background: true }, { silent: true })
+      const b = await api.upload('/imports', it.file, { purpose: purpose.value, background: true, intelligent: true }, { silent: true, timeout: 1800000 })
       it.ids = b.batches.map((batch) => batch.id)
       if (b.archive) {
         it.state = `解开 ${b.batches.length} 份：` + summarize(b.batches)
         it.skipped = b.skipped
+        if (b.skipped?.some(x => x.duplicate)) await ElMessageBox.alert(b.skipped.filter(x => x.duplicate).map(x => `${x.filename}：${x.reason}`).join('\n'), '发现重复资料，已跳过', { confirmButtonText: '知道了' })
       } else it.state = `${b.route_name} · ${b.status_name}`
     } catch (err) {
       it.error = err.message
+      if (err.data?.duplicate) await ElMessageBox.alert(err.message, '发现重复资料', { confirmButtonText: '知道了', type: 'warning' })
     }
   }
   tab.value = 'mine'
@@ -367,6 +400,7 @@ async function confirmSelected() {
   } finally { busy.value = false }
 }
 async function onMore(row, cmd) {
+  if (cmd === 'analyze' || cmd === 'retry-agent') return analyzeRow(row)
   if (cmd === 'retry') { await act(row, 'retry'); return ElMessage.success('已重新安排识别，原件仍保留') }
   if (cmd === 'to-kb') {
     const b = await act(row, 'to-kb')
@@ -392,7 +426,7 @@ async function onMore(row, cmd) {
   }
 }
 
-onMounted(() => { load(); window.addEventListener('resize', onResize) })
+onMounted(() => { load(); api.get('/imports/limits').then(r => { limits.value = r }); window.addEventListener('resize', onResize) })
 onBeforeUnmount(() => { disposed = true; clearTimeout(pollTimer); window.removeEventListener('resize', onResize) })
 </script>
 

@@ -123,6 +123,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { ElMessage } from 'element-plus'
@@ -204,6 +205,7 @@ function reload() {
   load()
   loadTrend()
 }
+useBusinessRefresh(reload)
 async function fetchDetail(code) {
   if (detail[code]) return
   const r = await api.get(`/reports/profit/${code}`, { week: week.value })

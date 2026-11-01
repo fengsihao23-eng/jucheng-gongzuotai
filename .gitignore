@@ -17,3 +17,9 @@ deploy/backups/
 
 # 工作区本地数据（记忆、临时产物）
 .workbuddy/
+
+# 智能导入原始验收记录含业务数据与临时下载链接，仅保留本地。
+/docs/IMPORT_VERIFICATION_2026-10-30.md
+/acceptance/evidence/import-verification-20261030/
+/acceptance/evidence/smart-intake-20261030/*
+!/acceptance/evidence/smart-intake-20261030/README.md

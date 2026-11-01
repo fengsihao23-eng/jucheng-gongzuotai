@@ -15,6 +15,7 @@ from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
 
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found
+from app.core.config import settings
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today, utcnow
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
@@ -24,7 +25,7 @@ from app.services.kb_extract import (DOC_EXTS, IMAGE_EXTS, MAX_BYTES, TABLE_EXTS
 from app.services.intake_access import batch_filter, can_view_batch, can_handle_department
 
 STATUS_NAMES = {"processing": "识别中", "pending": "待确认", "pool": "待整理", "done": "已提交", "withdrawn": "已撤回", "dismissed": "已处理"}
-ROUTE_NAMES = {"clean": "业务台账", "kb": "知识库", "pool": "待整理池"}
+ROUTE_NAMES = {"clean": "业务台账", "kb": "知识库", "pool": "待整理池", "agent": "小聚智能整理"}
 HANDLE_BUTTON = "imports:handle"
 
 
@@ -189,8 +190,8 @@ def _route_document(db: Session, b: ImportBatch, data: bytes | None = None, text
     b.suggestion = {**sug, "chars": len(text), "preview": text[:300], "extract": meta or {"method": "text"}}
 
 
-ZIP_MAX_ENTRIES = 100
-ZIP_MAX_TOTAL = 200 * 1024 * 1024
+ZIP_MAX_ENTRIES = settings.import_zip_max_files
+ZIP_MAX_TOTAL = settings.import_zip_max_expanded_bytes
 ZIP_SKIP = ("__MACOSX/", ".DS_Store", "Thumbs.db", "desktop.ini")
 
 
@@ -200,14 +201,15 @@ def _dup(db: Session, p, sha: str) -> ImportBatch | None:
 
 
 def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channel: str,
-         archive_name: str | None = None, deferred: bool = False) -> ImportBatch:
+         archive_name: str | None = None, deferred: bool = False, intelligent: bool = False) -> ImportBatch:
     filename = Path(filename or "upload").name[:200]
     sha = hashlib.sha256(data).hexdigest()
     if db.bind.dialect.name == "postgresql":
         lock_key = int(hashlib.sha256(f"import:{p.id}:{sha}".encode()).hexdigest()[:15], 16)
         db.execute(sql_text("select pg_advisory_xact_lock(:key)"), {"key": lock_key})
     if (dup := _dup(db, p, sha)) is not None:
-        raise conflict(f"你已经上传过同一份文件（{dup.filename}，{STATUS_NAMES.get(dup.status)}）", data={"batch_id": dup.id})
+        raise conflict(f"资料重复：你已经上传过同一份文件（{dup.filename}，{STATUS_NAMES.get(dup.status)}），本次不会重复导入",
+                       data={"duplicate": True, "batch_id": dup.id, "filename": dup.filename, "status": dup.status})
     f = save_bytes(db, data=data, filename=filename, category="import",
                    key=f"import/{today():%Y-%m}/{uuid.uuid4().hex[:12]}/{filename}", uploader_id=p.id)
     b = ImportBatch(filename=filename, file_id=f.id, sha256=sha, size=len(data), purpose=(purpose or "").strip()[:255] or None,
@@ -215,6 +217,10 @@ def _one(db: Session, p, data: bytes, filename: str, purpose: str | None, channe
                     dept_code=p.dept_code, channel=channel, archive_name=archive_name)
     db.add(b)
     db.flush()
+    if intelligent:
+        b.route, b.status = "agent", "processing"
+        b.suggestion = {"agent_mode": True}
+        return b
     # 扫描件/图片要逐页调用多模态模型，耗时远超一次请求；先返回「识别中」，由后台任务处理。
     if deferred or needs_vision(data, filename):
         b.status = "processing"
@@ -243,6 +249,13 @@ def process_many(user_id, batch_ids):
     from app.core.db import SessionLocal
     from app.core.deps import build_principal
     for batch_id in batch_ids:
+        with SessionLocal() as db:
+            candidate = db.get(ImportBatch, batch_id)
+            intelligent = bool(candidate and candidate.route == "agent" and candidate.status == "processing")
+        if intelligent:
+            from app.services import intake_agent
+            intake_agent.analyze(batch_id, user_id)
+            continue
         with SessionLocal() as db:
             batch = db.scalar(select(ImportBatch).where(ImportBatch.id == batch_id).with_for_update())
             if not batch or batch.status != "processing" or batch.uploader_id != user_id:
@@ -279,58 +292,76 @@ def _zip_name(info) -> str:
     return name
 
 
-def _unzip(data: bytes) -> tuple[list[tuple[str, bytes]], list[dict]]:
+def _unzip(data):
+    """Validate the whole archive first, then decompress one bounded entry at a time."""
     import io
     import zipfile
     try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
-    except zipfile.BadZipFile:
-        raise bad_request("压缩包已损坏或不是 zip 格式")
-    files, skipped, total = [], [], 0
-    infos = [i for i in zf.infolist() if not i.is_dir()]
-    for info in infos:
-        name = _zip_name(info)
-        base = Path(name).name
-        if not base or any(x in name for x in ZIP_SKIP) or base.startswith(("._", "~$")):
-            continue
-        if info.flag_bits & 0x1:
-            skipped.append({"filename": base, "reason": "加密文件，无法读取"})
-            continue
-        if ext_of(base) in (".zip", ".rar", ".7z"):
-            skipped.append({"filename": base, "reason": "压缩包里的压缩包请先解开再上传"})
-            continue
-        if info.file_size > MAX_BYTES:
-            skipped.append({"filename": base, "reason": "单个文件超过 50MB"})
-            continue
-        total += info.file_size
-        if total > ZIP_MAX_TOTAL or len(files) >= ZIP_MAX_ENTRIES:
-            raise bad_request(f"压缩包内容过多（最多 {ZIP_MAX_ENTRIES} 个文件、解压后 200MB），请拆分后上传")
+        zf = zipfile.ZipFile(io.BytesIO(data) if isinstance(data, bytes) else data)
+    except (zipfile.BadZipFile, OSError):
+        raise bad_request("压缩包已损坏或不是 zip 格式") from None
+    skipped, chosen, total = [], [], 0
+    try:
+        infos = [i for i in zf.infolist() if not i.is_dir()]
+        for info in infos:
+            name = _zip_name(info)
+            base = Path(name.replace("\\", "/")).name
+            if not base or any(x in name for x in ZIP_SKIP) or base.startswith(("._", "~$")):
+                continue
+            if len(chosen) + len(skipped) >= ZIP_MAX_ENTRIES:
+                raise bad_request(f"压缩包最多 {ZIP_MAX_ENTRIES} 个文件，请拆分后上传")
+            if info.flag_bits & 0x1:
+                skipped.append({"filename": base, "reason": "加密文件，无法读取"}); continue
+            if ext_of(base) in (".zip", ".rar", ".7z"):
+                skipped.append({"filename": base, "reason": "压缩包里的压缩包请先解开再上传"}); continue
+            if info.file_size > MAX_BYTES:
+                skipped.append({"filename": base, "reason": "单个文件超过 50MB"}); continue
+            total += info.file_size
+            if total > ZIP_MAX_TOTAL:
+                raise bad_request(f"压缩包解压后不能超过 {ZIP_MAX_TOTAL // (1024 * 1024)}MB，请拆分上传")
+            chosen.append((base, info))
+        if not chosen and not skipped:
+            raise bad_request("压缩包里没有可导入的文件")
+    except Exception:
+        zf.close(); raise
+
+    def entries():
         try:
-            files.append((base, zf.read(info)))
-        except (zipfile.BadZipFile, RuntimeError, NotImplementedError):
-            skipped.append({"filename": base, "reason": "压缩条目损坏或编码不支持，请单独重新上传"})
-    if not files and not skipped:
-        raise bad_request("压缩包里没有可导入的文件")
-    return files, skipped
+            for base, info in chosen:
+                try:
+                    with zf.open(info) as stream:
+                        content = stream.read(MAX_BYTES + 1)
+                    if len(content) > MAX_BYTES:
+                        skipped.append({"filename": base, "reason": "单个文件超过 50MB"}); continue
+                    yield base, content
+                except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError):
+                    skipped.append({"filename": base, "reason": "压缩条目损坏或编码不支持，请单独上传"})
+        finally:
+            zf.close()
+    return entries(), skipped
 
 
 def create_many(db: Session, p, data: bytes, filename: str, purpose: str | None = None,
-                channel: str = "web", deferred: bool = False) -> dict:
+                channel: str = "web", deferred: bool = False, intelligent: bool = False) -> dict:
     """上传一个文件；zip 压缩包逐个解开分别建批次。返回 {batches, skipped, archive}。待整理的资料合并成一条通知。"""
     if not data:
         raise bad_request("文件为空")
-    if len(data) > MAX_BYTES:
-        raise bad_request("文件超过 50MB，请拆分后再上传")
     filename = Path(filename or "upload").name[:200]
+    archive = ext_of(filename) == ".zip"
+    if isinstance(data, bytes):
+        size = len(data)
+    else:
+        data.seek(0, 2); size = data.tell(); data.seek(0)
+    limit = settings.import_zip_max_bytes if archive else MAX_BYTES
+    if size > limit:
+        raise bad_request(f"{'压缩包' if archive else '文件'}超过 {limit // (1024 * 1024)}MB，请拆分上传")
     if ext_of(filename) in (".rar", ".7z"):
         raise bad_request("暂不支持 rar / 7z，请改成 zip 压缩包或直接上传文件")
     if ext_of(filename) != ".zip":
-        b = _one(db, p, data, filename, purpose, channel, deferred=deferred)
+        b = _one(db, p, data, filename, purpose, channel, deferred=deferred, intelligent=intelligent)
         if b.status == "pool":
             _notify_pool(db, [b], p.user.name)
         return {"batches": [b], "skipped": [], "archive": None}
-    if (dup := _dup(db, p, hashlib.sha256(data).hexdigest())) is not None:
-        raise conflict(f"你已经上传过同一个压缩包里的文件（{dup.filename}）", data={"batch_id": dup.id})
     files, skipped = _unzip(data)
     batches = []
     for name, content in files:
@@ -339,9 +370,11 @@ def create_many(db: Session, p, data: bytes, filename: str, purpose: str | None 
             continue
         try:
             with db.begin_nested():
-                batches.append(_one(db, p, content, name, purpose, channel, archive_name=filename, deferred=deferred))
+                batches.append(_one(db, p, content, name, purpose, channel, archive_name=filename, deferred=deferred, intelligent=intelligent))
         except BizError as exc:
-            skipped.append({"filename": name, "reason": exc.message})
+            skipped.append({"filename": name, "reason": exc.message, **(exc.data or {})})
+    if not batches and any(x.get("duplicate") for x in skipped):
+        raise conflict("压缩包中的资料重复，本次未重复导入", data={"duplicate": True, "duplicates": skipped})
     if not batches:
         raise bad_request("压缩包里的文件都没能导入：" + "；".join(f"{x['filename']}（{x['reason']}）" for x in skipped[:5]))
     pooled = [b for b in batches if b.status == "pool"]
@@ -380,6 +413,9 @@ def _get(db: Session, p, batch_id: int, *, manage: bool = False) -> ImportBatch:
 
 
 def _actions(b: ImportBatch, p) -> list[str]:
+    if b.route == 'agent':
+        from app.services import intake_agent
+        return intake_agent.actions(b, p)
     owner, handler = can_view_batch(p, b), can_handle_department(p, b.dept_code)
     acts = []
     if b.status == "pending" and owner:
@@ -404,6 +440,8 @@ def _actions(b: ImportBatch, p) -> list[str]:
         acts.append("retry")
     if b.status in ("processing", "pending", "pool", "done") and owner:
         acts.append("withdraw")
+    if b.status in ('pending', 'pool') and owner:
+        acts.append('analyze_agent')
     return acts
 
 
@@ -434,6 +472,22 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
     source = (b.suggestion or {}).get("external_source")
     if source:
         defaults = {"visibility": "private", "visible_depts": [], "visible_roles": []}
+    agent = None
+    if b.route == 'agent':
+        from app.services import intake_agent
+        agent = intake_agent.plan_view(db, p, b)
+        state = agent.get('state')
+        if b.status == 'processing':
+            readiness = ('processing', '导入中' if state == 'executing' else '小聚整理中', b.note or '正在读取、筛选并整理资料')
+        elif b.status == 'pending':
+            readiness = ('confirmation', '待你决定', agent.get('summary') or '小聚已准备好清单，选择是或否即可')
+        elif state == 'attention':
+            readiness = ('partial', '需继续处理', agent.get('error') or '请核对已完成和未完成的清单')
+        elif state in ('completed', 'stopped'):
+            pending_review = any(s.get('document_status') == 'pending' for s in agent.get('steps', []))
+            ledger_done = agent.get('totals', {}).get('imported', 0) or any(s.get('kind') == 'business' and s.get('state') == 'executed' for s in agent.get('steps', []))
+            readiness = ('review', '待审核', '资料已整理并提交分类审核，审核发布后参与知识检索') if pending_review and not ledger_done else (
+                'ready', '已按清单导入', '业务数据已同步；知识原件待分类审核' if pending_review else '已核对业务回执，台账、统计与知识检索按各自规则同步')
     return {"id": b.id, "filename": b.filename, "size": b.size, "purpose": b.purpose, "kind": b.kind,
             "channel": b.channel, "archive_name": b.archive_name,
             "route": b.route, "route_name": "待识别" if b.status == "processing" else ROUTE_NAMES.get(b.route), "status": b.status,
@@ -441,7 +495,7 @@ def view(db: Session, b: ImportBatch, p, names: dict | None = None) -> dict:
             "default_visibility": defaults, "target": b.target,
             "source_snapshot": file_brief(db.get(SysFile, source["raw_file_id"])) if source and source.get("raw_file_id") else None,
             "target_name": clean_service.TARGET_NAMES.get(b.target), "suggestion": b.suggestion or {}, "note": b.note,
-            "content_chars": len(b.content or ""),
+            "content_chars": len(b.content or ""), "agent_plan": agent,
             "uploader_id": b.uploader_id, "uploader": names.get(b.uploader_id), "dept_code": b.dept_code,
             "handler": names.get(b.handler_id), "handled_at": b.handled_at, "created_at": b.created_at, "updated_at": b.updated_at,
             "file": file_brief(db.get(SysFile, b.file_id)),
@@ -626,6 +680,9 @@ def retry(db: Session, p, batch_id: int) -> ImportBatch:
 def withdraw(db: Session, p, batch_id: int) -> ImportBatch:
     """撤回：按去向回滚已产生的数据。台账记录被后续业务引用时整体拒绝（错误里列出原因）。"""
     b = _get(db, p, batch_id, manage=True)
+    if b.route == 'agent':
+        from app.services import intake_agent
+        return intake_agent.withdraw(db, p, b)
     if b.status in ("withdrawn", "dismissed"):
         raise conflict("这份资料已撤回或已处理")
     note = "已撤回"

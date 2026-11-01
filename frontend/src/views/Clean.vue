@@ -313,7 +313,10 @@ const statCards = computed(() => {
 })
 const shownRows = computed(() => (job.value?.rows || []).filter((r) => !statusFilter.value || r._status === statusFilter.value))
 const mappedFields = computed(() => {
-  const used = new Set(job.value?.mapping.filter((m) => m.field).map((m) => m.field))
+  const used = new Set([
+    ...(job.value?.mapping || []).filter((m) => m.field).map((m) => m.field),
+    ...(job.value?.stats?.derived_fields || []),
+  ])
   return (job.value?.fields || []).filter((f) => used.has(f.key) || (f.key === 'business_line' && used.has('project_code')))
 })
 const changeOf = (row, key) => row._changes.find((c) => c.field === key)

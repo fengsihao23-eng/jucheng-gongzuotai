@@ -734,7 +734,7 @@ def _apply_derived(derived: dict | None, v: dict, raw: dict, vals: list, fields:
                                 "note": spec.get("note") or "按合同名称推断"})
                 warns.append(f"客户名称按合同名称推断为「{customer}」" + (f"（原值：{display(old)}）" if old else ""))
     spec = derived.get("business_line")
-    if spec and not v.get("business_line"):
+    if spec and 'business_line' in fields and not v.get("business_line"):
         name_col = spec.get("name_col")
         name_val = vals[name_col] if isinstance(name_col, int) and name_col < len(vals) else None
         line = spec.get("value") if spec.get("mode") == "constant" else infer_business_line(
@@ -850,13 +850,9 @@ def _rule_derived(target: str, rows: list[tuple[int, list]], idx: int, mapping: 
         if cust_col is None or _short_customer_values(cust_values):
             derived["customer_name"] = {"mode": "from_name", "name_col": name_col, "fallback_col": cust_col,
                                         "note": "按合同名称补全客户"}
-    if "business_line" not in by_field:
-        names = [v[name_col] for v in data[:20] if name_col is not None and name_col < len(v)]
-        line = infer_business_line(*names)
-        if line:
-            derived["business_line"] = {"mode": "constant", "value": line, "note": "按合同名称推断"}
-        elif name_col is not None:
-            derived["business_line"] = {"mode": "from_name", "name_col": name_col, "note": "按合同名称推断"}
+    if "business_line" not in by_field and name_col is not None:
+        # 同一文件可包含多条业务线，逐行判断，不能把样例中的业务线套到整张表。
+        derived["business_line"] = {"mode": "from_name", "name_col": name_col, "note": "按本行合同名称推断"}
     return derived
 
 
@@ -873,14 +869,17 @@ def _apply_ai_mapping(mapping: list[dict], plan: dict, tpl: dict) -> list[dict]:
     return mapping
 
 
-def _apply_plan_derived(derived: dict, plan: dict, mapping: list[dict]) -> dict:
+def _apply_plan_derived(derived: dict, plan: dict, mapping: list[dict], fields=None) -> dict:
     by_field = {m["field"]: m["col"] for m in mapping if m.get("field")}
     name_col, cust_col = by_field.get("name"), by_field.get("customer_name")
     if plan.get("customer_from_name") and name_col is not None:
         derived["customer_name"] = {"mode": "from_name", "name_col": name_col, "fallback_col": cust_col,
                                     "note": "AI 从合同名称提取"}
-    if plan.get("business_line") and "business_line" not in by_field:
-        derived["business_line"] = {"mode": "constant", "value": plan["business_line"], "note": "AI 判断业务线"}
+    if plan.get("business_line") and "business_line" not in by_field and (fields is None or 'business_line' in fields):
+        derived["business_line"] = ({"mode": "from_name", "name_col": name_col,
+                                     "default": plan["business_line"], "note": "按本行名称推断，无法识别时采用 AI 建议"}
+                                    if name_col is not None else
+                                    {"mode": "constant", "value": plan["business_line"], "note": "AI 判断业务线"})
     return derived
 
 
@@ -926,7 +925,7 @@ def _analyze(db: Session, data: bytes, filename: str, target: str, mapping_overr
         if plan:
             idx2 = next((i for i, (r, _) in enumerate(rows) if r == plan["header_row"]), idx)
             map2 = _apply_ai_mapping(build_mapping(db, rows, tpl, idx2), plan, tpl)
-            derived2 = _apply_plan_derived(_rule_derived(target, rows, idx2, map2), plan, map2)
+            derived2 = _apply_plan_derived(_rule_derived(target, rows, idx2, map2), plan, map2, {f['key'] for f in tpl['fields']})
             out2, stats2 = clean_rows(db, target, rows, idx2, map2, tpl, derived2)
             missing2 = _missing_required(tpl, map2, derived2, target)
             score = lambda s, m: (len(m), s["error"], -s["importable"])  # noqa: E731

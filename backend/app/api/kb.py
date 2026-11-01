@@ -66,7 +66,7 @@ def tree(p: Principal = User, db: Session = Depends(get_db)):
 def meta(p: Principal = User, db: Session = Depends(get_db)):
     """上传表单所需选项与当前用户的知识库统计。"""
     st = kb_service.stats(db, viewer=p)
-    return ok({**st, "departments": [{"code": c, "name": n} for c, n in DEPARTMENTS],
+    return ok({**st, "departments": kb_service.department_options(db),
                "roles": [{"code": c, "name": r["name"]} for c, r in ROLE_DEFS.items()],
                "statuses": kb_service.STATUS_NAMES})
 

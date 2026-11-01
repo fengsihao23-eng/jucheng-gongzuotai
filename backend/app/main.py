@@ -30,6 +30,9 @@ async def lifespan(app: FastAPI):
     from app import jobs
     from app.jobs import registry
     jobs.load_all()
+    if settings.environment != 'test':
+        from app.services.intake_agent import recover_interrupted
+        recover_interrupted()
     if settings.scheduler_enabled and settings.environment != "test":
         registry.start_scheduler()
     mcp = _mcp()

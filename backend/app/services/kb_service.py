@@ -714,13 +714,20 @@ def _norm_tags(tags) -> list[str]:
     return out[:10]
 
 
-def _norm_visibility(visibility: str | None, depts, roles) -> tuple[str, list, list]:
+def department_options(db):
+    from app.models import SysDepartment
+    rows=list(db.scalars(select(SysDepartment).order_by(SysDepartment.sort,SysDepartment.id)))
+    return [{'code':d.dept_code,'name':d.name} for d in rows] or [{'code':c,'name':n} for c,n in DEPARTMENTS]
+
+
+def _norm_visibility(visibility: str | None, depts, roles, db=None) -> tuple[str, list, list]:
     visibility = visibility or "all"
     if visibility not in VISIBILITY:
         raise bad_request("可见范围只能是 仅本人 / 全员 / 指定部门 / 指定角色")
     depts = [x for x in (depts or []) if x]
     roles = _clean_roles(roles)
     known = {code for code, _ in DEPARTMENTS}
+    if db is not None: known.update(d['code'] for d in department_options(db))
     if any(x not in known for x in depts):
         raise bad_request("未知部门：" + "、".join(x for x in depts if x not in known))
     if visibility == "dept" and not depts:
@@ -797,7 +804,7 @@ def upload_document(db: Session, viewer, *, data: bytes, filename: str, title: s
     if visibility is None:
         defaults = default_visibility(owner)
         visibility, visible_depts, visible_roles = defaults["visibility"], defaults["visible_depts"], defaults["visible_roles"]
-    visibility, depts, roles = _norm_visibility(visibility, visible_depts, visible_roles)
+    visibility, depts, roles = _norm_visibility(visibility, visible_depts, visible_roles, db=db)
     publish = can_review(db, viewer, category)
     now = utcnow()
 
@@ -838,7 +845,7 @@ def update_meta(db: Session, viewer, doc_id: int, **fields) -> KbDocument:
     if "visibility" in fields or "visible_depts" in fields or "visible_roles" in fields:
         d.visibility, d.visible_depts, d.visible_roles = _norm_visibility(
             fields.get("visibility", d.visibility), fields.get("visible_depts", d.visible_depts),
-            fields.get("visible_roles", d.visible_roles))
+            fields.get("visible_roles", d.visible_roles), db=db)
     if fields.get("title"):
         d.title = fields["title"].strip()[:200]
     if "summary" in fields:

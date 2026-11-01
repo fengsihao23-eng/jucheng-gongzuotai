@@ -181,6 +181,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import api from '@/api/client'
@@ -267,6 +268,7 @@ const agingOption = computed(() => {
   }
 })
 
+useBusinessRefresh(() => tab.value === 'board' ? loadBoard() : loadPerf())
 onMounted(() => (tab.value === 'board' ? loadBoard() : loadPerf()))
 </script>
 

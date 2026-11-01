@@ -424,6 +424,7 @@ def confirm(action_id, user_id, approve=True):
 
 def _draft(op):
     name = op.id.rsplit(".", 1)[-1]
+    if op.module == 'imports' and name in {'upload', 'analyze'}: return True
     return op.source == "mcp" and op.mcp_code in {"fin.daily_expense_report", "fin.project_profit", "board.executive_daily", "kb.bid_check", "hr.attendance_summary", "market.weekly_report"} or any(
         word in name for word in ("generate", "export", "preview", "risk_check", "brief", "suggestion", "doc_", "analysis_ppt", "recruit_jd", "cand_interview", "cand_offer", "remap", "bid_check", "start_check")) or op.module == "tender"
 

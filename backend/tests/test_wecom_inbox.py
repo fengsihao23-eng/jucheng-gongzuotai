@@ -256,16 +256,17 @@ def test_zip_batch_import(client, login):
     old = next(b for b in r["batches"] if b["filename"] == "旧文件.doc")
     assert old["status"] == "pool" and "docx" in old["suggestion"]["reason"]
     # 再传同一个压缩包：里面的文件都已导入过
-    assert client.post("/api/v1/imports", files={"file": (f"我的资料{tag}.zip", z)}, headers=emp).json()["code"] == 40001
+    repeated = client.post("/api/v1/imports", files={"file": (f"我的资料{tag}.zip", z)}, headers=emp).json()
+    assert repeated['code'] == 40901 and repeated['data']['duplicate']
 
 
 def test_zip_rejects_bad_archives(client, login):
     emp = login(EMP)
     assert client.post("/api/v1/imports", files={"file": ("坏.zip", b"PK\x03\x04garbage")}, headers=emp).json()["code"] == 40001
     assert client.post("/api/v1/imports", files={"file": ("a.rar", b"Rar!")}, headers=emp).json()["code"] == 40001
-    many = _zip({f"f{i}.txt": f"内容{i} {uuid.uuid4().hex}".encode() for i in range(101)})
+    many = _zip({f"f{i}.txt": f"内容{i} {uuid.uuid4().hex}".encode() for i in range(501)})
     r = client.post("/api/v1/imports", files={"file": ("多.zip", many)}, headers=emp).json()
-    assert r["code"] == 40001 and "100" in r["message"]
+    assert r["code"] == 40001 and "500" in r["message"]
 
 
 def test_handler_action_notifies_uploader(client, login):

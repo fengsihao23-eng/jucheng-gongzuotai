@@ -211,6 +211,7 @@ import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { BUSINESS_LINES, datetime, money, num, percent, shortDate, wan, wanNum } from '@/utils/format'
 import { dailyOption, funnelOption, lineBarOption, submitOption } from './board-charts'
 
@@ -231,6 +232,7 @@ async function load(refresh = false) {
   loading.value = true
   try { ov.value = await api.get('/board/overview', { refresh: refresh ? 1 : 0 }) } finally { loading.value = false }
 }
+useBusinessRefresh(() => load(true))
 const go = (d) => d && router.push({ path: d.path, query: d.query || {} })
 
 // ---------- 对比 ----------

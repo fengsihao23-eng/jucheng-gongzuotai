@@ -68,6 +68,9 @@ LABELS = {
     "to_clean": "准备资料台账清洗预览", "to_kb": "将资料改为知识库文档", "to_pool": "交给授权整理人处理",
     "dismiss": "标记资料已处理但不入库", "withdraw": "撤回资料与关联入库结果", "retry": "重新识别未完成的资料",
     "doc_chunks": "分页读取知识文档完整正文与出处",
+    "analyze": "用小聚整理资料并准备具体导入清单",
+    "decision": "确认或拒绝小聚已整理的具体导入清单",
+    "limits": "读取资料上传和压缩包限额",
     "wecom_status": "检查本人企微资料接入状态", "wecom_search": "搜索本人的企微微盘和在线资料",
     "wecom_preview": "读取企微原件或在线正文生成本人预览", "wecom_source": "查询本人企微读取进度",
     "wecom_confirm": "确认保存企微快照并进入资料审核或台账清洗",
@@ -145,6 +148,7 @@ def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"
+    if module == 'imports' and name in {'upload', 'analyze'}: return 'execute'
     if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports"}: return "confirm"
     if module == "flows": return "confirm"
     if path.endswith("/remind") or (module == "hr" and ("/rule" in path or "/template" in path or "/alerts/scan" in path or "/candidates/" in path and path.endswith("/stage"))): return "confirm"

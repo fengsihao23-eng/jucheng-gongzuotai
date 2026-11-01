@@ -60,6 +60,10 @@ async function run(init) {
   let waitingForConfirmation = false, turns = 0, budgetExceeded = false
   const tools = init.tools.map(spec => ({...spec,label:spec.description.split('。')[0],executionMode:'sequential',execute:async(_id,args)=>{
     const result = await callHost(spec.name,args)
+    if(init.profile === 'intake' && Array.isArray(result._active_tools)) {
+      session.setActiveToolsByName(result._active_tools.filter(name=>init.tools.some(tool=>tool.name===name)))
+      delete result._active_tools
+    }
     if(result.requires_confirmation) waitingForConfirmation = true
     return {content:[{type:'text',text:JSON.stringify(result)}],details:{},terminate:result.requires_confirmation === true}
   }}))
@@ -75,17 +79,18 @@ async function run(init) {
   }
   const settingsManager = SettingsManager.inMemory({defaultTools:['+codemode','+tool_search'],compaction:{enabled:true,reserveTokens:16384,keepRecentTokens:20000},retry:{enabled:true,maxRetries:1,baseDelayMs:1000},cacheWarming:{enabled:false}})
   // Resource directories are trusted application resources, never the script workspace.
+  const intake = init.profile === 'intake'
   const resourceLoader = new DefaultResourceLoader({cwd:contextDir,agentDir,settingsManager,noContextFiles:true,noSkills:true,noPromptTemplates:true,noThemes:true,noExtensions:true,
-    additionalSkillPaths:[join(runtimeDir,'resources/skills')],additionalPromptTemplatePaths:[join(runtimeDir,'resources/prompts')],additionalExtensionPaths:[join(runtimeDir,'resources/extensions/company-policy.mjs')],
+    additionalSkillPaths:intake?[]:[join(runtimeDir,'resources/skills')],additionalPromptTemplatePaths:intake?[]:[join(runtimeDir,'resources/prompts')],additionalExtensionPaths:[join(runtimeDir,'resources/extensions/company-policy.mjs')],
     systemPrompt:init.system+'\n工作文件位于独立环境 /workspace；read、write、edit、bash 等工具只操作此环境。用户明确要求实际运行、重新读取或核验文件时，必须在本次调用工具执行，不能只沿用历史结果。网络与公司业务请调用已授权业务工具。',
-    extensionFactories:[policy,createCodemodeExtension({mode:'on'}),createToolSearchExtension(),createMcpExtension()]})
+    extensionFactories:intake?[policy]:[policy,createCodemodeExtension({mode:'on'}),createToolSearchExtension(),createMcpExtension()]})
   await resourceLoader.reload()
   if(resourceLoader.getExtensions().errors.length) throw new Error('Extension loading failed')
   const manager = SessionManager.open(sessionFile,init.sessionDir,contextDir)
   if(!existsSync(sessionFile) && init.history?.length) for(const message of init.history) manager.appendMessage(message.role === 'user'
     ? {role:'user',content:message.content,timestamp:Date.now()}
     : {role:'assistant',content:[{type:'text',text:message.content}],api:model.api,provider:model.provider,model:model.id,stopReason:'stop',timestamp:Date.now(),usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}})
-  ;({session} = await createAgentSession({cwd:contextDir,agentDir,modelRuntime,model,thinkingLevel:init.thinking || 'medium',noTools:'builtin',tools:[...tools.map(t=>t.name),'codemode','tool_search','mcp__*'],customTools:tools,resourceLoader,sessionManager:manager,settingsManager}))
+  ;({session} = await createAgentSession({cwd:contextDir,agentDir,modelRuntime,model,thinkingLevel:init.thinking || 'medium',noTools:'builtin',tools:intake?tools.map(t=>t.name):[...tools.map(t=>t.name),'codemode','tool_search','mcp__*'],customTools:tools,resourceLoader,sessionManager:manager,settingsManager}))
   session.agent.toolExecution = 'sequential'
   const finishTurn = session.agent.finishTurn
   session.agent.finishTurn = async(turn,signal)=>{

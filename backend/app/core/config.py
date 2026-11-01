@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     llm_vision_max_pages: int = 30  # 单份资料最多识别多少张图/页，超限明确拒绝而不是静默截断
     llm_vision_workers: int = 3  # 同一份资料并发转录的页数，控制网关压力
     llm_vision_timeout_seconds: int = 120
+    import_zip_max_bytes: int = 512 * 1024 * 1024
+    import_zip_max_files: int = 500
+    import_zip_max_expanded_bytes: int = 2 * 1024 * 1024 * 1024
+    import_agent_timeout_seconds: int = 600
 
     # 小聚：Pi 核心在独立 Node 进程运行；主机接入能力仅向平台管理员开放。
     assistant_host_access: bool = False

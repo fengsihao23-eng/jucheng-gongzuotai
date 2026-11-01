@@ -30,6 +30,7 @@ class WecomPreviewIn(BaseModel):
 class WecomConfirmIn(BaseModel):
     source_id: str = Field(min_length=32, max_length=32)
     purpose: str = Field(default="", max_length=255)
+    intelligent: bool = False
 
 
 @router.get("/wecom/status")
@@ -70,6 +71,9 @@ def wecom_confirm(body: WecomConfirmIn, request: Request, background_tasks: Back
                   p: Principal = User, db: Session = Depends(get_db)):
     from app.services import wecom_import_service as external
     batch, reused = external.confirm(db, p, body.source_id, body.purpose)
+    if body.intelligent and not reused:
+        batch.route, batch.status = 'agent', 'processing'
+        batch.suggestion = {**(batch.suggestion or {}), 'agent_mode': True}
     log_op(db, p.id, "import.wecom_capture", "import_batch", batch.id,
            after={"source_id": body.source_id, "reused": reused}, ip=client_ip(request))
     db.commit()
@@ -88,11 +92,12 @@ def _done(db: Session, p: Principal, b, action: str, request: Request, after: di
 
 @router.post("")
 async def upload(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...),
-                 purpose: str = Form(""), background: bool = Form(False), p: Principal = User,
+                 purpose: str = Form(""), background: bool = Form(False), intelligent: bool = Form(False), p: Principal = User,
                  db: Session = Depends(get_db)):
     """上传一个文件或一个 zip 压缩包（逐个文件建批次）。返回第一份的视图，并附 batches / skipped。"""
-    data = await file.read(svc.MAX_BYTES + 1)
-    r = svc.create_many(db, p, data, file.filename or "upload", purpose or None, deferred=background)
+    # Starlette spools large uploads to disk. ZIPs stay spooled and are decompressed one file at a time.
+    data = file.file if svc.ext_of(file.filename or '') == '.zip' else await file.read(svc.MAX_BYTES + 1)
+    r = svc.create_many(db, p, data, file.filename or "upload", purpose or None, deferred=background, intelligent=intelligent)
     for b in r["batches"]:
         log_op(db, p.id, "import.upload", "import_batch", b.id,
                after={"filename": b.filename, "kind": b.kind, "route": b.route, "status": b.status,
@@ -104,6 +109,41 @@ async def upload(request: Request, background_tasks: BackgroundTasks, file: Uplo
         # 扫描件/图片自动转后台逐页识别；普通文档仍在上传请求内完成分流。
         background_tasks.add_task(svc.process_many, p.id, queued)
     return ok({**views[0], "batches": views, "skipped": r["skipped"], "archive": r["archive"]})
+
+
+@router.get('/limits')
+def limits(p: Principal = User):
+    from app.core.config import settings
+    from app.services import pi_bridge
+    return ok({'file_bytes':svc.MAX_BYTES,'zip_bytes':settings.import_zip_max_bytes,
+               'zip_files':settings.import_zip_max_files,'zip_expanded_bytes':settings.import_zip_max_expanded_bytes,
+               'agent_available':pi_bridge.available(),'engine':'pi-coding-agent'})
+
+
+class DecisionIn(BaseModel):
+    version: str = Field(min_length=32, max_length=32)
+    approve: bool
+
+
+@router.post('/{batch_id}/analyze')
+def analyze(batch_id: int, request: Request, background_tasks: BackgroundTasks, p: Principal = User,
+            db: Session = Depends(get_db)):
+    from app.services import intake_agent
+    b = intake_agent.start(db,p,batch_id)
+    result = _done(db,p,b,'agent_start',request)
+    background_tasks.add_task(intake_agent.analyze,batch_id,p.id)
+    return ok(result)
+
+
+@router.post('/{batch_id}/decision')
+def decision(batch_id: int, body: DecisionIn, background_tasks: BackgroundTasks, p: Principal = User,
+             db: Session = Depends(get_db)):
+    from app.services import intake_agent
+    b,execute = intake_agent.decide(db,p,batch_id,body.version,body.approve)
+    db.commit()
+    result = svc.view(db,b,p)
+    if execute: background_tasks.add_task(intake_agent.execute_plan,batch_id,p.id,body.version)
+    return ok(result)
 
 
 @router.get("")

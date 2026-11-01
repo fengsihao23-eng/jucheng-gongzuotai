@@ -111,3 +111,10 @@ def test_sdk_compaction_persists_summary(tmp_path,provider):
     assert '已压缩' in frames[-1]['message']
     records=[json.loads(line) for line in (tmp_path/'session.jsonl').read_text().splitlines()]
     assert any(r['type']=='compaction' and 'fixture-compaction-summary' in r['summary'] for r in records)
+
+
+def test_intake_profile_exposes_only_draft_tools(tmp_path,provider):
+    provider[2].append({'text':'intake analysis complete'})
+    frames,_=run_pi(tmp_path,provider,profile='intake',workspaceEnabled=False,tools=[])
+    ready=next(f for f in frames if f['type']=='ready')
+    assert not ready['tools'] and not ready['skills']

@@ -74,6 +74,16 @@ def require_file_access(db, p, file):
         batch = db.scalar(select(ImportBatch).where(or_(ImportBatch.file_id == file.id,
             ImportBatch.suggestion["external_source"]["raw_file_id"].as_integer() == file.id)))
         allowed = can_view_batch(p, batch) if batch else p.is_admin or file.uploader_id == p.id
+        if not allowed and p.has_menu('contracts'):
+            from app.models import BizContract
+            from app.services import contract_service
+            contract = db.scalar(select(BizContract).where(BizContract.archive_file_id == file.id, BizContract.is_deleted.is_(False)))
+            if contract:
+                try:
+                    contract_service.get_contract(db, contract.id, p)
+                    allowed = True
+                except Exception:
+                    pass
     elif file.category in {"clean", "clean_report"}:
         allowed = bool(db.scalar(select(CleanJob.id).where(
             or_(CleanJob.file_id == file.id, CleanJob.report_file_id == file.id), clean_filter(p))))
