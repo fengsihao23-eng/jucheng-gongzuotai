@@ -347,7 +347,7 @@ watch(() => auth.profile?.id, (id, old) => { if (old && id !== old) { dispose();
 <style scoped>
 .xj { --side-w: 252px; --jc-ink: #202123; --jc-ink-2: #55565b; --jc-ink-3: #77787e; --jc-line: #e5e5e5; --jc-line-2: #ededed; --jc-surface-2: #f7f7f8; display: flex; height: 100vh; height: 100dvh; overflow: hidden; background: #fff; color: var(--jc-ink); -webkit-font-smoothing: antialiased; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.xj :focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 3px; }
+.xj :focus-visible:not(input):not(textarea) { outline: 2px solid var(--jc-brand); outline-offset: 3px; }
 /* ---------- 侧栏 ---------- */
 .side { width: var(--side-w); flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; background: #f8f8f8; border-right: 1px solid #f0f0f0; transition: width .2s, padding .2s, opacity .2s; overflow: hidden; }
 .side-collapsed .side { width: 0; padding-left: 0; padding-right: 0; opacity: 0; border-right: 0; }
