@@ -4,6 +4,7 @@
     <PageHeader eyebrow="营销管控部 · 台账中心" title="商机信息"
       desc="企微商机工单审批通过后自动登记，支持人工补录与 Excel 清洗导入；阶段推进全程留痕。">
       <el-button @click="exportXlsx">导出 xlsx</el-button>
+      <el-button v-if="auth.hasMenu('market') || auth.hasMenu('opportunities')" @click="openWecom">企业微信客户</el-button>
       <el-button v-if="auth.can('opp:write')" type="primary" @click="openEdit()">新增商机</el-button>
     </PageHeader>
 
@@ -206,6 +207,40 @@
         <el-button v-else type="primary" @click="goContracts">前往合同台账</el-button>
       </template>
     </el-dialog>
+
+    <!-- 企业微信客户（只读）→ 登记商机 -->
+    <el-drawer v-model="wecomOpen" title="企业微信客户" size="600px" @open="loadWecom">
+      <div v-loading="wecom.loading">
+        <el-alert v-if="wecom.message" type="warning" :closable="false" show-icon :title="wecom.message" />
+        <template v-else>
+          <div class="jc-row mb-12">
+            <el-select v-model="wecom.userid" placeholder="选择成员" filterable style="width: 220px" @change="loadCustomers">
+              <el-option v-for="u in wecom.members" :key="u" :label="u" :value="u" />
+            </el-select>
+            <span class="jc-small jc-muted">共 {{ wecom.items.length }} 位客户 · 只读，登记后进入商机台账</span>
+          </div>
+          <el-table :data="wecom.items" size="small" max-height="520" empty-text="该成员暂无可服务的客户">
+            <el-table-column label="客户" min-width="180">
+              <template #default="{ row }">
+                <b>{{ row.name }}</b>
+                <div v-if="row.corp_name" class="jc-small jc-muted">{{ row.corp_name }}</div>
+                <div v-if="row.tags?.length" class="jc-small jc-muted">{{ row.tags.join('、') }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="备注" min-width="140">
+              <template #default="{ row }">{{ row.remark || row.description || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" align="right">
+              <template #default="{ row }">
+                <el-button v-if="auth.can('opp:write')" size="small" link type="primary" @click="toOpportunity(row)">
+                  登记商机
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -316,8 +351,47 @@ function openEdit(row) {
     : { stage: 'lead', business_line: 'XY', amount: null, owner_id: auth.profile?.id }
   editOpen.value = true
 }
-async function save() {
-  await formRef.value.validate()
+// ---------- 企业微信客户 ----------
+const wecomOpen = ref(false)
+const wecom = reactive({ configured: false, message: '', members: [], userid: '', items: [], loading: false })
+
+async function openWecom() {
+  wecomOpen.value = true
+}
+
+async function loadWecom() {
+  wecom.loading = true
+  try {
+    const data = await api.get('/wecom-external/overview')
+    wecom.members = data.members || []
+    wecom.userid = data.default || wecom.members[0] || ''
+    wecom.message = data.configured ? '' : data.message
+    if (wecom.userid) await loadCustomers()
+  } finally {
+    wecom.loading = false
+  }
+}
+
+async function loadCustomers() {
+  if (!wecom.userid) return
+  wecom.loading = true
+  try {
+    const data = await api.get('/wecom-external/customers', { userid: wecom.userid })
+    wecom.items = data.items || []
+  } finally {
+    wecom.loading = false
+  }
+}
+
+function toOpportunity(row) {
+  wecomOpen.value = false
+  openEdit()
+  form.value.name = `${row.name} 商机`
+  form.value.customer_name = row.name
+  form.value.remark = `企业微信客户 ${row.external_userid}${row.remark ? ` · ${row.remark}` : ''}`
+}
+
+async function save() {  await formRef.value.validate()
   saving.value = true
   try {
     const { id, ...body } = form.value

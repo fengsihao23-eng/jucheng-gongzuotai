@@ -10,6 +10,12 @@
             <el-button v-if="auth.can('hr:attendance')" type="primary" :disabled="!file" :loading="importing" @click="doImport">上传并核对</el-button>
           </div>
         </div>
+        <div class="pull-row">
+          <span class="jc-small jc-muted">也可以直接从企业微信打卡拉取（原始打卡，不含请假审批）</span>
+          <el-button v-if="auth.can('hr:attendance')" size="small" :loading="pulling" @click="pullWecom">
+            从企业微信拉取
+          </el-button>
+        </div>
       </Panel>
       <Panel title="判定规则" sub="与《考勤管理制度》一致，可在线修改">
         <template #extra><el-button v-if="auth.can('hr:attendance')" link type="primary" @click="openRule">配置</el-button></template>
@@ -138,6 +144,7 @@ const file = ref(null)
 const ub = ref()
 const forcePeriod = ref('')
 const importing = ref(false)
+const pulling = ref(false)
 const sub = ref('exc')
 const types = ref([])
 const kw = ref('')
@@ -175,6 +182,24 @@ async function load() {
 }
 async function loadRule() { ruleInfo.value = await api.get('/hr/attendance/rule') }
 async function loadPeriods() { periods.value = await api.get('/hr/attendance/periods') }
+
+async function pullWecom() {
+  const target = forcePeriod.value || period.value
+  if (!target) {
+    ElMessage.warning('请先填写或选择考勤期间')
+    return
+  }
+  pulling.value = true
+  try {
+    const r = await api.post('/hr/attendance/pull-wecom', { period: target })
+    ElMessage.success(`已从企业微信拉取 ${target}：${r.pull.records} 条明细，异常 ${r.pull.exception_rows} 条`)
+    period.value = target
+    await loadPeriods()
+    await load()
+  } finally {
+    pulling.value = false
+  }
+}
 
 async function doImport() {
   importing.value = true
@@ -219,6 +244,8 @@ onMounted(() => { loadRule(); loadPeriods(); load() })
 
 <style scoped>
 .up { align-items: stretch; }
+.pull-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
+  padding-top: 10px; border-top: 1px dashed var(--jc-line-2); }
 .rules { margin: 0; padding-left: 16px; color: var(--jc-ink-2); line-height: 1.7; }
 .metric { border: 1px solid var(--jc-line-2); border-radius: var(--jc-radius-sm); padding: 10px 14px; background: var(--jc-surface-2); }
 .metric .v { font-size: 22px; font-weight: 600; margin-top: 4px; }

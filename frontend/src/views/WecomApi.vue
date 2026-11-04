@@ -32,6 +32,19 @@
       </div>
     </Panel>
 
+    <Panel class="mt-16" title="审批模板" sub="工作台发起报销/合同审批时使用的企微模板 ID，留空则该类审批不可发起">
+      <div class="approvals">
+        <div v-for="row in approvals" :key="row.kind" class="approval-row">
+          <div class="approval-name">
+            <b>{{ row.name }}</b>
+            <StatusPill :text="row.configured ? '已配置' : '未配置'" :tone="row.configured ? 'up' : 'warn'" />
+          </div>
+          <el-input v-model="row.template_id" size="small" placeholder="企业微信审批模板 ID（如 3Tka…）" />
+          <el-button size="small" type="primary" plain :loading="savingApproval" @click="saveApproval">保存</el-button>
+        </div>
+      </div>
+    </Panel>
+
     <div class="console mt-16">
       <Panel class="tree-panel" :padding="false">
         <div class="tree-search">
@@ -157,6 +170,8 @@ import { datetime } from '@/utils/format'
 
 const stats = ref({})
 const credentials = ref([])
+const approvals = ref([])
+const savingApproval = ref(false)
 const treeData = ref([])
 const treeRef = ref(null)
 const keyword = ref('')
@@ -185,10 +200,13 @@ function buildTree(nodes) {
 }
 
 async function loadAll() {
-  const [overview, catalog] = await Promise.all([api.get('/wecom-console/overview'), api.get('/wecom-console/catalog')])
+  const [overview, catalog, kinds] = await Promise.all([
+    api.get('/wecom-console/overview'), api.get('/wecom-console/catalog'), api.get('/wecom-approval/kinds'),
+  ])
   stats.value = overview.stats
   credentials.value = overview.credentials
   recent.value = overview.recent
+  approvals.value = kinds
   treeData.value = buildTree(catalog.tree)
   if (!item.value) {
     const first = catalog.tree.find((s) => s.section === '通讯录管理') || catalog.tree[0]
@@ -245,8 +263,21 @@ async function saveCred() {
     saving.value = false
   }
 }
-async function testCred(c) {
-  testing.value = c.name
+async function saveApproval() {
+  savingApproval.value = true
+  try {
+    const payload = {}
+    for (const row of approvals.value) {
+      payload[row.kind] = { name: row.name, template_id: row.template_id || '' }
+    }
+    approvals.value = await api.put('/wecom-approval/config', payload)
+    ElMessage.success('已保存审批模板')
+  } finally {
+    savingApproval.value = false
+  }
+}
+
+async function testCred(c) {  testing.value = c.name
   try {
     const res = await api.post(`/wecom-console/credentials/${c.name}/test`)
     if (res.ok) ElMessage.success('凭证有效')
@@ -294,6 +325,9 @@ onMounted(loadAll)
 
 <style scoped>
 .creds { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.approvals { display: grid; gap: 10px; }
+.approval-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 72px; gap: 10px; align-items: center; }
+.approval-name { display: flex; align-items: center; gap: 8px; }
 .cred { border: 1px solid var(--jc-line-2); border-radius: var(--jc-radius); padding: 12px 14px; background: var(--jc-bg-2); }
 .cred.on { border-color: color-mix(in srgb, var(--jc-up) 35%, var(--jc-line-2)); }
 .cred-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }

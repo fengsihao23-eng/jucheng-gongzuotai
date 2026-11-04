@@ -14,6 +14,7 @@
         <el-button v-if="auth.hasMenu('receivables')" @click="$router.push({ path: '/receivables', query: { keyword: c.contract_no, contract_no: c.contract_no } })">查看开票与收款</el-button>
         <el-button v-if="c.perms?.payment && !auth.can('receivables:receipt')" @click="payOpen = true">登记回款</el-button>
         <el-button v-if="c.perms?.write" @click="editOpen = true">编辑</el-button>
+        <el-button v-if="c.perms?.write" @click="approvalOpen = true">发起合同审批</el-button>
         <el-button v-if="c.perms?.archive" type="primary" @click="archiveOpen = true">{{ c.archived ? '上传新版本' : '合同归档' }}</el-button>
       </PageHeader>
 
@@ -166,6 +167,8 @@
     </el-dialog>
 
     <ContractForm v-model="editOpen" :contract="c" @saved="load" />
+
+    <WecomApprovalDialog v-model="approvalOpen" kind="contract" title="合同审批" :defaults="approvalDefaults" />
   </div>
 </template>
 
@@ -178,6 +181,7 @@ import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { datetime, filesize, money, num, percent, wanNum } from '@/utils/format'
 import ContractForm from './contract-form.vue'
+import WecomApprovalDialog from '@/components/WecomApprovalDialog.vue'
 
 const auth = useAuth()
 
@@ -187,6 +191,15 @@ const route = useRoute()
 const c = ref(null)
 const loading = ref(false)
 const editOpen = ref(false)
+const approvalOpen = ref(false)
+const approvalDefaults = computed(() => ({
+  customer: c.value?.customer_name || '',
+  name: c.value?.name || c.value?.contract_no || '',
+  amount: c.value?.amount || '',
+  date: c.value?.sign_date || '',
+  project: c.value?.project?.name || '',
+  owner: c.value?.owner_name || '',
+}))
 
 async function load() {
   loading.value = true

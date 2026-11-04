@@ -669,7 +669,7 @@ def attendance_summary(db: Session, period: str | None = None) -> dict:
         raise BizError(40001, "period 格式应为 YYYY-MM")
     imp = latest_import(db, period)
     if not imp:
-        raise BizError(40401, f"{period} 尚未导入考勤 Excel，请先在人事中心「考勤核对」上传企微考勤导出文件")
+        raise BizError(40401, f"{period} 尚未导入考勤，请先在人事中心「考勤核对」上传企微考勤导出文件，或从企业微信打卡拉取")
     rows = summary_rows(db, period)
     excs = exception_rows(db, period)
     first = db.scalar(select(HrAttendanceSummary).where(HrAttendanceSummary.period == period).limit(1))

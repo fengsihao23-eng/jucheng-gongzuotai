@@ -3,6 +3,7 @@
     <PageHeader eyebrow="财务运营" title="报销归集" desc="企微报销审批通过后按「所属项目」自动归集；缺失或无效项目进入待归集池，由财务补充归集（全程留痕）。公共费用单列，不摊入项目毛利。">
       <el-date-picker v-model="month" type="month" value-format="YYYY-MM" :clearable="false" style="width: 130px" @change="loadStats" />
       <el-button @click="exportXlsx">导出 xlsx</el-button>
+      <el-button type="primary" @click="approvalOpen = true">发起企微报销</el-button>
     </PageHeader>
 
     <div class="jc-grid c4">
@@ -173,6 +174,8 @@
         <el-button type="primary" @click="openAllocate([detail.data])">{{ detail.data.status === 2 ? '补充归集' : '修改归集' }}</el-button>
       </template>
     </el-drawer>
+
+    <WecomApprovalDialog v-model="approvalOpen" kind="expense" title="费用报销" @submitted="load(1)" />
   </div>
 </template>
 
@@ -182,6 +185,7 @@ import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { useRoute } from 'vue-router'
 import api from '@/api/client'
+import WecomApprovalDialog from '@/components/WecomApprovalDialog.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, money, wan, wanNum } from '@/utils/format'
 import { PALETTE, baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
@@ -192,6 +196,7 @@ const STATUS_OPTS = [{ label: '全部已审批', value: 'approved' }, { label: '
 const VIA = { callback: '企微回调', reconcile: '兜底对账', mock: '模拟' }
 
 const month = ref(dayjs().format('YYYY-MM'))
+const approvalOpen = ref(false)
 const stats = ref({})
 const statsLoading = ref(false)
 const kpi = computed(() => stats.value.kpi || {})

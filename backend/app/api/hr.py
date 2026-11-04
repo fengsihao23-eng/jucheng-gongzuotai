@@ -96,6 +96,20 @@ async def import_attendance(file: UploadFile = File(...), period: str | None = F
     return ok(att.attendance_summary(db, imp.period))
 
 
+@router.post("/attendance/pull-wecom")
+def pull_wecom_attendance(period: str = Body(embed=True), request: Request = None,
+                          p: Principal = Depends(require_button("hr:attendance")),
+                          db: Session = Depends(get_db)):
+    """从企业微信打卡拉取本期原始记录，替代手工导出 Excel。"""
+    from app.services import wecom_checkin_service
+    result = wecom_checkin_service.pull(db, period, p.id)
+    log_op(db, p.id, "hr.attendance_pull_wecom", "hr_attendance_import", result["import_id"],
+           after={"period": period, "records": result["records"], "exception_rows": result["exception_rows"]},
+           ip=client_ip(request))
+    db.commit()
+    return ok({**att.attendance_summary(db, period), "pull": result})
+
+
 @router.post("/attendance/recheck")
 def recheck(period: str = Body(embed=True), p: Principal = Depends(require_button("hr:attendance")),
             db: Session = Depends(get_db)):

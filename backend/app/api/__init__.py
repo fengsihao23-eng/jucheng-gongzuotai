@@ -12,6 +12,10 @@ MODULES = [
     "wecom_personal",
     # 企业微信接口中心（官方全量接口目录、凭证与在线调用，仅管理员）
     "wecom_console",
+    # 企业微信审批提交（按模板控件发起报销/合同审批）
+    "wecom_approval",
+    # 企业微信客户联系（只读，供市场部登记商机）
+    "wecom_external",
     # 总办 / 台账
     "portal", "board", "contracts", "submissions",
     # 财务
