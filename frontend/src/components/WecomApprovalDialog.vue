@@ -98,7 +98,8 @@ async function load() {
     detail.value = data
     for (const control of data.controls) {
       const preset = props.defaults[control.title] ?? props.defaults[ALIAS[control.title]]
-      if (preset !== undefined && preset !== null && preset !== '') form[control.title] = preset
+      if (preset === undefined || preset === null || preset === '') continue
+      form[control.title] = ['Money', 'Number'].includes(control.control) ? Number(preset) : preset
     }
   } catch (e) {
     error.value = e.message
