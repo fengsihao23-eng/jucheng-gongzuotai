@@ -11,6 +11,9 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 INTEGRATION_KEYS = frozenset({
     "wecom_corp_id", "wecom_agent_id", "wecom_secret", "wecom_callback_token", "wecom_callback_aes_key",
+    # 企业微信按能力区分凭证：通讯录同步、客户联系、微信客服、打卡各需独立 Secret
+    "wecom_contacts_secret", "wecom_external_secret", "wecom_kf_secret", "wecom_checkin_secret",
+    "wecom_meeting_secret", "wecom_doc_secret", "wecom_webhook_key",
     "lemoncloud_app_id", "lemoncloud_app_secret", "data_source_overrides",
 })
 
@@ -40,6 +43,7 @@ class Settings(BaseSettings):
     file_link_ttl_seconds: int = 3600  # PRD FR-10-04：临时链接 1h
 
     scheduler_enabled: bool = True
+    approval_reconcile_enabled: bool = True  # 企微审批接口未授权时可关闭兜底对账，避免每 10 分钟失败告警
     timezone: str = "Asia/Shanghai"
 
     # 企业微信
@@ -48,6 +52,14 @@ class Settings(BaseSettings):
     wecom_secret: str = ""
     wecom_callback_token: str = ""
     wecom_callback_aes_key: str = ""
+    # 按能力区分的额外凭证；留空表示该能力未开通，接口中心会提示配置
+    wecom_contacts_secret: str = ""  # 通讯录同步助手（成员/部门写操作）
+    wecom_external_secret: str = ""  # 客户联系（外部联系人、客户群）
+    wecom_kf_secret: str = ""        # 微信客服
+    wecom_checkin_secret: str = ""   # 打卡（考勤）
+    wecom_meeting_secret: str = ""   # 会议
+    wecom_doc_secret: str = ""       # 文档/微盘
+    wecom_webhook_key: str = ""      # 群机器人 webhook key（独立于应用凭证）
     wecom_api_base: str = "https://qyapi.weixin.qq.com"
 
     # 柠檬云

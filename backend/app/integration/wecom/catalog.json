@@ -1,0 +1,4682 @@
+[
+ {
+  "name": "获取应用的可见范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/agent/get_perm_list",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/agent"
+  ],
+  "doc_path": "a10061228",
+  "permission": ""
+ },
+ {
+  "name": "获取互联企业部门列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/department/list",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/department"
+  ],
+  "doc_path": "a10061232",
+  "permission": ""
+ },
+ {
+  "name": "发送应用消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/message/send",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/message"
+  ],
+  "doc_path": "a10061358",
+  "permission": ""
+ },
+ {
+  "name": "获取互联企业成员详细信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/user/get",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/user"
+  ],
+  "doc_path": "a10061229",
+  "permission": ""
+ },
+ {
+  "name": "获取互联企业部门成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/user/simplelist",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/user"
+  ],
+  "doc_path": "a10061230",
+  "permission": ""
+ },
+ {
+  "name": "获取互联企业部门成员详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/linkedcorp/user/list",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "linkedcorp/user"
+  ],
+  "doc_path": "a10061231",
+  "permission": ""
+ },
+ {
+  "name": "获取下级企业的小程序session",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/miniprogram/transfer_session",
+  "section": "企业互联",
+  "trail": [
+   "企业互联",
+   "miniprogram/transfer_session"
+  ],
+  "doc_path": "a10061449",
+  "permission": ""
+ },
+ {
+  "name": "收款商户号管理 新增商户号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/addmerchant",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/addmerchant"
+  ],
+  "doc_path": "a10061442",
+  "permission": ""
+ },
+ {
+  "name": "收款商户号管理 删除商户号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/delmerchant",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/delmerchant"
+  ],
+  "doc_path": "a10061444",
+  "permission": ""
+ },
+ {
+  "name": "获取对外收款记录",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/get_bill_list",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/get_bill_list"
+  ],
+  "doc_path": "a10061446",
+  "permission": ""
+ },
+ {
+  "name": "获取收款项目的商户单号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/get_payment_info",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/get_payment_info"
+  ],
+  "doc_path": "a52580183",
+  "permission": ""
+ },
+ {
+  "name": "收款商户号管理 查询商户号详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/getmerchant",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/getmerchant"
+  ],
+  "doc_path": "a10061443",
+  "permission": ""
+ },
+ {
+  "name": "收款商户号管理 设置商户号使用范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalpay/set_mch_use_scope",
+  "section": "企业支付",
+  "trail": [
+   "企业支付",
+   "externalpay/set_mch_use_scope"
+  ],
+  "doc_path": "a10061445",
+  "permission": ""
+ },
+ {
+  "name": "取消预约会议",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/meeting/cancel",
+  "section": "会议",
+  "trail": [
+   "会议",
+   "meeting/cancel"
+  ],
+  "doc_path": "a10061405",
+  "permission": ""
+ },
+ {
+  "name": "创建预约会议",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/meeting/create",
+  "section": "会议",
+  "trail": [
+   "会议",
+   "meeting/create"
+  ],
+  "doc_path": "a10061403",
+  "permission": ""
+ },
+ {
+  "name": "获取会议详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/meeting/get_info",
+  "section": "会议",
+  "trail": [
+   "会议",
+   "meeting/get_info"
+  ],
+  "doc_path": "a10061407",
+  "permission": ""
+ },
+ {
+  "name": "获取成员会议ID列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/meeting/get_user_meetingid",
+  "section": "会议",
+  "trail": [
+   "会议",
+   "meeting/get_user_meetingid"
+  ],
+  "doc_path": "a10061406",
+  "permission": ""
+ },
+ {
+  "name": "修改预约会议",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/meeting/update",
+  "section": "会议",
+  "trail": [
+   "会议",
+   "meeting/update"
+  ],
+  "doc_path": "a10061404",
+  "permission": ""
+ },
+ {
+  "name": "会议室管理-删除会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/del",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061388",
+  "permission": ""
+ },
+ {
+  "name": "会议室管理-查询会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/list",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061386",
+  "permission": ""
+ },
+ {
+  "name": "会议室管理-添加会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/add",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061385",
+  "permission": ""
+ },
+ {
+  "name": "会议室管理-编辑会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/edit",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061387",
+  "permission": ""
+ },
+ {
+  "name": "会议室预定管理 取消预定会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/cancel_book",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061391",
+  "permission": ""
+ },
+ {
+  "name": "会议室预定管理 查询会议室的预定信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/get_booking_info",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061389",
+  "permission": ""
+ },
+ {
+  "name": "会议室预定管理 根据会议ID查询会议室的预定信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/get_booking_info_by_meeting_id",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a52950223",
+  "permission": ""
+ },
+ {
+  "name": "会议室预定管理 预定会议室",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/meetingroom/book",
+  "section": "会议室",
+  "trail": [
+   "会议室",
+   "oa/meetingroom"
+  ],
+  "doc_path": "a10061390",
+  "permission": ""
+ },
+ {
+  "name": "获取会话同意情况 群聊请求",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/msgaudit/check_room_agree",
+  "section": "会话内容存档",
+  "trail": [
+   "会话内容存档",
+   "msgaudit/check_room_agree"
+  ],
+  "doc_path": "a10061458",
+  "permission": ""
+ },
+ {
+  "name": "获取会话同意情况 单聊请求",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/msgaudit/check_single_agree",
+  "section": "会话内容存档",
+  "trail": [
+   "会话内容存档",
+   "msgaudit/check_single_agree"
+  ],
+  "doc_path": "a10061459",
+  "permission": ""
+ },
+ {
+  "name": "获取会话内容存档开启成员列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/msgaudit/get_permit_user_list",
+  "section": "会话内容存档",
+  "trail": [
+   "会话内容存档",
+   "msgaudit/get_permit_user_list"
+  ],
+  "doc_path": "a10061457",
+  "permission": ""
+ },
+ {
+  "name": "获取会话内容 获取机器人信息",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/msgaudit/get_robot_info",
+  "section": "会话内容存档",
+  "trail": [
+   "会话内容存档",
+   "msgaudit/get_robot_info"
+  ],
+  "doc_path": "a10061461",
+  "permission": ""
+ },
+ {
+  "name": "获取会话内容存档内部群信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/msgaudit/groupchat/get",
+  "section": "会话内容存档",
+  "trail": [
+   "会话内容存档",
+   "msgaudit/groupchat"
+  ],
+  "doc_path": "a10061460",
+  "permission": ""
+ },
+ {
+  "name": "获取公费电话拨打记录",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/dial/get_dial_record",
+  "section": "公费电话",
+  "trail": [
+   "公费电话",
+   "dial/get_dial_record"
+  ],
+  "doc_path": "a10061437",
+  "permission": ""
+ },
+ {
+  "name": "发起语音电话",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/pstncc/call",
+  "section": "公费电话",
+  "trail": [
+   "公费电话",
+   "pstncc/call"
+  ],
+  "doc_path": "a10061392",
+  "permission": ""
+ },
+ {
+  "name": "获取接听状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/pstncc/getstates",
+  "section": "公费电话",
+  "trail": [
+   "公费电话",
+   "pstncc/getstates"
+  ],
+  "doc_path": "a10061393",
+  "permission": ""
+ },
+ {
+  "name": "获取审批模板详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/gettemplatedetail",
+  "section": "办公",
+  "trail": [
+   "办公",
+   "oa/gettemplatedetail"
+  ],
+  "doc_path": "a10061373",
+  "permission": ""
+ },
+ {
+  "name": "获取企业微信API域名IP段",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/get_api_domain_ip",
+  "section": "基础",
+  "trail": [
+   "基础",
+   "get_api_domain_ip"
+  ],
+  "doc_path": "92520",
+  "permission": "无限定。 返回结果： <span class=\"tok"
+ },
+ {
+  "name": "回调配置-获取企业微信服务器的ip段",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/getcallbackip",
+  "section": "基础",
+  "trail": [
+   "基础",
+   "getcallbackip"
+  ],
+  "doc_path": "92521",
+  "permission": "无限定。 返回结果： <span class=\"tok"
+ },
+ {
+  "name": "获取access_token",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
+  "section": "基础",
+  "trail": [
+   "基础",
+   "gettoken"
+  ],
+  "doc_path": "91039",
+  "permission": "每个应用有独立的secret，获取到的access_token只能本应用使用，所以每个应用的access_token应该分开来获取 返回结果： {<"
+ },
+ {
+  "name": "提交审批申请",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/applyevent",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/applyevent"
+  ],
+  "doc_path": "a10061374",
+  "permission": ""
+ },
+ {
+  "name": "创建审批模板",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/approval/create_template",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/approval"
+  ],
+  "doc_path": "a52945018",
+  "permission": ""
+ },
+ {
+  "name": "更新审批模板",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/approval/update_template",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/approval"
+  ],
+  "doc_path": "a52945782",
+  "permission": ""
+ },
+ {
+  "name": "获取审批申请详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/getapprovaldetail",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/getapprovaldetail"
+  ],
+  "doc_path": "a10061376",
+  "permission": ""
+ },
+ {
+  "name": "批量获取审批单号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/getapprovalinfo",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/getapprovalinfo"
+  ],
+  "doc_path": "a10061375",
+  "permission": ""
+ },
+ {
+  "name": "修改成员假期余额",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/vacation/setoneuserquota",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/vacation"
+  ],
+  "doc_path": "a10061380",
+  "permission": ""
+ },
+ {
+  "name": "获取企业假期管理配置",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/vacation/getcorpconf",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/vacation"
+  ],
+  "doc_path": "a10061378",
+  "permission": ""
+ },
+ {
+  "name": "获取成员假期余额",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/vacation/getuservacationquota",
+  "section": "审批",
+  "trail": [
+   "审批",
+   "oa/vacation"
+  ],
+  "doc_path": "a10061379",
+  "permission": ""
+ },
+ {
+  "name": "客户联系「联系我」管理-配置客户联系「联系我」方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_contact_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_contact_way"
+  ],
+  "doc_path": "a10061240",
+  "permission": ""
+ },
+ {
+  "name": "管理企业标签-添加企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_corp_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_corp_tag"
+  ],
+  "doc_path": "a10061258",
+  "permission": ""
+ },
+ {
+  "name": "管理聊天敏感词-新建敏感词规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_intercept_rule",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_intercept_rule"
+  ],
+  "doc_path": "a10061314",
+  "permission": ""
+ },
+ {
+  "name": "企业发表内容到客户的朋友圈-创建发表任务",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_moment_task",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_moment_task"
+  ],
+  "doc_path": "a10061284",
+  "permission": ""
+ },
+ {
+  "name": "创建企业群发",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_msg_template",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_msg_template"
+  ],
+  "doc_path": "a10061297",
+  "permission": ""
+ },
+ {
+  "name": "创建商品图册",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_product_album",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_product_album"
+  ],
+  "doc_path": "a10061309",
+  "permission": ""
+ },
+ {
+  "name": "管理企业规则组下的客户标签-为指定规则组创建企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_strategy_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/add_strategy_tag"
+  ],
+  "doc_path": "a10061262",
+  "permission": ""
+ },
+ {
+  "name": "批量获取客户详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/batch/get_by_user",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/batch"
+  ],
+  "doc_path": "a10061248",
+  "permission": ""
+ },
+ {
+  "name": "停止企业群发",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/cancel_groupmsg_send",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/cancel_groupmsg_send"
+  ],
+  "doc_path": "a52472166",
+  "permission": ""
+ },
+ {
+  "name": "停止发表企业朋友圈",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/cancel_moment_task",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/cancel_moment_task"
+  ],
+  "doc_path": "a52464405",
+  "permission": ""
+ },
+ {
+  "name": "客户联系「联系我」管理-结束临时会话",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/close_temp_chat",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/close_temp_chat"
+  ],
+  "doc_path": "a10061245",
+  "permission": ""
+ },
+ {
+  "name": "外部联系人openid转换",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/convert_to_openid",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/convert_to_openid"
+  ],
+  "doc_path": "a10061471",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-创建新的规则组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/create",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061253",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-删除规则组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/del",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061255",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-编辑规则组及其管理范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/edit",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061254",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-获取规则组列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061250",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-获取规则组管理范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/get_range",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061252",
+  "permission": ""
+ },
+ {
+  "name": "客户联系规则组管理-获取规则组详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/customer_strategy/get",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/customer_strategy"
+  ],
+  "doc_path": "a10061251",
+  "permission": ""
+ },
+ {
+  "name": "删除企业已配置的「联系我」方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/del_contact_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/del_contact_way"
+  ],
+  "doc_path": "a10061278",
+  "permission": ""
+ },
+ {
+  "name": "管理企业标签-删除企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/del_corp_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/del_corp_tag"
+  ],
+  "doc_path": "a10061260",
+  "permission": ""
+ },
+ {
+  "name": "管理聊天敏感词 删除敏感词规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/del_intercept_rule",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/del_intercept_rule"
+  ],
+  "doc_path": "a10061318",
+  "permission": ""
+ },
+ {
+  "name": "管理企业规则组下的客户标签-删除指定规则组下的企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/del_strategy_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/del_strategy_tag"
+  ],
+  "doc_path": "a10061264",
+  "permission": ""
+ },
+ {
+  "name": "删除商品图册",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/delete_product_album",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/delete_product_album"
+  ],
+  "doc_path": "a10061311",
+  "permission": ""
+ },
+ {
+  "name": "管理企业标签-编辑企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/edit_corp_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/edit_corp_tag"
+  ],
+  "doc_path": "a10061259",
+  "permission": ""
+ },
+ {
+  "name": "管理企业规则组下的客户标签-编辑指定规则组下的企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/edit_strategy_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/edit_strategy_tag"
+  ],
+  "doc_path": "a10061263",
+  "permission": ""
+ },
+ {
+  "name": "external_userid转换",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/from_service_external_userid",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/from_service_external_userid"
+  ],
+  "doc_path": "a52205214",
+  "permission": ""
+ },
+ {
+  "name": "获取客户详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get"
+  ],
+  "doc_path": "a10061247",
+  "permission": ""
+ },
+ {
+  "name": "客户联系「联系我」管理-获取企业已配置的「联系我」方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_contact_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_contact_way"
+  ],
+  "doc_path": "a10061242",
+  "permission": ""
+ },
+ {
+  "name": "管理企业标签-获取企业标签库",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_corp_tag_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_corp_tag_list"
+  ],
+  "doc_path": "a10061257",
+  "permission": ""
+ },
+ {
+  "name": "获取配置了客户联系功能的成员列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_follow_user_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_follow_user_list"
+  ],
+  "doc_path": "a10061239",
+  "permission": ""
+ },
+ {
+  "name": "获取企业的全部群发记录-获取群发记录列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_groupmsg_list_v2",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_groupmsg_list_v2"
+  ],
+  "doc_path": "a10061303",
+  "permission": ""
+ },
+ {
+  "name": "获取企业的全部群发记录-获取企业群发成员执行结果",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_groupmsg_send_result",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_groupmsg_send_result"
+  ],
+  "doc_path": "a10061305",
+  "permission": ""
+ },
+ {
+  "name": "获取企业的全部群发记录-获取群发成员发送任务列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_groupmsg_task",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_groupmsg_task"
+  ],
+  "doc_path": "a10061304",
+  "permission": ""
+ },
+ {
+  "name": "管理聊天敏感词-获取敏感词规则详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_intercept_rule",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_intercept_rule"
+  ],
+  "doc_path": "a10061316",
+  "permission": ""
+ },
+ {
+  "name": "管理聊天敏感词-获取敏感词规则列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_intercept_rule_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_intercept_rule_list"
+  ],
+  "doc_path": "a10061315",
+  "permission": ""
+ },
+ {
+  "name": "获取客户朋友圈全部的发表记录-获取客户朋友圈的互动数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_comments",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_comments"
+  ],
+  "doc_path": "a10061290",
+  "permission": ""
+ },
+ {
+  "name": "获取客户朋友圈全部的发表记录-获取客户朋友圈发表时选择的可见范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_customer_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_customer_list"
+  ],
+  "doc_path": "a10061288",
+  "permission": ""
+ },
+ {
+  "name": "获取客户朋友圈全部的发表记录-获取企业全部的发表列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_list"
+  ],
+  "doc_path": "a10061286",
+  "permission": ""
+ },
+ {
+  "name": "获取客户朋友圈全部的发表记录-获取客户朋友圈发表后的可见客户列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_send_result",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_send_result"
+  ],
+  "doc_path": "a10061289",
+  "permission": ""
+ },
+ {
+  "name": "获取客户朋友圈全部的发表记录-获取客户朋友圈企业发表的列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_task",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_task"
+  ],
+  "doc_path": "a10061287",
+  "permission": ""
+ },
+ {
+  "name": "企业发表内容到客户的朋友圈-获取任务创建结果",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_moment_task_result",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_moment_task_result"
+  ],
+  "doc_path": "a10061285",
+  "permission": ""
+ },
+ {
+  "name": "获取商品图册",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_product_album",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_product_album"
+  ],
+  "doc_path": "a10061310",
+  "permission": ""
+ },
+ {
+  "name": "获取商品图册列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_product_album_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_product_album_list"
+  ],
+  "doc_path": "a10061312",
+  "permission": ""
+ },
+ {
+  "name": "管理企业规则组下的客户标签-获取指定规则组下的企业客户标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_strategy_tag_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_strategy_tag_list"
+  ],
+  "doc_path": "a10061261",
+  "permission": ""
+ },
+ {
+  "name": "管理「学校通知」的关注模式-获取关注「学校通知」的模式",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_subscribe_mode",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_subscribe_mode"
+  ],
+  "doc_path": "a10061468",
+  "permission": ""
+ },
+ {
+  "name": "获取「学校通知」二维码",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_subscribe_qr_code",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_subscribe_qr_code"
+  ],
+  "doc_path": "a10061466",
+  "permission": ""
+ },
+ {
+  "name": "获取待分配的离职成员列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_unassigned_list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_unassigned_list"
+  ],
+  "doc_path": "a10061267",
+  "permission": ""
+ },
+ {
+  "name": "获取「联系客户统计」数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/get_user_behavior_data",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/get_user_behavior_data"
+  ],
+  "doc_path": "a10061308",
+  "permission": ""
+ },
+ {
+  "name": "入群欢迎语素材管理-删除",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/group_welcome_template/del",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/group_welcome_template"
+  ],
+  "doc_path": "a10061302",
+  "permission": ""
+ },
+ {
+  "name": "入群欢迎语素材管理-添加",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/group_welcome_template/add",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/group_welcome_template"
+  ],
+  "doc_path": "a10061299",
+  "permission": ""
+ },
+ {
+  "name": "入群欢迎语素材管理-编辑",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/group_welcome_template/edit",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/group_welcome_template"
+  ],
+  "doc_path": "a10061300",
+  "permission": ""
+ },
+ {
+  "name": "入群欢迎语素材管理-获取",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/group_welcome_template/get",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/group_welcome_template"
+  ],
+  "doc_path": "a10061301",
+  "permission": ""
+ },
+ {
+  "name": "分配在职成员的客户群",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/onjob_transfer",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a52446931",
+  "permission": ""
+ },
+ {
+  "name": "分配离职成员的客户群",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/transfer",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061270",
+  "permission": ""
+ },
+ {
+  "name": "删除客户群进群方式配置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/del_join_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061283",
+  "permission": ""
+ },
+ {
+  "name": "更新客户群进群方式配置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/update_join_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061282",
+  "permission": ""
+ },
+ {
+  "name": "获取「群聊数据统计」数据-按群主聚合的方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/statistic",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061306",
+  "permission": ""
+ },
+ {
+  "name": "获取「群聊数据统计」数据-按自然日聚合的方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/statistic_group_by_day",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061307",
+  "permission": ""
+ },
+ {
+  "name": "获取客户群列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061271",
+  "permission": ""
+ },
+ {
+  "name": "获取客户群详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/get",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061272",
+  "permission": ""
+ },
+ {
+  "name": "获取客户群进群方式配置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/get_join_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061281",
+  "permission": ""
+ },
+ {
+  "name": "配置客户群进群方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/groupchat/add_join_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/groupchat"
+  ],
+  "doc_path": "a10061280",
+  "permission": ""
+ },
+ {
+  "name": "获取客户列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/list"
+  ],
+  "doc_path": "a10061246",
+  "permission": ""
+ },
+ {
+  "name": "客户联系「联系我」管理-获取企业已配置的「联系我」列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/list_contact_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/list_contact_way"
+  ],
+  "doc_path": "a10061243",
+  "permission": ""
+ },
+ {
+  "name": "编辑客户企业标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/mark_tag",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/mark_tag"
+  ],
+  "doc_path": "a10061256",
+  "permission": ""
+ },
+ {
+  "name": "发送「学校通知」",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/message/send",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/message"
+  ],
+  "doc_path": "a10061359",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-创建新的规则组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/create",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061294",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-删除规则组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/del",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061296",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-编辑规则组及其管理范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/edit",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061295",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-获取规则组列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/list",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061291",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-获取规则组管理范围",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/get_range",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061293",
+  "permission": ""
+ },
+ {
+  "name": "客户朋友圈规则组管理-获取规则组详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/moment_strategy/get",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/moment_strategy"
+  ],
+  "doc_path": "a10061292",
+  "permission": ""
+ },
+ {
+  "name": "客户群opengid转换",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/opengid_to_chatid",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/opengid_to_chatid"
+  ],
+  "doc_path": "a10061273",
+  "permission": ""
+ },
+ {
+  "name": "提醒成员群发",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/remind_groupmsg_send",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/remind_groupmsg_send"
+  ],
+  "doc_path": "a52471870",
+  "permission": ""
+ },
+ {
+  "name": "分配离职成员的客户",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/resigned/transfer_customer",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/resigned"
+  ],
+  "doc_path": "a10061268",
+  "permission": ""
+ },
+ {
+  "name": "查询客户接替状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/resigned/transfer_result",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/resigned"
+  ],
+  "doc_path": "a10061269",
+  "permission": ""
+ },
+ {
+  "name": "发送新客户欢迎语",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/send_welcome_msg",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/send_welcome_msg"
+  ],
+  "doc_path": "a10061298",
+  "permission": ""
+ },
+ {
+  "name": "管理「学校通知」的关注模式-设置关注「学校通知」的模式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/set_subscribe_mode",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/set_subscribe_mode"
+  ],
+  "doc_path": "a10061467",
+  "permission": ""
+ },
+ {
+  "name": "分配在职成员的客户",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/transfer_customer",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/transfer_customer"
+  ],
+  "doc_path": "a10061265",
+  "permission": ""
+ },
+ {
+  "name": "查询客户接替状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/transfer_result",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/transfer_result"
+  ],
+  "doc_path": "a10061266",
+  "permission": ""
+ },
+ {
+  "name": "更新企业已配置的「联系我」方式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/update_contact_way",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/update_contact_way"
+  ],
+  "doc_path": "a10061277",
+  "permission": ""
+ },
+ {
+  "name": "管理聊天敏感词-修改敏感词规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/update_intercept_rule",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/update_intercept_rule"
+  ],
+  "doc_path": "a10061317",
+  "permission": ""
+ },
+ {
+  "name": "编辑商品图册",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/externalcontact/update_product_album",
+  "section": "客户联系",
+  "trail": [
+   "客户联系",
+   "externalcontact/update_product_album"
+  ],
+  "doc_path": "a10061313",
+  "permission": ""
+ },
+ {
+  "name": "获取健康上报使用统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/health/get_health_report_stat",
+  "section": "家校应用",
+  "trail": [
+   "家校应用",
+   "health/get_health_report_stat"
+  ],
+  "doc_path": "a10061496",
+  "permission": ""
+ },
+ {
+  "name": "获取用户填写答案",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/health/get_report_answer",
+  "section": "家校应用",
+  "trail": [
+   "家校应用",
+   "health/get_report_answer"
+  ],
+  "doc_path": "a10061499",
+  "permission": ""
+ },
+ {
+  "name": "获取健康上报任务详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/health/get_report_job_info",
+  "section": "家校应用",
+  "trail": [
+   "家校应用",
+   "health/get_report_job_info"
+  ],
+  "doc_path": "a10061498",
+  "permission": ""
+ },
+ {
+  "name": "获取健康上报任务ID列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/health/get_report_jobids",
+  "section": "家校应用",
+  "trail": [
+   "家校应用",
+   "health/get_report_jobids"
+  ],
+  "doc_path": "a10061497",
+  "permission": ""
+ },
+ {
+  "name": "获取可使用的家长范围",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/agent/get_allow_scope",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/agent"
+  ],
+  "doc_path": "a10061472",
+  "permission": ""
+ },
+ {
+  "name": "创建部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/department/create",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/department"
+  ],
+  "doc_path": "a10061490",
+  "permission": ""
+ },
+ {
+  "name": "删除部门",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/department/delete",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/department"
+  ],
+  "doc_path": "a10061492",
+  "permission": ""
+ },
+ {
+  "name": "更新部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/department/update",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/department"
+  ],
+  "doc_path": "a10061491",
+  "permission": ""
+ },
+ {
+  "name": "获取部门列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/department/list",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/department"
+  ],
+  "doc_path": "a10061493",
+  "permission": ""
+ },
+ {
+  "name": "获取学生付款结果",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/get_payment_result",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/get_payment_result"
+  ],
+  "doc_path": "a10061508",
+  "permission": ""
+ },
+ {
+  "name": "获取订单详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/get_trade",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/get_trade"
+  ],
+  "doc_path": "a10061509",
+  "permission": ""
+ },
+ {
+  "name": "获取家校访问用户身份",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/getuserinfo",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/getuserinfo"
+  ],
+  "doc_path": "a52586970",
+  "permission": ""
+ },
+ {
+  "name": "获取未观看直播统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/living/get_unwatch_stat",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/living"
+  ],
+  "doc_path": "a10061506",
+  "permission": ""
+ },
+ {
+  "name": "获取未观看直播统计V2",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/living/get_unwatch_stat_v2",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/living"
+  ],
+  "doc_path": "a52620834",
+  "permission": ""
+ },
+ {
+  "name": "获取直播详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/living/get_living_info",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/living"
+  ],
+  "doc_path": "a10061504",
+  "permission": ""
+ },
+ {
+  "name": "获取观看直播统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/living/get_watch_stat",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/living"
+  ],
+  "doc_path": "a10061505",
+  "permission": ""
+ },
+ {
+  "name": "获取观看直播统计V2",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/living/get_watch_stat_v2",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/living"
+  ],
+  "doc_path": "a52612420",
+  "permission": ""
+ },
+ {
+  "name": "设置家校通讯录自动同步模式",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/set_arch_sync_mode",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/set_arch_sync_mode"
+  ],
+  "doc_path": "a10061488",
+  "permission": ""
+ },
+ {
+  "name": "修改自动升年级的配置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/set_upgrade_info",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/set_upgrade_info"
+  ],
+  "doc_path": "a10061494",
+  "permission": ""
+ },
+ {
+  "name": "创建学生",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/create_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061474",
+  "permission": ""
+ },
+ {
+  "name": "创建家长",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/create_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061480",
+  "permission": ""
+ },
+ {
+  "name": "删除学生",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/delete_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061475",
+  "permission": ""
+ },
+ {
+  "name": "删除家长",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/delete_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061481",
+  "permission": ""
+ },
+ {
+  "name": "批量创建学生",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_create_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061477",
+  "permission": ""
+ },
+ {
+  "name": "批量创建家长",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_create_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061483",
+  "permission": ""
+ },
+ {
+  "name": "批量删除学生",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_delete_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061478",
+  "permission": ""
+ },
+ {
+  "name": "批量删除家长",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_delete_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061484",
+  "permission": ""
+ },
+ {
+  "name": "批量更新学生",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_update_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061479",
+  "permission": ""
+ },
+ {
+  "name": "批量更新家长",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/batch_update_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061485",
+  "permission": ""
+ },
+ {
+  "name": "更新学生",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/update_student",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061476",
+  "permission": ""
+ },
+ {
+  "name": "更新家长",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/update_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061482",
+  "permission": ""
+ },
+ {
+  "name": "获取学生健康信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/get_student_customize_health_info",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061501",
+  "permission": ""
+ },
+ {
+  "name": "获取师生健康码",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/get_health_qrcode",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061502",
+  "permission": ""
+ },
+ {
+  "name": "获取老师健康信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/get_teacher_customize_health_info",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061500",
+  "permission": ""
+ },
+ {
+  "name": "获取部门家长详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/list_parent",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061489",
+  "permission": ""
+ },
+ {
+  "name": "获取部门成员详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/list",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061487",
+  "permission": ""
+ },
+ {
+  "name": "读取学生或家长",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/school/user/get",
+  "section": "家校沟通",
+  "trail": [
+   "家校沟通",
+   "school/user"
+  ],
+  "doc_path": "a10061486",
+  "permission": ""
+ },
+ {
+  "name": "获取应用-获取指定的应用详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/get",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/get"
+  ],
+  "doc_path": "a10061339",
+  "permission": ""
+ },
+ {
+  "name": "设置工作台自定义展示-获取应用在工作台展示的模版",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/get_workbench_template",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/get_workbench_template"
+  ],
+  "doc_path": "a10061346",
+  "permission": ""
+ },
+ {
+  "name": "获取应用-获取access_token对应的应用列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/list",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/list"
+  ],
+  "doc_path": "a10061340",
+  "permission": ""
+ },
+ {
+  "name": "设置应用",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/set",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/set"
+  ],
+  "doc_path": "a10061341",
+  "permission": ""
+ },
+ {
+  "name": "设置工作台自定义展示-设置应用在用户工作台展示的数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/set_workbench_data",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/set_workbench_data"
+  ],
+  "doc_path": "a10061347",
+  "permission": ""
+ },
+ {
+  "name": "设置工作台自定义展示-设置应用在工作台展示的模版",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/agent/set_workbench_template",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "agent/set_workbench_template"
+  ],
+  "doc_path": "a10061345",
+  "permission": ""
+ },
+ {
+  "name": "创建菜单",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/menu/create",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "menu/create"
+  ],
+  "doc_path": "a10061342",
+  "permission": ""
+ },
+ {
+  "name": "删除菜单",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/menu/delete",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "menu/delete"
+  ],
+  "doc_path": "a10061344",
+  "permission": ""
+ },
+ {
+  "name": "获取菜单",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/menu/get",
+  "section": "应用管理",
+  "trail": [
+   "应用管理",
+   "menu/get"
+  ],
+  "doc_path": "a10061343",
+  "permission": ""
+ },
+ {
+  "name": "修改客服帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/account/update",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/account"
+  ],
+  "doc_path": "a10061321",
+  "permission": ""
+ },
+ {
+  "name": "删除客服帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/account/del",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/account"
+  ],
+  "doc_path": "a10061320",
+  "permission": ""
+ },
+ {
+  "name": "添加客服帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/account/add",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/account"
+  ],
+  "doc_path": "a10061319",
+  "permission": ""
+ },
+ {
+  "name": "获取客服帐号列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/account/list",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/account"
+  ],
+  "doc_path": "a10061322",
+  "permission": ""
+ },
+ {
+  "name": "获取客服帐号链接",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/add_contact_way",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/add_contact_way"
+  ],
+  "doc_path": "a10061323",
+  "permission": ""
+ },
+ {
+  "name": "「升级服务」配置-为客户升级为专员服务",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/customer/upgrade_service",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/customer"
+  ],
+  "doc_path": "a10061333",
+  "permission": ""
+ },
+ {
+  "name": "「升级服务」配置-为客户取消推荐",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/customer/cancel_upgrade_service",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/customer"
+  ],
+  "doc_path": "a10061335",
+  "permission": ""
+ },
+ {
+  "name": "「升级服务」配置-获取配置的专员与客户群",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/customer/get_upgrade_service_config",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/customer"
+  ],
+  "doc_path": "a10061332",
+  "permission": ""
+ },
+ {
+  "name": "获取客户基础信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/customer/batchget",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/customer"
+  ],
+  "doc_path": "a10061336",
+  "permission": ""
+ },
+ {
+  "name": "获取「客户数据统计」企业汇总数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/get_corp_statistic",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/get_corp_statistic"
+  ],
+  "doc_path": "a52499270",
+  "permission": ""
+ },
+ {
+  "name": "获取「客户数据统计」接待人员明细数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/get_servicer_statistic",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/get_servicer_statistic"
+  ],
+  "doc_path": "a52500094",
+  "permission": ""
+ },
+ {
+  "name": "修改分组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/mod_group",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52505609",
+  "permission": ""
+ },
+ {
+  "name": "修改问答",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/mod_intent",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52578047",
+  "permission": ""
+ },
+ {
+  "name": "删除分组",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/del_group",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52505395",
+  "permission": ""
+ },
+ {
+  "name": "删除问答",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/del_intent",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52576124",
+  "permission": ""
+ },
+ {
+  "name": "添加分组",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/add_group",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52500836",
+  "permission": ""
+ },
+ {
+  "name": "添加问答",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/add_intent",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52575981",
+  "permission": ""
+ },
+ {
+  "name": "获取分组列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/list_group",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52506511",
+  "permission": ""
+ },
+ {
+  "name": "获取问答列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/knowledge/list_intent",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/knowledge"
+  ],
+  "doc_path": "a52579141",
+  "permission": ""
+ },
+ {
+  "name": "发送消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/send_msg"
+  ],
+  "doc_path": "a10061328",
+  "permission": ""
+ },
+ {
+  "name": "发送事件响应消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg_on_event",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/send_msg_on_event"
+  ],
+  "doc_path": "a10061329",
+  "permission": ""
+ },
+ {
+  "name": "分配客服会话-变更会话状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/service_state/trans",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/service_state"
+  ],
+  "doc_path": "a10061331",
+  "permission": ""
+ },
+ {
+  "name": "分配客服会话-获取会话状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/service_state/get",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/service_state"
+  ],
+  "doc_path": "a10061330",
+  "permission": ""
+ },
+ {
+  "name": "删除接待人员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/servicer/del",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/servicer"
+  ],
+  "doc_path": "a10061325",
+  "permission": ""
+ },
+ {
+  "name": "添加接待人员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/servicer/add",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/servicer"
+  ],
+  "doc_path": "a10061324",
+  "permission": ""
+ },
+ {
+  "name": "获取接待人员列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/servicer/list",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/servicer"
+  ],
+  "doc_path": "a10061326",
+  "permission": ""
+ },
+ {
+  "name": "接收消息和事件-读取消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg",
+  "section": "微信客服",
+  "trail": [
+   "微信客服",
+   "kf/sync_msg"
+  ],
+  "doc_path": "a10061327",
+  "permission": ""
+ },
+ {
+  "name": "文件权限 新增指定人",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_acl_add",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_acl_add"
+  ],
+  "doc_path": "a10061433",
+  "permission": ""
+ },
+ {
+  "name": "文件权限 删除指定人",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_acl_del",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_acl_del"
+  ],
+  "doc_path": "a10061434",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 新建文件/微文档",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_create",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_create"
+  ],
+  "doc_path": "a10061428",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 删除文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_delete",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_delete"
+  ],
+  "doc_path": "a10061431",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 下载文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_download",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_download"
+  ],
+  "doc_path": "a10061427",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 文件信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_info",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_info"
+  ],
+  "doc_path": "a10061432",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 获取文件列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_list",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_list"
+  ],
+  "doc_path": "a10061425",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 移动文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_move",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_move"
+  ],
+  "doc_path": "a10061430",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 重命名文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_rename",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_rename"
+  ],
+  "doc_path": "a10061429",
+  "permission": ""
+ },
+ {
+  "name": "修改文件安全设置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_secure_setting",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_secure_setting"
+  ],
+  "doc_path": "a52740627",
+  "permission": ""
+ },
+ {
+  "name": "文件权限 分享设置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_setting",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_setting"
+  ],
+  "doc_path": "a10061435",
+  "permission": ""
+ },
+ {
+  "name": "文件权限 获取分享链接",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_share",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_share"
+  ],
+  "doc_path": "a10061436",
+  "permission": ""
+ },
+ {
+  "name": "文件管理 上传文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_upload",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_upload"
+  ],
+  "doc_path": "a10061426",
+  "permission": ""
+ },
+ {
+  "name": "文件分块上传 分块上传完成",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_upload_finish",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_upload_finish"
+  ],
+  "doc_path": "a52731292",
+  "permission": ""
+ },
+ {
+  "name": "文件分块上传 分块上传文件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/file_upload_part",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/file_upload_part"
+  ],
+  "doc_path": "a52730922",
+  "permission": ""
+ },
+ {
+  "name": "获取文件权限信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/get_file_permission",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/get_file_permission"
+  ],
+  "doc_path": "a52740339",
+  "permission": ""
+ },
+ {
+  "name": "获取盘容量信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/mng_capacity",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/mng_capacity"
+  ],
+  "doc_path": "a52742339",
+  "permission": ""
+ },
+ {
+  "name": "获取盘专业版信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/mng_pro_info",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/mng_pro_info"
+  ],
+  "doc_path": "a52741945",
+  "permission": ""
+ },
+ {
+  "name": "空间权限 获取空间信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/new_space_info",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/new_space_info"
+  ],
+  "doc_path": "a52726940",
+  "permission": ""
+ },
+ {
+  "name": "空间权限 添加成员/部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_acl_add",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_acl_add"
+  ],
+  "doc_path": "a10061421",
+  "permission": ""
+ },
+ {
+  "name": "空间权限 移除成员/部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_acl_del",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_acl_del"
+  ],
+  "doc_path": "a10061422",
+  "permission": ""
+ },
+ {
+  "name": "空间管理 新建空间",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_create",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_create"
+  ],
+  "doc_path": "a10061417",
+  "permission": ""
+ },
+ {
+  "name": "空间管理 解散空间",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_dismiss",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_dismiss"
+  ],
+  "doc_path": "a10061419",
+  "permission": ""
+ },
+ {
+  "name": "空间管理 获取空间信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_info",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_info"
+  ],
+  "doc_path": "a10061420",
+  "permission": ""
+ },
+ {
+  "name": "空间管理 重命名空间",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_rename",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_rename"
+  ],
+  "doc_path": "a10061418",
+  "permission": ""
+ },
+ {
+  "name": "空间权限 安全设置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_setting",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_setting"
+  ],
+  "doc_path": "a10061423",
+  "permission": ""
+ },
+ {
+  "name": "空间权限 获取邀请链接",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedrive/space_share",
+  "section": "微盘",
+  "trail": [
+   "微盘",
+   "wedrive/space_share"
+  ],
+  "doc_path": "a10061424",
+  "permission": ""
+ },
+ {
+  "name": "录入打卡人员人脸信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/addcheckinuserface",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/addcheckinuserface"
+  ],
+  "doc_path": "a10061371",
+  "permission": ""
+ },
+ {
+  "name": "获取打卡日报数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcheckin_daydata",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcheckin_daydata"
+  ],
+  "doc_path": "a10061367",
+  "permission": ""
+ },
+ {
+  "name": "获取打卡月报数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcheckin_monthdata",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcheckin_monthdata"
+  ],
+  "doc_path": "a10061368",
+  "permission": ""
+ },
+ {
+  "name": "获取打卡记录数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcheckindata",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcheckindata"
+  ],
+  "doc_path": "a10061366",
+  "permission": ""
+ },
+ {
+  "name": "获取员工打卡规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcheckinoption",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcheckinoption"
+  ],
+  "doc_path": "a10061365",
+  "permission": ""
+ },
+ {
+  "name": "获取打卡人员排班信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcheckinschedulist",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcheckinschedulist"
+  ],
+  "doc_path": "a10061369",
+  "permission": ""
+ },
+ {
+  "name": "获取企业所有打卡规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/getcorpcheckinoption",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/getcorpcheckinoption"
+  ],
+  "doc_path": "a10061364",
+  "permission": ""
+ },
+ {
+  "name": "为打卡人员补卡",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/punch_correction",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/punch_correction"
+  ],
+  "doc_path": "a52753406",
+  "permission": ""
+ },
+ {
+  "name": "为打卡人员排班",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/checkin/setcheckinschedulist",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "checkin/setcheckinschedulist"
+  ],
+  "doc_path": "a10061370",
+  "permission": ""
+ },
+ {
+  "name": "获取设备打卡数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/hardware/get_hardware_checkin_data",
+  "section": "打卡",
+  "trail": [
+   "打卡",
+   "hardware/get_hardware_checkin_data"
+  ],
+  "doc_path": "a10061372",
+  "permission": ""
+ },
+ {
+  "name": "修改事件类别",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/update_cata",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061516",
+  "permission": ""
+ },
+ {
+  "name": "删除事件类别",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/delete_cata",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061517",
+  "permission": ""
+ },
+ {
+  "name": "删除网格",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/delete",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061512",
+  "permission": ""
+ },
+ {
+  "name": "添加事件类别",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/add_cata",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061515",
+  "permission": ""
+ },
+ {
+  "name": "添加网格",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/add",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061510",
+  "permission": ""
+ },
+ {
+  "name": "编辑网格",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/update",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061511",
+  "permission": ""
+ },
+ {
+  "name": "获取事件类别列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/list_cata",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061518",
+  "permission": ""
+ },
+ {
+  "name": "获取用户负责及参与的网格列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/get_user_grid_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061514",
+  "permission": ""
+ },
+ {
+  "name": "获取网格列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/grid/list",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/grid"
+  ],
+  "doc_path": "a10061513",
+  "permission": ""
+ },
+ {
+  "name": "获取上报事件分类统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/category_statistic",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061522",
+  "permission": ""
+ },
+ {
+  "name": "获取个人巡查上报数据统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/get_user_status",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061521",
+  "permission": ""
+ },
+ {
+  "name": "获取单位巡查上报数据统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/get_corp_status",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061520",
+  "permission": ""
+ },
+ {
+  "name": "获取巡查上报事件列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/get_order_list",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061523",
+  "permission": ""
+ },
+ {
+  "name": "获取巡查上报的事件详情信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/get_order_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061524",
+  "permission": ""
+ },
+ {
+  "name": "获取配置的网格及网格负责人",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/patrol/get_grid_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/patrol"
+  ],
+  "doc_path": "a10061519",
+  "permission": ""
+ },
+ {
+  "name": "获取上报事件分类统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/category_statistic",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061528",
+  "permission": ""
+ },
+ {
+  "name": "获取个人居民上报数据统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/get_user_status",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061527",
+  "permission": ""
+ },
+ {
+  "name": "获取单位居民上报数据统计",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/get_corp_status",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061526",
+  "permission": ""
+ },
+ {
+  "name": "获取居民上报事件列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/get_order_list",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061529",
+  "permission": ""
+ },
+ {
+  "name": "获取居民上报的事件详情信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/get_order_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061530",
+  "permission": ""
+ },
+ {
+  "name": "获取配置的网格及网格负责人",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/resident/get_grid_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/resident"
+  ],
+  "doc_path": "a10061525",
+  "permission": ""
+ },
+ {
+  "name": "获取场所码上报明细",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/sitecode/get_report_answer",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/sitecode"
+  ],
+  "doc_path": "a52629051",
+  "permission": ""
+ },
+ {
+  "name": "获取场所码上报问卷",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/sitecode/get_site_report_info",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/sitecode"
+  ],
+  "doc_path": "a52627829",
+  "permission": ""
+ },
+ {
+  "name": "获取场所码列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/report/sitecode/list",
+  "section": "政民沟通",
+  "trail": [
+   "政民沟通",
+   "report/sitecode"
+  ],
+  "doc_path": "a52622491",
+  "permission": ""
+ },
+ {
+  "name": "创建收集表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/create_collect",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/create_collect"
+  ],
+  "doc_path": "a52668350",
+  "permission": ""
+ },
+ {
+  "name": "新建文档",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/create_doc",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/create_doc"
+  ],
+  "doc_path": "a52656871",
+  "permission": ""
+ },
+ {
+  "name": "删除文档/收集表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/del_doc",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/del_doc"
+  ],
+  "doc_path": "a52658588",
+  "permission": ""
+ },
+ {
+  "name": "获取文档权限信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/doc_get_auth",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/doc_get_auth"
+  ],
+  "doc_path": "a52661983",
+  "permission": ""
+ },
+ {
+  "name": "分享文档",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/doc_share",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/doc_share"
+  ],
+  "doc_path": "a52660303",
+  "permission": ""
+ },
+ {
+  "name": "获取文档基础信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/get_doc_base_info",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/get_doc_base_info"
+  ],
+  "doc_path": "a52659932",
+  "permission": ""
+ },
+ {
+  "name": "读取收集表答案",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/get_form_answer",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/get_form_answer"
+  ],
+  "doc_path": "a52675249",
+  "permission": ""
+ },
+ {
+  "name": "获取收集表信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/get_form_info",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/get_form_info"
+  ],
+  "doc_path": "a52672609",
+  "permission": ""
+ },
+ {
+  "name": "收集表的统计信息查询",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/get_form_statistic",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/get_form_statistic"
+  ],
+  "doc_path": "a52754487",
+  "permission": ""
+ },
+ {
+  "name": "修改文档查看规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/mod_doc_join_rule",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/mod_doc_join_rule"
+  ],
+  "doc_path": "a52663865",
+  "permission": ""
+ },
+ {
+  "name": "修改文档通知范围及权限",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/mod_doc_member",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/mod_doc_member"
+  ],
+  "doc_path": "a52665079",
+  "permission": ""
+ },
+ {
+  "name": "修改文档安全设置",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/mod_doc_safty_setting",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/mod_doc_safty_setting"
+  ],
+  "doc_path": "a52665372",
+  "permission": ""
+ },
+ {
+  "name": "编辑收集表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/modify_collect",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/modify_collect"
+  ],
+  "doc_path": "a52670381",
+  "permission": ""
+ },
+ {
+  "name": "重命名文档/收集表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/wedoc/rename_doc",
+  "section": "文档",
+  "trail": [
+   "文档",
+   "wedoc/rename_doc"
+  ],
+  "doc_path": "a52658062",
+  "permission": ""
+ },
+ {
+  "name": "日历接口 创建日历",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/calendar/add",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/calendar"
+  ],
+  "doc_path": "a10061394",
+  "permission": ""
+ },
+ {
+  "name": "日历接口 删除日历",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/calendar/del",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/calendar"
+  ],
+  "doc_path": "a10061397",
+  "permission": ""
+ },
+ {
+  "name": "日历接口 更新日历",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/calendar/update",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/calendar"
+  ],
+  "doc_path": "a10061395",
+  "permission": ""
+ },
+ {
+  "name": "日历接口 获取日历详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/calendar/get",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/calendar"
+  ],
+  "doc_path": "a10061396",
+  "permission": ""
+ },
+ {
+  "name": "删除日程参与者",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/del_attendees",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a52697640",
+  "permission": ""
+ },
+ {
+  "name": "新增日程参与者",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/add_attendees",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a52697210",
+  "permission": ""
+ },
+ {
+  "name": "日程接口 创建日程",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/add",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a10061398",
+  "permission": ""
+ },
+ {
+  "name": "日程接口 取消日程",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/del",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a10061401",
+  "permission": ""
+ },
+ {
+  "name": "日程接口 获取日历下的日程列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/get_by_calendar",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a10061402",
+  "permission": ""
+ },
+ {
+  "name": "日程接口 获取日程详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/get",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a10061400",
+  "permission": ""
+ },
+ {
+  "name": "日程接口更新日程",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/schedule/update",
+  "section": "日程",
+  "trail": [
+   "日程",
+   "oa/schedule"
+  ],
+  "doc_path": "a10061399",
+  "permission": ""
+ },
+ {
+  "name": "批量获取汇报记录单号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/journal/get_record_list",
+  "section": "汇报",
+  "trail": [
+   "汇报",
+   "oa/journal"
+  ],
+  "doc_path": "a10061381",
+  "permission": ""
+ },
+ {
+  "name": "查询导出结果",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/journal/get_export_doc_result",
+  "section": "汇报",
+  "trail": [
+   "汇报",
+   "oa/journal"
+  ],
+  "doc_path": "a52948353",
+  "permission": ""
+ },
+ {
+  "name": "生成导出任务",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/journal/export_doc",
+  "section": "汇报",
+  "trail": [
+   "汇报",
+   "oa/journal"
+  ],
+  "doc_path": "a52948055",
+  "permission": ""
+ },
+ {
+  "name": "获取汇报统计数据",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/journal/get_stat_list",
+  "section": "汇报",
+  "trail": [
+   "汇报",
+   "oa/journal"
+  ],
+  "doc_path": "a10061383",
+  "permission": ""
+ },
+ {
+  "name": "获取汇报记录详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/oa/journal/get_record_detail",
+  "section": "汇报",
+  "trail": [
+   "汇报",
+   "oa/journal"
+  ],
+  "doc_path": "a10061382",
+  "permission": ""
+ },
+ {
+  "name": "创建群聊会话",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/appchat/create",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "appchat/create"
+  ],
+  "doc_path": "a10061354",
+  "permission": ""
+ },
+ {
+  "name": "获取群聊会话",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/appchat/get",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "appchat/get"
+  ],
+  "doc_path": "a10061356",
+  "permission": ""
+ },
+ {
+  "name": "应用推送消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/appchat/send",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "appchat/send"
+  ],
+  "doc_path": "a10061357",
+  "permission": ""
+ },
+ {
+  "name": "修改群聊会话",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/appchat/update",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "appchat/update"
+  ],
+  "doc_path": "a10061355",
+  "permission": ""
+ },
+ {
+  "name": "撤回应用消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/message/recall",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "message/recall"
+  ],
+  "doc_path": "a10061350",
+  "permission": ""
+ },
+ {
+  "name": "发送应用消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/message/send",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "message/send"
+  ],
+  "doc_path": "a10061348",
+  "permission": ""
+ },
+ {
+  "name": "更新模版卡片消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "message/update_template_card"
+  ],
+  "doc_path": "a10061349",
+  "permission": ""
+ },
+ {
+  "name": "群机器人发送消息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
+  "section": "消息推送",
+  "trail": [
+   "消息推送",
+   "webhook"
+  ],
+  "doc_path": "w1001",
+  "permission": "群机器人 Webhook key"
+ },
+ {
+  "name": "批量更新发票状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/card/invoice/reimburse/updatestatusbatch",
+  "section": "电子发票",
+  "trail": [
+   "电子发票",
+   "card/invoice"
+  ],
+  "doc_path": "a10061464",
+  "permission": ""
+ },
+ {
+  "name": "批量查询电子发票",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/card/invoice/reimburse/getinvoiceinfobatch",
+  "section": "电子发票",
+  "trail": [
+   "电子发票",
+   "card/invoice"
+  ],
+  "doc_path": "a10061465",
+  "permission": ""
+ },
+ {
+  "name": "更新发票状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/card/invoice/reimburse/updateinvoicestatus",
+  "section": "电子发票",
+  "trail": [
+   "电子发票",
+   "card/invoice"
+  ],
+  "doc_path": "a10061463",
+  "permission": ""
+ },
+ {
+  "name": "查询电子发票",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/card/invoice/reimburse/getinvoiceinfo",
+  "section": "电子发票",
+  "trail": [
+   "电子发票",
+   "card/invoice"
+  ],
+  "doc_path": "a10061462",
+  "permission": ""
+ },
+ {
+  "name": "取消预约直播",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/cancel",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/cancel"
+  ],
+  "doc_path": "a10061410",
+  "permission": ""
+ },
+ {
+  "name": "创建预约直播",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/create",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/create"
+  ],
+  "doc_path": "a10061408",
+  "permission": ""
+ },
+ {
+  "name": "删除直播回放",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/delete_replay_data",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/delete_replay_data"
+  ],
+  "doc_path": "a10061411",
+  "permission": ""
+ },
+ {
+  "name": "在微信中观看直播或直播回放",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/get_living_code",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/get_living_code"
+  ],
+  "doc_path": "a10061412",
+  "permission": ""
+ },
+ {
+  "name": "获取直播详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/get_living_info",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/get_living_info"
+  ],
+  "doc_path": "a10061414",
+  "permission": ""
+ },
+ {
+  "name": "获取跳转小程序商城的直播观众信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/get_living_share_info",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/get_living_share_info"
+  ],
+  "doc_path": "a10061416",
+  "permission": ""
+ },
+ {
+  "name": "获取成员直播ID列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/get_user_all_livingid",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/get_user_all_livingid"
+  ],
+  "doc_path": "a10061413",
+  "permission": ""
+ },
+ {
+  "name": "获取直播观看明细",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/get_watch_stat",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/get_watch_stat"
+  ],
+  "doc_path": "a10061415",
+  "permission": ""
+ },
+ {
+  "name": "修改预约直播",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/living/modify",
+  "section": "直播",
+  "trail": [
+   "直播",
+   "living/modify"
+  ],
+  "doc_path": "a10061409",
+  "permission": ""
+ },
+ {
+  "name": "获取临时素材",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/get",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/get"
+  ],
+  "doc_path": "a10061362",
+  "permission": ""
+ },
+ {
+  "name": "获取高清语音素材",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/get/jssdk",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/get"
+  ],
+  "doc_path": "a10061363",
+  "permission": ""
+ },
+ {
+  "name": "查询异步任务结果",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/get_upload_by_url_result",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/get_upload_by_url_result"
+  ],
+  "doc_path": "a52428470",
+  "permission": ""
+ },
+ {
+  "name": "上传临时素材",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/upload",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/upload"
+  ],
+  "doc_path": "a10061360",
+  "permission": ""
+ },
+ {
+  "name": "上传附件资源",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/upload_attachment",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/upload_attachment"
+  ],
+  "doc_path": "a10061238",
+  "permission": ""
+ },
+ {
+  "name": "生成异步上传任务",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/upload_by_url",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/upload_by_url"
+  ],
+  "doc_path": "a52427594",
+  "permission": ""
+ },
+ {
+  "name": "上传图片",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/media/uploadimg",
+  "section": "素材管理",
+  "trail": [
+   "素材管理",
+   "media/uploadimg"
+  ],
+  "doc_path": "a10061361",
+  "permission": ""
+ },
+ {
+  "name": "获取访问用户敏感信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/auth/getuserdetail",
+  "section": "身份验证",
+  "trail": [
+   "身份验证",
+   "auth/getuserdetail"
+  ],
+  "doc_path": "a52367727",
+  "permission": ""
+ },
+ {
+  "name": "二次验证",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/authsucc",
+  "section": "身份验证",
+  "trail": [
+   "身份验证",
+   "user/authsucc"
+  ],
+  "doc_path": "90203",
+  "permission": ""
+ },
+ {
+  "name": "获取访问用户身份",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo",
+  "section": "身份验证",
+  "trail": [
+   "身份验证",
+   "user/getuserinfo"
+  ],
+  "doc_path": "a10061337",
+  "permission": ""
+ },
+ {
+  "name": "获取异步任务结果",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/getresult",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/getresult"
+  ],
+  "doc_path": "a10061227",
+  "permission": ""
+ },
+ {
+  "name": "邀请成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/invite",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/invite"
+  ],
+  "doc_path": "90975",
+  "permission": "须拥有指定成员、部门或标签的查看权限。 第三方仅通讯录应用可调用。 返回示例： { <span cla"
+ },
+ {
+  "name": "userid转换",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/openuserid_to_userid",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/openuserid_to_userid"
+  ],
+  "doc_path": "101521",
+  "permission": "需要使用自建应用的access_token 成员需要在access_token所对应应用的可见范围内 返回结果： <code class=\"language-jav"
+ },
+ {
+  "name": "全量覆盖部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/replaceparty",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/replaceparty"
+  ],
+  "doc_path": "a10061226",
+  "permission": ""
+ },
+ {
+  "name": "全量覆盖成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/replaceuser",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/replaceuser"
+  ],
+  "doc_path": "a10061225",
+  "permission": ""
+ },
+ {
+  "name": "增量更新成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/batch/syncuser",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "batch/syncuser"
+  ],
+  "doc_path": "a10061224",
+  "permission": ""
+ },
+ {
+  "name": "获取加入企业二维码",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corp/get_join_qrcode",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corp/get_join_qrcode"
+  ],
+  "doc_path": "91714",
+  "permission": "须拥有通讯录的管理权限，使用通讯录同步的Secret。 返回结果 ： { <span class=\"code-line\""
+ },
+ {
+  "name": "获取审批数据（旧）",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corp/getapprovaldata",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corp/getapprovaldata"
+  ],
+  "doc_path": "a10061377",
+  "permission": ""
+ },
+ {
+  "name": "查询自建应用审批单当前状态",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corp/getopenapprovaldata",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corp/getopenapprovaldata"
+  ],
+  "doc_path": "a52943261",
+  "permission": ""
+ },
+ {
+  "name": "获取上下游列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/get_chain_list",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/corp"
+  ],
+  "doc_path": "a10061454",
+  "permission": ""
+ },
+ {
+  "name": "获取上下游通讯录分组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/get_chain_group",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/corp"
+  ],
+  "doc_path": "a10061455",
+  "permission": ""
+ },
+ {
+  "name": "获取下级企业的access_token",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/gettoken",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/corp"
+  ],
+  "doc_path": "a10061448",
+  "permission": ""
+ },
+ {
+  "name": "获取企业上下游通讯录分组下的企业详情列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/get_chain_corpinfo_list",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/corp"
+  ],
+  "doc_path": "a10061456",
+  "permission": ""
+ },
+ {
+  "name": "获取应用共享信息",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/list_app_share_info",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/corp"
+  ],
+  "doc_path": "a10061447",
+  "permission": ""
+ },
+ {
+  "name": "获取异步任务结果",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/getresult",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/getresult"
+  ],
+  "doc_path": "a52380199",
+  "permission": ""
+ },
+ {
+  "name": "提交批量导入上下游联系人任务",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/import_chain_contact",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/import_chain_contact"
+  ],
+  "doc_path": "a52379936",
+  "permission": ""
+ },
+ {
+  "name": "删除对接规则",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/rule/delete_rule",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/rule"
+  ],
+  "doc_path": "a52380885",
+  "permission": ""
+ },
+ {
+  "name": "新增对接规则",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/rule/add_rule",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/rule"
+  ],
+  "doc_path": "a52381442",
+  "permission": ""
+ },
+ {
+  "name": "更新对接规则",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/rule/modify_rule",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/rule"
+  ],
+  "doc_path": "a52381520",
+  "permission": ""
+ },
+ {
+  "name": "获取对接规则详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/rule/get_rule_info",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/rule"
+  ],
+  "doc_path": "a52380977",
+  "permission": ""
+ },
+ {
+  "name": "上下游企业应用获取微信用户的external_userid",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/unionid_to_external_userid",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "corpgroup/unionid_to_external_userid"
+  ],
+  "doc_path": "a10061453",
+  "permission": ""
+ },
+ {
+  "name": "创建部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/create",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/create"
+  ],
+  "doc_path": "90205",
+  "permission": "第三方仅通讯录应用可以调用。 注意，部门的最大层级为15层；部门总数不能超过3万个；每个部门下的节点不能超过3万个。建议保证创建的部门和对应部门成员是串行化处理。 返回结果： <div data-sign=\"abcd3f5f6ba91c64f06fd4684a149"
+ },
+ {
+  "name": "删除部门",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/delete",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/delete"
+  ],
+  "doc_path": "90207",
+  "permission": "应用须拥有指定部门的管理权限。 第三方仅通讯录应用可以调用。 返回结果： <span class=\""
+ },
+ {
+  "name": "获取单个部门详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/get",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/get"
+  ],
+  "doc_path": "95351",
+  "permission": "应用类型 权限说明 第三方普通应用 若企业授权了“组织架构信息”权限，可获取企业所有部门ID、部门负责人、父部门ID; 若未授权“组织架构信息”权限，只能拉取token对应的应用的可见范围内部门详情 第三方通讯录应用 可获取企业所有部门详情，部门名字除外 代开发自建应用 若企业授权了“组织架构信息”"
+ },
+ {
+  "name": "获取部门列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/list",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/list"
+  ],
+  "doc_path": "90208",
+  "permission": "只能拉取token对应的应用的权限范围内的部门列表 返回结果："
+ },
+ {
+  "name": "获取子部门ID列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/simplelist",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/simplelist"
+  ],
+  "doc_path": "95350",
+  "permission": "应用类型 权限说明 第三方普通应用 若企业授权了“组织架构信息”权限，可获取企业所有部门id; 若未授权“组织架构信息”权限，只能拉取token对应的应用的权限范围内的部门列表 第三方通讯录应用 可获取企业所有部门id 代开发自建应用 若企业授权了“组织架构信息”-“部门及父部门ID、部门负责人”权"
+ },
+ {
+  "name": "更新部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/department/update",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "department/update"
+  ],
+  "doc_path": "90206",
+  "permission": ""
+ },
+ {
+  "name": "导出部门",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/export/department",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "export/department"
+  ],
+  "doc_path": "a10061235",
+  "permission": ""
+ },
+ {
+  "name": "获取导出结果",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/export/get_result",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "export/get_result"
+  ],
+  "doc_path": "a10061237",
+  "permission": ""
+ },
+ {
+  "name": "导出成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/export/simple_user",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "export/simple_user"
+  ],
+  "doc_path": "a10061233",
+  "permission": ""
+ },
+ {
+  "name": "导出标签成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/export/taguser",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "export/taguser"
+  ],
+  "doc_path": "a10061236",
+  "permission": ""
+ },
+ {
+  "name": "导出成员详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/export/user",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "export/user"
+  ],
+  "doc_path": "a10061234",
+  "permission": ""
+ },
+ {
+  "name": "增加标签成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/addtagusers",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/addtagusers"
+  ],
+  "doc_path": "90214",
+  "permission": "调用的应用必须是指定标签的创建者；成员属于应用的可见范围。 注意，每个标签下部门数和人员数总和不能超过3万个。 返回结果： <p data-sign=\"11bef9616bd960a974dcd1179948833b\" data-type=\"p\" data-line"
+ },
+ {
+  "name": "创建标签",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/create",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/create"
+  ],
+  "doc_path": "90210",
+  "permission": "创建的标签属于该应用，只有该应用的secret才可以增删成员。 注意，标签总数不能超过3000个。 返回结果： <div data-sign=\"c52e565b6d30747f16d8de055434c7b1\" data-type=\"codeBlock\" data-"
+ },
+ {
+  "name": "删除标签",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/delete",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/delete"
+  ],
+  "doc_path": "90212",
+  "permission": "调用的应用必须是指定标签的创建者。 返回结果： <span"
+ },
+ {
+  "name": "删除标签成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/deltagusers",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/deltagusers"
+  ],
+  "doc_path": "90215",
+  "permission": "调用的应用必须是指定标签的创建者；成员属于应用的可见范围。 返回结果： a)正确时返回 <"
+ },
+ {
+  "name": "获取标签成员",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/get",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/get"
+  ],
+  "doc_path": "90213",
+  "permission": "无限制，但返回列表仅包含应用可见范围的成员；第三方可获取自己创建的标签及应用可见范围内的标签详情 返回结果： <code class=\"language-javascript wra"
+ },
+ {
+  "name": "获取标签列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/list",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/list"
+  ],
+  "doc_path": "90216",
+  "permission": "自建应用或通讯同步助手可以获取所有标签列表；第三方应用仅可获取自己创建的标签。 返回结果： <span"
+ },
+ {
+  "name": "更新标签名字",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/tag/update",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "tag/update"
+  ],
+  "doc_path": "90211",
+  "permission": "调用的应用必须是指定标签的创建者。 返回结果： <span"
+ },
+ {
+  "name": "批量删除成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/batchdelete",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/batchdelete"
+  ],
+  "doc_path": "90199",
+  "permission": "仅通讯录同步助手或第三方通讯录应用可调用。 返回结果： <"
+ },
+ {
+  "name": "userid与openid互换-userid转openid",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/convert_to_openid",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/convert_to_openid"
+  ],
+  "doc_path": "90202",
+  "permission": "成员必须处于应用的可见范围内 返回结果 ： { <span cla"
+ },
+ {
+  "name": "userid与openid互换-openid转userid",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/convert_to_userid",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/convert_to_userid"
+  ],
+  "doc_path": "a10061207",
+  "permission": ""
+ },
+ {
+  "name": "创建成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/create",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/create"
+  ],
+  "doc_path": "90195",
+  "permission": "仅通讯录同步助手或第三方通讯录应用可调用。 注意，每个部门下的部门、成员总数不能超过3万个。建议保证创建department对应的部门和创建成员是串行化处理。 返回结果： <div data-sign=\"e76c795db68c336d9db4b073126f898"
+ },
+ {
+  "name": "读取成员",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/get",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/get"
+  ],
+  "doc_path": "90196",
+  "permission": "应用须拥有指定成员的查看权限。 返回结果： <span"
+ },
+ {
+  "name": "邮箱获取userid",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/get_userid_by_email",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/get_userid_by_email"
+  ],
+  "doc_path": "95895",
+  "permission": "应用须拥有指定成员的查看权限。 返回结果： <span"
+ },
+ {
+  "name": "手机号获取userid",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/getuserid",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/getuserid"
+  ],
+  "doc_path": "95402",
+  "permission": "应用须拥有指定成员的查看权限。 返回结果： <span"
+ },
+ {
+  "name": "获取部门成员详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/list",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/list"
+  ],
+  "doc_path": "90201",
+  "permission": "应用须拥有指定部门的查看权限。 返回结果： <span"
+ },
+ {
+  "name": "获取成员ID列表",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/list_id",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/list_id"
+  ],
+  "doc_path": "96067",
+  "permission": "仅支持通过“通讯录同步secret”调用。 返回结果："
+ },
+ {
+  "name": "获取部门成员",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/simplelist",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/simplelist"
+  ],
+  "doc_path": "90200",
+  "permission": "应用须拥有指定部门的查看权限。 返回结果： <span"
+ },
+ {
+  "name": "更新成员",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/user/update",
+  "section": "通讯录管理",
+  "trail": [
+   "通讯录管理",
+   "user/update"
+  ],
+  "doc_path": "90197",
+  "permission": "仅通讯录同步助手或第三方通讯录应用可调用。 注意，每个部门下的部门、成员总数不能超过3万个。 返回结果： <div data-sign=\"2cb777fb1784fb64d98154e06fc185fe\" data-type=\"codeBlock\" data-lin"
+ },
+ {
+  "name": "禁用/启用邮箱帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/account/act_email",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/account"
+  ],
+  "doc_path": "a52652467",
+  "permission": ""
+ },
+ {
+  "name": "发送普通邮件",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/compose_send",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/app"
+  ],
+  "doc_path": "a52629736",
+  "permission": ""
+ },
+ {
+  "name": "更新应用邮箱帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/update_email_alias",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/app"
+  ],
+  "doc_path": "a52643261",
+  "permission": ""
+ },
+ {
+  "name": "查询应用邮箱帐号",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/get_email_alias",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/app"
+  ],
+  "doc_path": "a52643361",
+  "permission": ""
+ },
+ {
+  "name": "获取收件箱邮件列表",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/get_mail_list",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/app"
+  ],
+  "doc_path": "a52642017",
+  "permission": ""
+ },
+ {
+  "name": "获取邮件内容",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/app/read_mail",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/app"
+  ],
+  "doc_path": "a52642877",
+  "permission": ""
+ },
+ {
+  "name": "创建邮件群组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/group/create",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/group"
+  ],
+  "doc_path": "a52644059",
+  "permission": ""
+ },
+ {
+  "name": "删除邮件群组",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/group/delete",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/group"
+  ],
+  "doc_path": "a52645386",
+  "permission": ""
+ },
+ {
+  "name": "模糊搜索邮件群组",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/group/search",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/group"
+  ],
+  "doc_path": "a52647500",
+  "permission": ""
+ },
+ {
+  "name": "获取邮件群组详情",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/group/get",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/group"
+  ],
+  "doc_path": "a52646890",
+  "permission": ""
+ },
+ {
+  "name": "获取邮件未读数",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/mail/get_newcount",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/mail"
+  ],
+  "doc_path": "a52654064",
+  "permission": ""
+ },
+ {
+  "name": "创建业务邮箱",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/publicmail/create",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/publicmail"
+  ],
+  "doc_path": "a52648058",
+  "permission": ""
+ },
+ {
+  "name": "删除业务邮箱",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/publicmail/delete",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/publicmail"
+  ],
+  "doc_path": "a52651039",
+  "permission": ""
+ },
+ {
+  "name": "更新业务邮箱",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/publicmail/update",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/publicmail"
+  ],
+  "doc_path": "a52650766",
+  "permission": ""
+ },
+ {
+  "name": "模糊搜索业务邮箱",
+  "method": "GET",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/publicmail/search",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/publicmail"
+  ],
+  "doc_path": "a52652243",
+  "permission": ""
+ },
+ {
+  "name": "获取业务邮箱详情",
+  "method": "POST",
+  "url": "https://qyapi.weixin.qq.com/cgi-bin/exmail/publicmail/get",
+  "section": "邮件",
+  "trail": [
+   "邮件",
+   "exmail/publicmail"
+  ],
+  "doc_path": "a52651257",
+  "permission": ""
+ }
+]

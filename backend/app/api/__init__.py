@@ -10,6 +10,8 @@ MODULES = [
     "auth", "admin", "files", "wecom", "notify", "dev",
     # 企业微信个人连接与个人数据同步（按账号隔离）
     "wecom_personal",
+    # 企业微信接口中心（官方全量接口目录、凭证与在线调用，仅管理员）
+    "wecom_console",
     # 总办 / 台账
     "portal", "board", "contracts", "submissions",
     # 财务

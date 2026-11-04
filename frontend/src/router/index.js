@@ -31,6 +31,7 @@ const pages = [
   { path: 'imports', name: 'imports', component: () => import('@/views/Imports.vue'), meta: { menu: 'imports', title: '资料导入' } },
   { path: 'workbuddy', name: 'mcp', component: () => import('@/views/McpConfig.vue'), meta: { menu: 'mcp', title: 'WorkBuddy 接入' } },
   { path: 'admin', name: 'admin', component: () => import('@/views/Admin.vue'), meta: { menu: 'admin', title: '系统管理' } },
+  { path: 'admin/wecom-api', name: 'wecom-api', component: () => import('@/views/WecomApi.vue'), meta: { menu: 'admin', title: '企业微信接口' } },
   { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue'), meta: { title: '消息通知' } },
   { path: 'account', name: 'account', component: () => import('@/views/Account.vue'), meta: { title: '个人中心' } },
   { path: '403', name: 'forbidden', component: () => import('@/views/Forbidden.vue'), meta: { title: '无权限' } },

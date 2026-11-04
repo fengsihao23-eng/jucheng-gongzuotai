@@ -176,3 +176,20 @@ class LogMcpAudit(Base):
     cost_ms: Mapped[int] = mapped_column(Integer, default=0)
     client_ip: Mapped[str | None] = mapped_column(String(64))
     called_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class SysWecomApiCall(TimestampMixin, Base):
+    """企业微信接口中心的调用审计：记录谁调了哪个接口、结果与耗时，不存凭证和报文原文。"""
+    __tablename__ = "sys_wecom_api_call"
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id", ondelete="SET NULL"), index=True)
+    doc_path: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(200))
+    credential: Mapped[str] = mapped_column(String(16))
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    errcode: Mapped[int | None] = mapped_column(Integer)
+    errmsg: Mapped[str | None] = mapped_column(String(300))
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    request_summary: Mapped[dict | None] = mapped_column(JSON)
+    response_bytes: Mapped[int] = mapped_column(Integer, default=0)

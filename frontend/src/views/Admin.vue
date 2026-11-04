@@ -2,6 +2,7 @@
   <div class="jc-page">
     <PageHeader eyebrow="公共" title="系统管理" desc="账号角色、口径字典、数据源模式、定时任务、审批自动登记队列与操作审计。">
       <el-button type="primary" :loading="syncing" @click="syncAddressbook">预览并同步公司人员</el-button>
+      <el-button @click="$router.push('/admin/wecom-api')">企业微信接口</el-button>
     </PageHeader>
 
     <el-tabs v-model="tab">
