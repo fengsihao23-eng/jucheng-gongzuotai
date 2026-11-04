@@ -321,8 +321,9 @@ export function useXiaoju() {
     try { await api.patch(`/assistant/sessions/${sessionId.value}`, { model: selectedModel.value, thinking: selectedThinking.value }, { silent: true }) }
     catch (error) { ElMessage.warning(error.message || '设置未保存') }
   }
-  async function downloadWorkspace(file) {
-    if (execution.value?.session_id) await api.download(`/assistant/sessions/${execution.value.session_id}/files`, { path: file.path }, file.path.split('/').pop())
+  async function downloadWorkspace(file, fileSessionId) {
+    const id = fileSessionId || sessionId.value || execution.value?.session_id
+    if (id) await api.download(`/assistant/sessions/${id}/files`, { path: file.path }, file.path.split('/').pop())
   }
   async function showTask(id) {
     try { execution.value = await api.get(`/assistant/tasks/${id}`, null, { silent: true }); scrollDown() }

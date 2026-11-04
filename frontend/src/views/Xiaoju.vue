@@ -1,4 +1,4 @@
-<!-- 小聚：独立对话页面。左侧会话栏，中间消息流（工作过程可折叠），底部输入框。参考 Claude / Codex / Gemini 的桌面端体验。 -->
+<!-- 小聚：ChatGPT 风格的阅读排版，Codex 风格的可折叠工作过程。 -->
 <template>
   <div class="xj" :class="{ 'side-open': sideOpen, 'side-collapsed': sideCollapsed }">
     <aside class="side" aria-label="小聚对话列表">
@@ -66,7 +66,7 @@
         </button>
       </header>
 
-      <div ref="scrollArea" class="scroll" aria-live="polite" @scroll="onScroll">
+      <div ref="scrollArea" class="scroll" @scroll="onScroll">
         <div class="col">
           <div v-if="loadError" class="load-err"><p>暂时无法连接小聚。</p><el-button @click="loadCatalog">重新加载</el-button></div>
 
@@ -95,37 +95,43 @@
           <!-- 消息流 -->
           <template v-for="(m, i) in messages" :key="i">
             <div v-if="m.role === 'user'" class="turn user"><div class="bubble">{{ m.text }}</div></div>
-            <div v-else class="turn ai">
-              <span class="av"><XiaojuMark :size="16" /></span>
+            <article v-else class="turn ai" aria-label="小聚的回复">
               <div class="ai-body">
                 <ProcessBlock v-if="taskFor(m)" :task="taskFor(m)" :live="false" :labels="STATE_LABELS">
                   <TaskExtras :task="taskFor(m)" part="outcomes" />
                 </ProcessBlock>
-                <div class="md" v-html="richText(m.text)" />
+                <ReplyContent :text="m.text" />
                 <TaskExtras v-if="taskFor(m)" :task="taskFor(m)" />
                 <div v-if="m.links?.length" class="links message-links"><button v-for="l in m.links" :key="l.path" type="button" @click="navigate(l.path)">{{ l.label }} →</button></div>
                 <div v-if="m.providers?.length > 1" class="links"><button v-for="k in m.providers" :key="k" type="button" :disabled="busy" @click="selectProvider(k)">{{ connectorName(k) }}</button></div>
-                <div class="acts">
-                  <button type="button" title="复制" @click="copy(m.text)">复制</button>
-                  <button v-if="m.task_id && !taskFor(m)" type="button" @click="loadTask(m.task_id)">查看工作过程</button>
-                  <button v-if="i === messages.length - 1 && lastInstruction && !busy && execution && ['failed', 'cancelled'].includes(execution.state)" type="button" @click="ask(lastInstruction)">重试</button>
+                <div class="acts" aria-label="回复操作">
+                  <button type="button" :title="copiedReply === i ? '已复制' : '复制回复'" :aria-label="copiedReply === i ? '已复制回复' : '复制回复'" @click="copyReply(m.text, i)">
+                    <svg v-if="copiedReply === i" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M4.5 10l3.5 3.5 7.5-8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    <svg v-else viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><rect x="7" y="7" width="9" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.4" /><path d="M12 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="1.4" /></svg>
+                  </button>
+                  <button v-if="m.task_id && !taskFor(m)" type="button" title="查看工作过程" aria-label="查看工作过程" @click="loadTask(m.task_id)">
+                    <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="10" cy="10" r="6.5" /><path d="M10 6.5V10l2.5 1.5" stroke-linecap="round" /></svg>
+                  </button>
+                  <button v-if="i === messages.length - 1 && lastInstruction && !busy && execution && ['failed', 'cancelled'].includes(execution.state)" type="button" title="重试" aria-label="重试" @click="ask(lastInstruction)">
+                    <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M15.5 8A6 6 0 1 0 16 12M15.5 3.5V8H11" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                  </button>
                 </div>
               </div>
-            </div>
+            </article>
           </template>
 
           <!-- 正在进行的一轮 -->
-          <div v-if="liveTurn" class="turn ai">
-            <span class="av"><XiaojuMark :size="16" /></span>
+          <article v-if="liveTurn" class="turn ai" aria-label="小聚正在回复" :aria-busy="true">
             <div class="ai-body">
               <ProcessBlock v-if="execution" :task="execution" :live="executing" :poll-error="pollError" :labels="STATE_LABELS">
                 <TaskExtras :task="execution" part="outcomes" />
               </ProcessBlock>
-              <div v-if="execution?.partial_text" class="md streaming" v-html="richText(execution.partial_text)" />
-              <div v-else-if="chatting || executing" class="typing" role="status"><i /><i /><i /></div>
+              <ReplyContent v-if="execution?.partial_text" :text="execution.partial_text" streaming />
+              <div v-else-if="chatting && !execution" class="typing" role="status" aria-label="正在思考"><i /></div>
               <TaskExtras v-if="execution" :task="execution" />
             </div>
-          </div>
+          </article>
+          <span class="sr-only" role="status">{{ executing || chatting ? '小聚正在回复' : messages.length ? '小聚回复已完成' : '' }}</span>
 
           <section v-if="active && (!automaticMode || manualMode)" class="setup-card" :aria-label="`${active.name}接入配置`">
             <div class="setup-heading"><div><span class="section-label">接入操作</span><h3>{{ active.name }}</h3></div><a :href="active.docs" target="_blank" rel="noopener noreferrer">官方说明 ↗</a></div>
@@ -211,11 +217,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref,
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@/store/auth'
 import { useXiaoju } from '@/composables/useXiaoju'
-import { richText } from '@/utils/richText'
+import { ElMessage } from 'element-plus'
 import Composer from './xiaoju/Composer.vue'
 import ProcessBlock from './xiaoju/ProcessBlock.vue'
 import TaskExtras from './xiaoju/TaskExtras.vue'
 import XiaojuMark from './xiaoju/XiaojuMark.vue'
+import ReplyContent from './xiaoju/ReplyContent.vue'
 
 const ICON = (d) => `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
 const SUGGESTIONS = [
@@ -247,6 +254,8 @@ const keyword = ref('')
 const sideOpen = ref(false)  // 手机：抽屉式侧栏
 const sideCollapsed = ref(localStorage.getItem('xj_side') === '0')
 const atBottom = ref(true)
+const copiedReply = ref(-1)
+let copyTimer
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 const backTo = computed(() => (typeof route.query.from === 'string' && route.query.from.startsWith('/') ? route.query.from : '/'))
 const firstName = computed(() => auth.profile?.name?.slice(-2) || '你好')
@@ -278,6 +287,14 @@ const liveTurn = computed(() => (chatting.value || executing.value || execution.
   messages.value[messages.value.length - 1]?.role === 'user')
 
 function send() { ask(); nextTick(() => composer.value?.focus()) }
+async function copyReply(text, index) {
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedReply.value = index
+    clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => { copiedReply.value = -1 }, 1800)
+  } catch { ElMessage.warning('复制失败，请选中文字后复制。') }
+}
 function removeAttachment(id) { attachments.value = attachments.value.filter((f) => f.id !== id) }
 function startNew() {
   if (busy.value) return
@@ -323,18 +340,20 @@ onMounted(async () => {
   await init(route.params.id ? String(route.params.id) : '')
   nextTick(() => composer.value?.focus())
 })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); dispose() })
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); clearTimeout(copyTimer); dispose() })
 watch(() => auth.profile?.id, (id, old) => { if (old && id !== old) { dispose(); router.replace({ name: 'xiaoju' }); refreshConversations() } })
 </script>
 
 <style scoped>
-.xj { --side-w: 264px; display: flex; height: 100vh; height: 100dvh; overflow: hidden; background: #fbfaf7; color: var(--jc-ink); }
+.xj { --side-w: 252px; --jc-ink: #202123; --jc-ink-2: #55565b; --jc-ink-3: #77787e; --jc-line: #e5e5e5; --jc-line-2: #ededed; --jc-surface-2: #f7f7f8; display: flex; height: 100vh; height: 100dvh; overflow: hidden; background: #fff; color: var(--jc-ink); -webkit-font-smoothing: antialiased; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.xj :focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 3px; }
 /* ---------- 侧栏 ---------- */
-.side { width: var(--side-w); flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; background: #f4f2ec; border-right: 1px solid var(--jc-line-2); transition: width .2s, padding .2s, opacity .2s; overflow: hidden; }
+.side { width: var(--side-w); flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; background: #f8f8f8; border-right: 1px solid #f0f0f0; transition: width .2s, padding .2s, opacity .2s; overflow: hidden; }
 .side-collapsed .side { width: 0; padding-left: 0; padding-right: 0; opacity: 0; border-right: 0; }
 .side-hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 8px; }
 .brand { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--jc-ink); font: inherit; cursor: pointer; padding: 4px; border-radius: 8px; }
-.brand b { font-family: var(--jc-font-serif); font-size: 17px; font-weight: 600; letter-spacing: .5px; }
+.brand b { font-size: 17px; font-weight: 600; letter-spacing: .2px; }
 .mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--jc-brand); color: #fff; }
 .icon { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--jc-ink-3); cursor: pointer; }
 .icon:hover:not(:disabled) { background: rgba(20, 24, 40, .06); color: var(--jc-ink); }
@@ -350,7 +369,7 @@ watch(() => auth.profile?.id, (id, old) => { if (old && id !== old) { dispose();
 .gl { padding: 12px 10px 4px; color: var(--jc-ink-3); font-size: 11px; letter-spacing: .3px; }
 .conv { position: relative; display: flex; align-items: center; border-radius: 8px; }
 .conv:hover, .conv.on { background: rgba(20, 24, 40, .055); }
-.conv.on { background: rgba(27, 50, 117, .08); }
+.conv.on { background: #ebebeb; }
 .ct { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 7px 10px; border: 0; background: transparent; color: var(--jc-ink-2); font: inherit; font-size: 13px; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .conv.on .ct { color: var(--jc-ink); font-weight: 500; }
 .live { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--jc-brand); animation: pulse 1.2s infinite; }
@@ -372,23 +391,23 @@ button.cli:hover { background: rgba(20, 24, 40, .055); }
 .scrim { display: none; }
 /* ---------- 主区 ---------- */
 .main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.top { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 14px; flex-shrink: 0; }
+.top { display: flex; align-items: center; gap: 8px; height: 58px; padding: 0 20px; flex-shrink: 0; }
 .menu { display: none; }
 .side-collapsed .menu { display: grid; }
 .title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; color: var(--jc-ink-2); }
-.ready { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--jc-surface); border: 1px solid var(--jc-line-2); color: var(--jc-ink-3); font-size: 11px; white-space: nowrap; }
+.ready { display: inline-flex; align-items: center; gap: 6px; padding: 3px 0; color: var(--jc-ink-3); font-size: 11px; white-space: nowrap; }
 .ready i { width: 6px; height: 6px; border-radius: 50%; background: var(--jc-up); }
-.scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
-.col { width: 100%; max-width: 780px; margin: 0 auto; padding: 0 24px; }
-.scroll .col { padding-top: 8px; padding-bottom: 32px; }
-.dock { flex-shrink: 0; padding: 8px 0 14px; background: linear-gradient(to bottom, rgba(251, 250, 247, 0), #fbfaf7 30%); }
-.foot { margin: 8px 0 0; color: var(--jc-ink-3); font-size: 11px; text-align: center; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scroll-behavior: smooth; }
+.col { width: 100%; max-width: 848px; margin: 0 auto; padding: 0 32px; }
+.scroll .col { padding-top: 16px; padding-bottom: 40px; }
+.dock { flex-shrink: 0; padding: 8px 0 max(12px, env(safe-area-inset-bottom)); background: #fff; }
+.foot { margin: 9px 0 0; color: var(--jc-ink-3); font-size: 11px; line-height: 1.5; text-align: center; }
 .to-bottom { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--jc-line); border-radius: 50%; background: var(--jc-surface); color: var(--jc-ink-2); box-shadow: 0 4px 14px rgba(20, 24, 40, .1); cursor: pointer; z-index: 2; }
 
 /* ---------- 空对话 ---------- */
 .hero { display: flex; flex-direction: column; align-items: center; min-height: calc(100dvh - 140px); justify-content: center; padding: 24px 0 48px; text-align: center; }
 .hero-mark { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 18px; border-radius: 16px; background: var(--jc-brand); color: #fff; box-shadow: 0 8px 24px rgba(27, 50, 117, .25); }
-.hero h1 { margin: 0; font-family: var(--jc-font-serif); font-size: 30px; font-weight: 500; letter-spacing: .5px; }
+.hero h1 { margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.5px; }
 .hero > p { margin: 10px 0 26px; color: var(--jc-ink-3); font-size: 14px; }
 .hero :deep(.composer) { width: 100%; text-align: left; }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; margin-top: 18px; }
@@ -408,35 +427,19 @@ button.cli:hover { background: rgba(20, 24, 40, .055); }
 .notice a { margin-left: 6px; cursor: pointer; }
 .load-err { padding: 80px 0; text-align: center; color: var(--jc-ink-3); }
 /* ---------- 消息 ---------- */
-.turn { display: flex; margin: 22px 0; }
-.turn.user { justify-content: flex-end; }
-.bubble { max-width: min(560px, 85%); padding: 10px 15px; border-radius: 18px 18px 6px 18px; background: #ecebe5; color: var(--jc-ink); font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.turn.ai { gap: 12px; align-items: flex-start; }
-.av { flex-shrink: 0; display: grid; place-items: center; width: 26px; height: 26px; margin-top: 1px; border-radius: 8px; background: var(--jc-brand); color: #fff; }
+.turn { display: flex; margin: 0 0 36px; }
+.turn.user { justify-content: flex-end; margin: 8px 0 28px; }
+.bubble { max-width: min(600px, 85%); padding: 11px 18px; border-radius: 24px; background: #f1f1f1; color: var(--jc-ink); font-size: 16px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn.ai { align-items: flex-start; }
 .ai-body { flex: 1; min-width: 0; }
-.md { font-size: 15px; line-height: 1.85; color: var(--jc-ink); overflow-wrap: anywhere; }
-.md :deep(p) { margin: 0 0 10px; white-space: pre-wrap; }
-.md :deep(p:last-child) { margin-bottom: 0; }
-.md :deep(ul), .md :deep(ol) { margin: 4px 0 10px; padding-left: 22px; }
-.md :deep(li) { margin: 3px 0; }
-.md :deep(h4) { margin: 14px 0 6px; font-size: 15px; font-weight: 600; }
-.md :deep(code) { padding: 1px 6px; border-radius: 5px; background: rgba(20, 24, 40, .06); font: 13px/1.6 ui-monospace, Menlo, monospace; }
-.md :deep(a) { color: var(--jc-brand); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
-.md :deep(strong) { font-weight: 600; }
-.streaming::after { content: ''; display: inline-block; width: 7px; height: 16px; margin-left: 2px; vertical-align: -2px; background: var(--jc-brand); animation: blink 1s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-.typing { display: flex; gap: 5px; padding: 10px 0; }
-.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--jc-ink-3); animation: bounce 1.2s infinite ease-in-out; }
-.typing i:nth-child(2) { animation-delay: .15s; }
-.typing i:nth-child(3) { animation-delay: .3s; }
-@keyframes bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-5px); opacity: 1; } }
+.typing { display: flex; padding: 12px 0; }
+.typing i { width: 9px; height: 9px; border-radius: 50%; background: var(--jc-ink); animation: pulse 1.2s infinite ease-in-out; }
 @keyframes pulse { 50% { opacity: .35; } }
 .links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .links button { padding: 6px 12px; border: 1px solid var(--jc-line); border-radius: 999px; background: var(--jc-surface); color: var(--jc-ink-2); font: inherit; font-size: 12px; cursor: pointer; }
 .links button:hover:not(:disabled) { border-color: var(--jc-brand); color: var(--jc-brand); }
-.acts { display: flex; gap: 2px; margin-top: 6px; margin-left: -6px; opacity: 0; transition: opacity .15s; }
-.turn.ai:hover .acts, .turn.ai:last-of-type .acts { opacity: 1; }
-.acts button { padding: 3px 7px; border: 0; border-radius: 6px; background: transparent; color: var(--jc-ink-3); font: inherit; font-size: 12px; cursor: pointer; }
+.acts { display: flex; align-items: center; gap: 2px; margin-top: 12px; margin-left: -7px; }
+.acts button { display: grid; place-items: center; width: 32px; height: 32px; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--jc-ink-3); cursor: pointer; }
 .acts button:hover { background: rgba(20, 24, 40, .06); color: var(--jc-ink); }
 .manual { margin: 0 0 10px 38px; }
 /* ---------- 旧版接入表单（模型不可用时的兜底） ---------- */
@@ -470,13 +473,16 @@ button.cli:hover { background: rgba(20, 24, 40, .055); }
   .side-open .side { transform: none; }
   .side-open .scrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(20, 24, 40, .3); }
   .menu { display: grid; }
-  .col { padding: 0 14px; }
+  .col { padding: 0 20px; }
   .cards { grid-template-columns: 1fr; }
   .card:nth-child(n + 3) { display: none; }
   .hero h1 { font-size: 24px; }
-  .bubble, .md { font-size: 15px; }
+  .bubble { font-size: 15px; }
   .ready { display: none; }
   .setup-card, .manual { margin-left: 0; }
   .to-bottom { bottom: 118px; }
 }
+@media (max-width: 640px) { .top { height: 52px; padding: 0 12px; } .col { padding: 0 16px; } .scroll .col { padding-top: 8px; } .turn { margin-bottom: 28px; } .foot { font-size: 10px; } }
+@media (hover: none) { .more { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .scroll { scroll-behavior: auto; } .side { transition: none; } .typing i, .live { animation: none; } }
 </style>

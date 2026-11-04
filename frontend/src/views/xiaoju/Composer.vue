@@ -16,7 +16,7 @@
         <svg v-else viewBox="0 0 20 20" width="18" height="18"><path d="M10 4.5v11M4.5 10h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
       </button>
       <el-dropdown v-if="models.length" trigger="click" :disabled="executing" @command="onOption">
-        <button type="button" class="chip" :disabled="executing">{{ modelLabel }} · {{ THINK[thinking] || '标准' }}
+        <button type="button" class="chip" :disabled="executing" :title="`${modelLabel} · ${THINK[thinking] || '标准'}`" aria-label="选择模型与思考深度"><span class="model-name">{{ modelLabel }}</span><span class="thinking">{{ THINK[thinking] || '标准' }}</span>
           <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M5 6.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
         </button>
         <template #dropdown>
@@ -31,7 +31,6 @@
         </template>
       </el-dropdown>
       <span class="sp" />
-      <span v-if="!hero" class="tip">Enter 发送 · Shift+Enter 换行</span>
       <button v-if="executing && !model.trim()" type="button" class="send stop" title="停止" aria-label="停止执行" @click="$emit('stop')">
         <span class="sq" />
       </button>
@@ -57,7 +56,7 @@ const emit = defineEmits(['send', 'stop', 'attach', 'files', 'remove', 'options'
 const box = ref()
 const drag = ref(false)
 const modelLabel = computed(() => (selectedModel.value || props.models[0] || '').replace(/^deepseek-/, 'DeepSeek ').replace(/^claude-/, 'Claude '))
-const placeholder = computed(() => props.executing ? '小聚正在办理，可以补充要求…' : props.hero ? '告诉小聚要做什么，例如：本月新签合同汇总，或把附件整理成表格' : '继续追问，或交代新的事…')
+const placeholder = computed(() => props.executing ? '可以补充要求…' : props.hero ? '向小聚提问，或交代一件事' : '继续向小聚提问')
 
 function grow() {
   const el = box.value
@@ -87,21 +86,24 @@ defineExpose({ focus: () => box.value?.focus() })
 </script>
 
 <style scoped>
-.composer { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 8px 14px; border: 1px solid var(--jc-line); border-radius: 18px; background: var(--jc-surface); box-shadow: 0 1px 2px rgba(20, 24, 40, .04), 0 8px 24px rgba(20, 24, 40, .06); transition: border-color .15s, box-shadow .15s; }
-.composer:focus-within { border-color: color-mix(in srgb, var(--jc-brand) 45%, var(--jc-line)); box-shadow: 0 1px 2px rgba(20, 24, 40, .05), 0 10px 30px rgba(27, 50, 117, .10); }
+.composer { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 14px 12px 10px 18px; border: 1px solid #e3e3e3; border-radius: 26px; background: var(--jc-surface); box-shadow: 0 2px 8px rgba(0, 0, 0, .035); transition: border-color .15s, box-shadow .15s; }
+.composer:focus-within { border-color: #c7c7c7; box-shadow: 0 2px 10px rgba(0, 0, 0, .06); }
 .composer.large textarea { min-height: 52px; }
 textarea { width: 100%; min-height: 26px; overflow-y: hidden; max-height: 240px; padding: 4px 2px 0; border: 0; outline: none; resize: none; background: transparent; color: var(--jc-ink); font: inherit; font-size: 15px; line-height: 1.6; }
 textarea::placeholder { color: var(--jc-ink-3); }
-.bar { display: flex; align-items: center; gap: 6px; }
+.bar { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .sp { flex: 1; }
-.tool, .chip { display: inline-flex; align-items: center; gap: 4px; height: 30px; border: 0; background: transparent; color: var(--jc-ink-2); border-radius: 8px; font: inherit; font-size: 12px; cursor: pointer; }
-.tool { width: 30px; justify-content: center; }
-.chip { padding: 0 8px; }
+.tool, .chip { display: inline-flex; align-items: center; gap: 5px; height: 32px; border: 0; background: transparent; color: var(--jc-ink-2); border-radius: 8px; font: inherit; font-size: 12px; cursor: pointer; }
+.tool { width: 32px; flex-shrink: 0; justify-content: center; }
+.chip { padding: 0 6px; max-width: 100%; min-width: 0; }
+.bar :deep(.el-dropdown) { min-width: 0; max-width: calc(100% - 78px); }
+.model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thinking { padding-left: 7px; margin-left: 2px; border-left: 1px solid var(--jc-line); color: var(--jc-ink-3); white-space: nowrap; }
+.chip svg { flex-shrink: 0; }
 .tool:hover:not(:disabled), .chip:hover:not(:disabled) { background: var(--jc-surface-2); color: var(--jc-ink); }
 .tool:disabled, .chip:disabled { opacity: .45; cursor: not-allowed; }
-.tip { color: var(--jc-ink-3); font-size: 11px; }
-.send { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--jc-brand); color: #fff; cursor: pointer; transition: opacity .15s, transform .1s; }
-.send:disabled { background: var(--jc-line); color: var(--jc-surface); cursor: not-allowed; }
+.send { flex-shrink: 0; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--jc-ink); color: #fff; cursor: pointer; transition: opacity .15s, transform .1s; }
+.send:disabled { background: #ececec; color: #aaa; cursor: not-allowed; }
 .send:not(:disabled):active { transform: scale(.94); }
 .send.stop { background: var(--jc-ink); }
 .sq { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
@@ -109,10 +111,10 @@ textarea::placeholder { color: var(--jc-ink-3); }
 .file { display: inline-flex; align-items: center; gap: 5px; max-width: 240px; padding: 4px 6px 4px 8px; border: 1px solid var(--jc-line-2); border-radius: 8px; background: var(--jc-surface-2); color: var(--jc-ink-2); font-size: 12px; }
 .fn { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .file button { border: 0; background: transparent; color: var(--jc-ink-3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
-.drop { position: absolute; inset: 0; display: grid; place-items: center; border: 1.5px dashed var(--jc-brand); border-radius: 18px; background: color-mix(in srgb, var(--jc-brand-50) 85%, transparent); color: var(--jc-brand); font-size: 14px; pointer-events: none; }
+.drop { position: absolute; inset: 0; display: grid; place-items: center; border: 1.5px dashed var(--jc-brand); border-radius: 26px; background: color-mix(in srgb, var(--jc-brand-50) 85%, transparent); color: var(--jc-brand); font-size: 14px; pointer-events: none; }
 .spin { width: 14px; height: 14px; border: 1.6px solid var(--jc-line); border-top-color: var(--jc-brand); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 :deep(.on) { color: var(--jc-brand); font-weight: 500; }
 .hint { margin-left: 10px; color: var(--jc-ink-3); font-size: 11px; }
-@media (max-width: 640px) { .tip { display: none; } textarea { font-size: 16px; } }
+@media (max-width: 640px) { textarea { font-size: 16px; } .composer { padding: 12px 10px 9px 14px; border-radius: 24px; } }
 </style>

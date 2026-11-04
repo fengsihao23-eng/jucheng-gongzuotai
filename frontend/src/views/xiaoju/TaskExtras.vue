@@ -20,8 +20,7 @@
   <template v-else>
     <div v-if="task.business_actions?.length || task.business_results?.length || task.business_errors?.length" class="biz">
       <BusinessActionCard v-for="a in task.business_actions || []" :key="a.id" :action="a" :disabled="x.busy" @decision="x.handleDecision" />
-      <BusinessResultCard v-if="(task.business_results || []).length === 1" :result="task.business_results[0]" @navigate="x.navigate" />
-      <details v-else-if="task.business_results?.length" class="receipts">
+      <details v-if="task.business_results?.length" class="receipts">
         <summary>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4 2.5h8v11l-2-1.2-2 1.2-2-1.2-2 1.2z M6 6h4M6 8.5h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" /></svg>
           {{ task.business_results.length }} 份业务回执<span>{{ receiptTitles(task) }}</span>
@@ -33,22 +32,33 @@
         <a v-if="e.authorization_url" :href="e.authorization_url" target="_blank" rel="noopener noreferrer">{{ e.authorization_label || '打开企业微信授权' }} ↗</a>
       </div>
     </div>
-    <div v-if="task.workspace_files?.length" class="files">
-      <span class="fl">工作文件</span>
-      <button v-for="f in task.workspace_files" :key="f.path" type="button" @click="x.downloadWorkspace(f)">
-        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ f.path }}
+    <div v-if="downloadableFiles.length" class="files">
+      <button v-for="f in downloadableFiles" :key="f.key" type="button" class="file-card" :title="`下载 ${f.filename}`" :aria-label="`下载 ${f.filename}`" @click="downloadFile(f)">
+        <span class="file-icon" :class="fileType(f)"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 3.5h8l4 4V20H6z M14 3.5v4h4 M9 12h6M9 15.5h6" stroke-linejoin="round" /></svg></span>
+        <span class="file-info"><b>{{ f.filename }}</b><span>{{ fileType(f).toUpperCase() || '文件' }}<template v-if="f.size"> · {{ fileSize(f.size) }}</template></span></span>
+        <svg class="download" viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10 3.5v9M6.5 9l3.5 3.5L13.5 9M4 14v3h12v-3" stroke-linecap="round" stroke-linejoin="round" /></svg>
       </button>
     </div>
   </template>
 </template>
 
 <script setup>
-import { inject } from 'vue'
+import { computed, inject } from 'vue'
+import { openFile } from '@/api/client'
 import BusinessActionCard from '@/components/BusinessActionCard.vue'
 import BusinessResultCard from '@/components/BusinessResultCard.vue'
 
-defineProps({ task: { type: Object, required: true }, part: { type: String, default: 'business' } })
+const props = defineProps({ task: { type: Object, required: true }, part: { type: String, default: 'business' } })
 const x = inject('xiaoju')
+const downloadableFiles = computed(() => {
+  const business = (props.task.business_results || []).flatMap((result) => result.files || []).filter((file) => file.url)
+    .map((file) => ({ ...file, key: file.url, filename: file.filename || file.name || '下载文件' }))
+  const workspace = (props.task.workspace_files || []).map((file) => ({ ...file, key: `workspace:${file.path}`, filename: file.path.split('/').pop(), workspace: true }))
+  return [...new Map([...business, ...workspace].map((file) => [file.key, file])).values()]
+})
+const downloadFile = (file) => file.workspace ? x.downloadWorkspace(file, props.task.session_id) : openFile(file.url)
+const fileType = (file) => (file.filename.includes('.') ? file.filename.split('.').pop() : '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)
+const fileSize = (size) => size < 1024 ? `${size} B` : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`
 // 折叠时的摘要：去重后的回执标题，最多三个
 const receiptTitles = (t) => {
   const names = [...new Set((t.business_results || []).map((r) => (r.title || '').split(' · ')[0]).filter(Boolean))]
@@ -68,14 +78,23 @@ ol.sub { padding-left: 18px; margin: 4px 0; }
 .ops .el-button { margin: 0; }
 .biz { margin-top: 4px; }
 .receipts { margin-top: 12px; }
-.receipts summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; padding: 6px 12px; border: 1px solid var(--jc-line-2); border-radius: 999px; background: var(--jc-surface); color: var(--jc-ink-2); font-size: 12px; cursor: pointer; list-style: none; }
+.receipts summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; padding: 6px 10px; border: 1px solid var(--jc-line-2); border-radius: 9px; background: var(--jc-surface); color: var(--jc-ink-2); font-size: 12px; cursor: pointer; list-style: none; }
+.receipts summary::after { content: '›'; margin-left: 3px; color: var(--jc-ink-3); font-size: 17px; line-height: 1; }
+.receipts[open] summary::after { transform: rotate(90deg); }
 .receipts summary::-webkit-details-marker { display: none; }
 .receipts summary:hover { border-color: var(--jc-line); color: var(--jc-ink); }
 .receipts summary span { color: var(--jc-ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .receipts[open] summary { margin-bottom: 4px; }
 .err { color: var(--jc-down); font-size: 13px; line-height: 1.8; }
-.files { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
-.fl { color: var(--jc-ink-3); font-size: 12px; margin-right: 2px; }
-.files button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid var(--jc-line); border-radius: 8px; background: var(--jc-surface); color: var(--jc-ink-2); font: inherit; font-size: 12px; cursor: pointer; }
-.files button:hover { border-color: var(--jc-brand); color: var(--jc-brand); }
+.files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.file-card { display: flex; align-items: center; gap: 11px; width: 300px; max-width: 100%; padding: 12px 14px; border: 1px solid var(--jc-line); border-radius: 14px; background: var(--jc-surface); color: var(--jc-ink); font: inherit; text-align: left; cursor: pointer; }
+.file-card:hover { background: #fafafa; border-color: #cfcfcf; }
+.file-icon { flex-shrink: 0; display: grid; place-items: center; width: 38px; height: 42px; border-radius: 9px; background: #f0f0f3; color: #757580; }
+.file-icon.xlsx, .file-icon.csv { background: #edf5ef; color: #388454; }
+.file-icon.docx { background: #edf2fa; color: #4879b4; }
+.file-icon.pdf { background: #fbeeed; color: #b9655d; }
+.file-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.file-info b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-info > span { color: var(--jc-ink-3); font-size: 11px; }
+.download { flex-shrink: 0; color: var(--jc-ink-3); }
 </style>
