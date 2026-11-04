@@ -75,9 +75,11 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 ## 测试与验收
 
 ```bash
-cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 299 项
+cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 308 项
 cd acceptance && npm install && node e2e.mjs                            # 端到端 68 项，需服务在运行
 ```
+
+种子会按随机数据重写 `backend/samples/` 下的考勤与标书样例，跑完测试出现这类二进制变更属正常；提交前可用 `git checkout -- backend/samples` 还原。
 
 小聚真实模型业务验收：在独立测试库启动端口 18100 的 API，运行 `cd acceptance && node xiaoju-business.mjs`。不能连接实际业务库；流程会创建演示工单和合同。
 
