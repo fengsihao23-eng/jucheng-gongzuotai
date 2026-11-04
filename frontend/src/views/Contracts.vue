@@ -12,6 +12,9 @@
         <el-select v-model="f.business_line" placeholder="业务线" clearable style="width: 140px" @change="search">
           <el-option v-for="(n, k) in BUSINESS_LINES" :key="k" :label="n" :value="k" />
         </el-select>
+        <el-select v-model="f.region" placeholder="区域" clearable style="width: 110px" @change="search">
+          <el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" />
+        </el-select>
         <el-input v-model="f.customer" placeholder="客户" clearable style="width: 160px" @keyup.enter="search" @clear="search" />
         <el-select v-model="f.status" placeholder="状态" clearable style="width: 110px" @change="search">
           <el-option v-for="(n, k) in CONTRACT_STATUS" :key="k" :label="n" :value="Number(k)" />
@@ -44,6 +47,7 @@
           <template #default="{ row }"><div class="jc-ellipsis"><b>{{ row.name || '—' }}</b></div><div class="jc-muted jc-small jc-ellipsis">{{ row.customer_name }}</div></template>
         </el-table-column>
         <el-table-column label="业务线" width="110"><template #default="{ row }">{{ row.business_line_name }}</template></el-table-column>
+        <el-table-column label="区域" width="90"><template #default="{ row }">{{ row.region || '—' }}</template></el-table-column>
         <el-table-column label="金额" width="140" align="right"><template #default="{ row }"><span class="jc-num">{{ money(row.amount, 0) }}</span></template></el-table-column>
         <el-table-column label="签订日期" width="110"><template #default="{ row }">{{ row.sign_date }}</template></el-table-column>
         <el-table-column v-if="f.paid_month" :label="`${f.paid_month} 回款`" width="130" align="right">
@@ -83,7 +87,8 @@ import { BUSINESS_LINES, CONTRACT_STATUS, money, percent, wan } from '@/utils/fo
 import ContractForm from './contract-form.vue'
 
 const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入' }
-const KEYS = ['keyword', 'business_line', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code']
+const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
+const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code']
 const route = useRoute()
 const router = useRouter()
 const f = reactive(Object.fromEntries(KEYS.map((k) => [k, ''])))

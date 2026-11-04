@@ -7,12 +7,12 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.response import conflict
 from app.core.timeutil import today, utcnow
-from app.models import BizContract, BizPayment, FinBankFlow, FinCashJournal
+from app.models import BizContract, BizPayment, FinBankFlow, FinCashJournal, FinReceipt
 
 
 def refresh_plan_status(contract: BizContract, ref: date | None = None) -> None:
@@ -46,15 +46,29 @@ def apply_to_plans(contract: BizContract, amount: Decimal) -> int | None:
     return first
 
 
+def has_confirmed_receipt(db, contract_id, amount, payment_date, *payers):
+    who = {name.strip().lower() for name in payers if name and name.strip()}
+    related = FinReceipt.contract_id == contract_id
+    if who:
+        related = or_(related, (FinReceipt.kind == "unmatched") & func.lower(FinReceipt.payer).in_(who))
+    return db.scalar(select(FinReceipt.id).where(
+        related, FinReceipt.received_on == payment_date,
+        FinReceipt.amount == amount, FinReceipt.state == "confirmed").limit(1)) is not None
+
+
 def register_payment(db: Session, contract: BizContract, amount: Decimal, payment_date: date, *,
                      flow: FinBankFlow | None = None, source_type: int = 2, user_id: int | None = None,
-                     remark: str | None = None, write_journal: bool = True) -> BizPayment:
+                     remark: str | None = None, write_journal: bool = True, verified_receipt: bool = False) -> BizPayment:
+    db.execute(select(BizContract.id).where(BizContract.id == contract.id).with_for_update())
     if flow is not None:
         if db.scalar(select(BizPayment.id).where(BizPayment.bank_flow_id == flow.id)):
             raise conflict("该流水已登记过回款")
         if flow.direction != 1:
             raise conflict("只有收入流水可登记为回款")
         payment_date, amount = flow.trade_date, flow.amount
+    if not verified_receipt and has_confirmed_receipt(db, contract.id, amount, payment_date,
+                                                     contract.customer_name, flow.counterparty if flow else None):
+        raise conflict("开票与收款台账已有同日同金额的相关到账，请先核对凭证，避免重复登记")
     pay = BizPayment(contract_id=contract.id, amount=amount, payment_date=payment_date,
                      bank_flow_id=flow.id if flow else None, register_by=user_id, source_type=source_type, remark=remark)
     pay.plan_id = apply_to_plans(contract, amount)
@@ -79,6 +93,7 @@ def plan_rows(contract: BizContract) -> list[dict]:
     names = {1: "未到期", 2: "待回款", 3: "部分回款", 4: "已回款", 5: "逾期"}
     return [{"id": p.id, "seq": p.seq, "stage_name": p.stage_name, "ratio": p.ratio, "amount": p.amount,
              "due_date": p.due_date, "received_amount": p.received_amount, "status": p.status,
-             "status_name": names.get(p.status), "condition_text": p.condition_text} for p in contract.plans]
+             "status_name": names.get(p.status), "condition_text": p.condition_text,
+             "overdue": bool(p.due_date and p.due_date < today() and p.amount > p.received_amount)} for p in contract.plans]
 
 

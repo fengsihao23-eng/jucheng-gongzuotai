@@ -21,6 +21,7 @@ export const MENU_GROUPS = [
   {
     title: '财务',
     items: [
+      { key: 'receivables', path: '/receivables', label: '开票与收款' },
       { key: 'expenses', path: '/expenses', label: '报销归集' },
       { key: 'flows', path: '/flows', label: '流水核对' },
       { key: 'journal', path: '/journal', label: '出纳日记账' },

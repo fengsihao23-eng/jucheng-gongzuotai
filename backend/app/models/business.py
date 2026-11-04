@@ -102,6 +102,7 @@ class BizContract(TimestampMixin, SoftDeleteMixin, Base):
     amount: Mapped[Decimal]
     sign_date: Mapped[date] = mapped_column(Date, index=True)
     business_line: Mapped[str] = mapped_column(String(8), index=True)
+    region: Mapped[str | None] = mapped_column(String(16), index=True)  # 所属区域业绩：市直/江城/阳春/阳东/阳西/海陵湾
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))  # 销售负责人
     source_approval_no: Mapped[str | None] = mapped_column(String(64), index=True)
     source_type: Mapped[int] = mapped_column(Integer, default=2)  # 1 企微审批自动登记 2 人工录入 3 Excel 清洗导入

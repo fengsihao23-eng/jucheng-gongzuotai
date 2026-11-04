@@ -45,6 +45,9 @@ def test_catalog_covers_real_business_routes_and_mcp(db):
     ops = catalog.operations()
     routes = {(r.path, method) for r in app.routes if isinstance(r, APIRoute)
               and r.endpoint.__module__.rsplit(".", 1)[-1] in catalog.MODULES
+              and (not r.path.startswith("/api/v1/receivables/") or
+                   r.path.removeprefix("/api/v1/receivables/") in {"summary", "invoices", "receipts", "receipts/{ident}/allocations"}
+                   and r.methods == {"GET"})
               and not any(r.path.endswith(suffix) for suffix in ("/token/reveal-config", "/mcp-config/test", "/mcp-config/config"))
               for method in r.methods if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}}
     assert routes == {(o.path, o.method) for o in ops.values() if o.source == "api"}

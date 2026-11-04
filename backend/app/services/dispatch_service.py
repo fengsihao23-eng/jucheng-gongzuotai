@@ -13,12 +13,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.timeutil import TZ, now, utcnow
+from app.core.audit import log_op
+from app.core.permissions import BUSINESS_LINES
+from app.core.response import BizError
+from app.core.timeutil import TZ, now, today, utcnow
 from app.integration.wecom import get_wecom
 from app.integration.wecom.base import ApprovalDto
 from app.models import (BizContract, BizExpenseItem, BizExpenseReport, BizOpportunity, BizProject,
                         SyncWecomApproval, SysUser)
-from app.services import codes, dict_service, notify_service
+from app.services import codes, dict_service, notify_service, receivables_fields, receivables_service
 
 log = logging.getLogger("dispatch")
 MAX_RETRY = 3
@@ -41,8 +44,8 @@ def _money(v: str | None, field: str) -> Decimal:
         d = Decimal(str(v).replace(",", "").replace("¥", "").replace("元", "").strip())
     except (InvalidOperation, AttributeError):
         raise DispatchError(f"字段「{field}」金额无效：{v!r}")
-    if d <= 0:
-        raise DispatchError(f"字段「{field}」金额须大于 0")
+    if not d.is_finite() or d <= 0 or d >= 10**12 or d != d.quantize(Decimal("0.01")):
+        raise DispatchError(f"字段「{field}」须为有效金额且最多两位小数")
     return d
 
 
@@ -71,19 +74,42 @@ def _user(db: Session, userid: str) -> SysUser | None:
 
 # ---------------- 各模板登记动作 ----------------
 def _register_contract(db: Session, a: ApprovalDto, f: dict) -> str:
-    if not f.get("customer_name"):
+    if not (f.get("customer_name") or "").strip():
         raise DispatchError("缺少字段「客户名称」")
     amount = _money(f.get("amount"), "合同金额")
+    number = (f.get("contract_no") or "").strip()
+    sign_date = _date(f.get("sign_date"))
+    if sign_date and sign_date > today():
+        raise DispatchError("签订日期不能晚于今天")
+    if number:
+        existing = db.scalar(select(BizContract).where(BizContract.contract_no == number).with_for_update())
+        if existing:
+            if (existing.is_deleted or existing.status == 3 or existing.amount != amount
+                    or existing.customer_name.strip() != f["customer_name"].strip()
+                    or (sign_date and existing.sign_date != sign_date)
+                    or existing.source_approval_no not in (None, a.sp_no)):
+                raise DispatchError("合同编号已有记录且内容或来源不一致，请人工核对")
+            existing.source_approval_no = a.sp_no
+            log_op(db, None, "contract.link_approval", "contract", existing.id, after={"sp_no": a.sp_no})
+            return existing.contract_no
     project = db.scalar(select(BizProject).where(BizProject.project_code == f.get("project_code"))) \
         if f.get("project_code") else None
     line = f.get("business_line") or (project.business_line if project else None)
     if not line:
         raise DispatchError("缺少业务线且未关联项目，无法统计业绩")
+    line = line.strip()
+    known_lines = {**BUSINESS_LINES, **dict_service.items(db, "business_line")}
+    label_codes = {(label if isinstance(label, str) else label.get("name", code)): code
+                   for code, label in known_lines.items() if isinstance(label, (str, dict))}
+    line_code = label_codes.get(line, line[:2].upper())
+    if line_code not in known_lines:
+        raise DispatchError("业务线不在当前字典中，请核对审批选项")
     applicant = _user(db, a.applicant_userid)
-    c = BizContract(contract_no=f.get("contract_no") or codes.contract_no(db, _approved_date(a).year),
+    c = BizContract(contract_no=number or codes.contract_no(db, (sign_date or _approved_date(a)).year),
                     name=f.get("name") or a.sp_name, project_code=project.project_code if project else None,
-                    customer_name=f["customer_name"], amount=amount, sign_date=_approved_date(a),
-                    business_line=line[:2].upper(), owner_id=applicant.id if applicant else None,
+                    customer_name=f["customer_name"].strip(), amount=amount, sign_date=sign_date or _approved_date(a),
+                    business_line=line_code, region=(f.get("region") or "").strip() or None,
+                    owner_id=applicant.id if applicant else None,
                     source_approval_no=a.sp_no, source_type=1, status=1, remark=f.get("remark"))
     db.add(c)
     if project and project.contract_amount is None:
@@ -143,7 +169,21 @@ def _register_opportunity(db: Session, a: ApprovalDto, f: dict) -> str:
     return o.opp_no
 
 
-HANDLERS = {"contract": _register_contract, "expense": _register_expense, "opportunity": _register_opportunity}
+def _request_invoice(db, a, values):
+    data = receivables_fields.parse(receivables_fields.InvoiceRequest, values)
+    row = receivables_service.request_invoice(db, **data.model_dump(), approval_no=a.sp_no)
+    return str(row.id)
+
+
+def _confirm_receipt(db, a, values):
+    data = receivables_fields.parse(receivables_fields.Receipt, values)
+    row = receivables_service.receipt(db, **data.model_dump(), approval_no=a.sp_no)
+    return str(row.id)
+
+
+HANDLERS = {"contract": _register_contract, "expense": _register_expense, "opportunity": _register_opportunity,
+            "invoice": _request_invoice, "receipt": _confirm_receipt}
+LEDGER_KEYS = {"contract", "invoice", "receipt"}
 
 
 # ---------------- 主流程 ----------------
@@ -152,7 +192,9 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
     a = detail or get_wecom().get_approval_detail(sp_no)
     tpl = _templates(db).get(a.template_id) or {}
     key = tpl.get("key", "unknown")
-    rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no))
+    if key in {"invoice", "receipt"}:
+        receivables_service.lock(db)
+    rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update())
     if not rec:
         rec = SyncWecomApproval(sp_no=sp_no, template_key=key, received_via=via, status=a.sp_status)
         db.add(rec)
@@ -160,12 +202,23 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
             db.flush()
         except IntegrityError:  # 并发回调：另一请求已插入
             db.rollback()
-            rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no))
+            if key in {"invoice", "receipt"}:
+                receivables_service.lock(db)
+            rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update())
+    old_fields = (rec.detail or {}).get("fields") or {}
+    changed = rec.dispatched_at and key in LEDGER_KEYS and (
+        rec.status != a.sp_status or _map_fields(tpl, old_fields) != _map_fields(tpl, a.fields))
     rec.template_id, rec.template_key, rec.sp_name = a.template_id, key, a.sp_name
     rec.applicant_userid, rec.status, rec.apply_time = a.applicant_userid, a.sp_status, a.apply_time
     rec.detail = {"fields": a.fields, "approved_time": a.approved_time.isoformat() if a.approved_time else None}
+    if via == "reconcile" and not rec.dispatched_at:
+        rec.updated_at = utcnow()  # 轮转长期在途单，避免被相同的前 100 单占满。
 
-    if rec.dispatch_status in (1, 3):
+    if changed:
+        rec.dispatch_status, rec.error_msg = 2, "已入账审批的状态或业务字段已变化，请核对台账并人工更正"
+        log_op(db, None, "approval.ledger_changed", "approval", sp_no,
+               after={"status": a.sp_status, "target": rec.dispatch_target})
+    if rec.dispatched_at or (rec.dispatch_status == 3 and key not in HANDLERS):
         db.commit()
         return rec  # 已处理：幂等
     if key not in HANDLERS or a.sp_status != 2:
@@ -174,7 +227,10 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
         return rec
     try:
         with db.begin_nested():
-            rec.dispatch_target = HANDLERS[key](db, a, _map_fields(tpl, a.fields))
+            mapped = _map_fields(tpl, a.fields)
+            if key == "contract" and tpl.get("require_contract_no") and not mapped.get("contract_no", "").strip():
+                raise DispatchError("该合同模板必须提供正式合同编号")
+            rec.dispatch_target = HANDLERS[key](db, a, mapped)
         rec.dispatch_status, rec.dispatched_at, rec.error_msg = 1, utcnow(), None
     except IntegrityError as exc:
         rec.dispatch_status, rec.error_msg = 2, f"登记冲突（重复单号？）：{exc.orig}"[:500]
@@ -182,35 +238,43 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
     except Exception as exc:  # noqa: BLE001
         rec.retry_count += 1
         rec.error_msg = str(exc)[:500]
-        rec.dispatch_status = 2 if rec.retry_count >= MAX_RETRY or isinstance(exc, DispatchError) else 0
+        rec.dispatch_status = 2 if rec.retry_count >= MAX_RETRY or isinstance(exc, (BizError, DispatchError)) else 0
         log.warning("dispatch %s failed (%s): %s", sp_no, rec.retry_count, exc)
     if rec.dispatch_status == 2:
-        notify_service.send(db, notify_service.users_by_roles(db, ["ADMIN-01", "YX-01"] if key != "expense" else ["ADMIN-01", "CW-01"]),
+        notify_service.send(db, notify_service.users_by_roles(db, ["ADMIN-01", "CW-01"] if key in {"expense", "invoice", "receipt"} else ["ADMIN-01", "YX-01"]),
                             "alert", f"审批自动登记失败，已转人工：{sp_no}", f"{a.sp_name}：{rec.error_msg}",
                             link="/admin?tab=approvals", ref_type="approval", ref_id=sp_no)
     db.commit()
+    if rec.dispatch_status == 1 and key in LEDGER_KEYS:
+        receivables_service.invalidate()
     return rec
 
 
 def reconcile(db: Session, hours: int = 24) -> dict:
     """审批兜底对账：拉取近 N 小时审批单，补齐回调丢失与待重试项。"""
     end = now()
-    sp_nos = get_wecom().get_approval_list(end - timedelta(hours=hours), end)
+    recent = get_wecom().get_approval_list(end - timedelta(hours=hours), end)
+    pending = db.scalars(select(SyncWecomApproval.sp_no).where(SyncWecomApproval.dispatch_status == 0,
+                         SyncWecomApproval.template_key.in_(LEDGER_KEYS))
+                         .order_by(SyncWecomApproval.updated_at, SyncWecomApproval.id).limit(100))
+    sp_nos = list(dict.fromkeys([*recent, *pending]))
     known = {r.sp_no: r for r in db.scalars(select(SyncWecomApproval).where(SyncWecomApproval.sp_no.in_(sp_nos)))}
-    added = retried = 0
+    added = retried = revisited = 0
     for sp in sp_nos:
         r = known.get(sp)
-        if r and r.dispatch_status in (1, 2, 3):
+        if r and (r.dispatch_status in (2, 3) or
+                  (r.dispatch_status == 1 and r.template_key not in LEDGER_KEYS)):
             continue
         added += r is None
-        retried += r is not None
+        retried += r is not None and r.dispatch_status != 1
+        revisited += r is not None and r.dispatch_status == 1
         ingest(db, sp, via="reconcile")
-    return {"rows": added + retried, "message": f"拉取 {len(sp_nos)} 单，补登 {added}，重试 {retried}"}
+    return {"rows": added + retried, "message": f"拉取 {len(sp_nos)} 单，补登 {added}，重试 {retried}，复核 {revisited}"}
 
 
 def manual_retry(db: Session, sp_no: str) -> SyncWecomApproval:
     rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no))
-    if rec and rec.dispatch_status == 2:
+    if rec and rec.dispatch_status == 2 and not rec.dispatched_at:
         rec.dispatch_status, rec.retry_count = 0, 0
         db.flush()
     return ingest(db, sp_no, via="manual")

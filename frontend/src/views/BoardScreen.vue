@@ -42,6 +42,10 @@
           <h3>④ 商机漏斗</h3>
           <Chart :option="funnelOption(opp, true)" height="230px" />
         </div>
+        <div class="card wide">
+          <h3>月度经营历史 <small>{{ monthly ? monthly.year + ' 年 · 新签 / 回款' : '' }}</small></h3>
+          <Chart :option="monthlyOption(monthly, true)" height="220px" />
+        </div>
         <div class="card wide" :class="{ hl: active === 1 }">
           <h3>② 重点项目进展 <small>延期 ▲ {{ kp.delayed_count }} / {{ kp.count }}</small></h3>
           <table class="tb">
@@ -89,9 +93,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/api/client'
 import { datetime, num, percent, shortDate, wan, wanNum } from '@/utils/format'
-import { dailyOption, funnelOption, lineBarOption, submitOption } from './board-charts'
+import { dailyOption, funnelOption, lineBarOption, monthlyOption, submitOption } from './board-charts'
 
 const ov = ref(null)
+const monthly = ref(null)
 const active = ref(0)
 const paused = ref(false)
 const clock = ref(dayjs().format('YYYY-MM-DD HH:mm:ss'))
@@ -104,7 +109,14 @@ const kp = computed(() => ov.value.key_projects)
 let t1, t2, t3
 
 async function load() {
-  try { ov.value = await api.get('/board/overview', { refresh: 0 }, { silent: !!ov.value }) } catch { /* 保留上次数据 */ }
+  try {
+    const [o, m] = await Promise.all([
+      api.get('/board/overview', { refresh: 0 }, { silent: !!ov.value }),
+      api.get('/board/monthly', {}, { silent: !!monthly.value }),
+    ])
+    ov.value = o
+    monthly.value = m
+  } catch { /* 保留上次数据 */ }
 }
 onMounted(() => {
   load()

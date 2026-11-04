@@ -206,6 +206,31 @@ def retry_approval(sp_no: str, p: Principal = Admin, db: Session = Depends(get_d
     return ok({"dispatch_status": rec.dispatch_status, "dispatch_target": rec.dispatch_target, "error": rec.error_msg})
 
 
+@router.post("/approvals/{sp_no}/review")
+def review_approval(sp_no: str, reason: str = Body(..., embed=True, min_length=1, max_length=500),
+                    p: Principal = Admin, db: Session = Depends(get_db)):
+    from app.core.response import bad_request, conflict
+    from app.models import FinSalesInvoice
+    from app.services import receivables_service
+
+    if not reason.strip():
+        raise bad_request("请填写核对结果")
+    receivables_service.lock(db)
+    row = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update())
+    if not row or not row.dispatched_at or row.dispatch_status != 2 or row.template_key not in dispatch_service.LEDGER_KEYS:
+        raise conflict("仅已登记后发生变更的审批可以标记核对完成")
+    invoice = db.scalar(select(FinSalesInvoice).where(FinSalesInvoice.approval_no == sp_no)) if row.template_key == "invoice" else None
+    if invoice and invoice.state == "pending":
+        invoice.state = "cancelled"
+        log_op(db, p.id, "receivables.invoice.cancel_request", "sales_invoice", invoice.id,
+               after={"reason": reason.strip(), "approval_no": sp_no})
+    log_op(db, p.id, "approval.ledger_review", "approval", sp_no, before={"error": row.error_msg},
+           after={"reason": reason.strip(), "target": row.dispatch_target})
+    row.dispatch_status, row.error_msg = 1, None
+    db.commit()
+    return ok({"dispatch_status": 1})
+
+
 @router.get("/audit")
 def audit(action: str = "", user_id: int | None = None, page: int = 1, page_size: int = 30, p: Principal = Admin,
           db: Session = Depends(get_db)):

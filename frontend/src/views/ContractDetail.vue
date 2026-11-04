@@ -11,7 +11,8 @@
           </div>
         </template>
         <el-button @click="$router.push('/contracts')">返回台账</el-button>
-        <el-button v-if="c.perms?.payment" @click="payOpen = true">登记回款</el-button>
+        <el-button v-if="auth.hasMenu('receivables')" @click="$router.push({ path: '/receivables', query: { keyword: c.contract_no, contract_no: c.contract_no } })">查看开票与收款</el-button>
+        <el-button v-if="c.perms?.payment && !auth.can('receivables:receipt')" @click="payOpen = true">登记回款</el-button>
         <el-button v-if="c.perms?.write" @click="editOpen = true">编辑</el-button>
         <el-button v-if="c.perms?.archive" type="primary" @click="archiveOpen = true">{{ c.archived ? '上传新版本' : '合同归档' }}</el-button>
       </PageHeader>
@@ -61,7 +62,7 @@
 
       <Panel class="mt-16" title="回款计划" :padding="false" sub="付款条款原文来自归档合同；阶段按顺序冲抵（预付→进度→验收→质保）">
         <template #extra><el-button v-if="c.perms?.archive && c.plans.length" link type="primary" @click="editPlans">调整计划</el-button></template>
-        <el-table :data="c.plans" :row-class-name="({ row }) => (row.status === 5 ? 'is-alert' : '')" empty-text="暂无回款计划，上传合同原件后自动读取">
+        <el-table :data="c.plans" :row-class-name="({ row }) => (row.overdue ? 'is-alert' : '')" empty-text="暂无回款计划，上传合同原件后自动读取">
           <el-table-column label="#" width="44" prop="seq" />
           <el-table-column label="阶段" width="100" prop="stage_name" />
           <el-table-column label="比例" width="80"><template #default="{ row }">{{ percent(row.ratio, 0) }}</template></el-table-column>
@@ -73,7 +74,7 @@
               <span class="jc-small jc-muted">{{ money(row.received_amount, 0) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="96"><template #default="{ row }"><StatusPill :text="row.status_name" :tone="PLAN_TONE[row.status]" /></template></el-table-column>
+          <el-table-column label="状态" width="125"><template #default="{ row }"><StatusPill :text="row.overdue && row.status === 3 ? '部分已收，逾期' : row.status_name" :tone="row.overdue ? 'down' : PLAN_TONE[row.status]" /></template></el-table-column>
           <el-table-column label="条款原文" min-width="280"><template #default="{ row }"><span class="jc-small jc-muted">{{ row.condition_text }}</span></template></el-table-column>
         </el-table>
       </Panel>
@@ -81,6 +82,7 @@
       <div class="jc-grid c2 mt-16">
         <Panel title="回款记录" :padding="false" :sub="`${c.payments.length} 笔`">
           <el-table :data="c.payments" max-height="320" empty-text="暂无回款">
+            <el-table-column label="回款 ID" width="86" prop="id" />
             <el-table-column label="到账日" width="100" prop="payment_date" />
             <el-table-column label="金额" width="130" align="right"><template #default="{ row }"><span class="jc-num">{{ money(row.amount, 0) }}</span></template></el-table-column>
             <el-table-column label="阶段" width="80"><template #default="{ row }">{{ row.plan_stage || '—' }}</template></el-table-column>
@@ -173,8 +175,11 @@ import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useAuth } from '@/store/auth'
 import { datetime, filesize, money, num, percent, wanNum } from '@/utils/format'
 import ContractForm from './contract-form.vue'
+
+const auth = useAuth()
 
 const VIA = { callback: '企微回调', reconcile: '兜底对账', mock: '模拟', manual: '人工重试' }
 const PLAN_TONE = { 1: '', 2: 'warn', 3: 'info', 4: 'up', 5: 'down' }

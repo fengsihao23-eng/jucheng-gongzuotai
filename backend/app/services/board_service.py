@@ -585,3 +585,29 @@ def build_morning_report(db: Session, d: date | None = None, uploader_id: int | 
                    key=f"report/morning/{d:%Y-%m}/morning-{d}.png", uploader_id=uploader_id, content_type="image/png")
     db.commit()
     return {"text_markdown": text, "summary": s, "image_file": f}
+
+
+def monthly(db: Session, year: int) -> dict:
+    """按自然月归集新签与回款（经营看板历史区、大屏共用同一口径）。"""
+    start, end = date(year, 1, 1), date(year, 12, 31)
+    sign_month = func.extract("month", BizContract.sign_date)
+    sign = {int(m): (int(n), Decimal(a or 0)) for m, n, a in db.execute(
+        select(sign_month, func.count(BizContract.id), func.coalesce(func.sum(BizContract.amount), 0))
+        .where(*_sign_cond(start, end)).group_by(sign_month)).all()}
+    pay_month = func.extract("month", BizPayment.payment_date)
+    pay = {int(m): (int(n), Decimal(a or 0)) for m, n, a in db.execute(
+        select(pay_month, func.count(BizPayment.id), func.coalesce(func.sum(BizPayment.amount), 0))
+        .join(BizContract, BizContract.id == BizPayment.contract_id)
+        .where(BizContract.is_deleted.is_(False), BizPayment.payment_date >= start,
+               BizPayment.payment_date <= end).group_by(pay_month)).all()}
+    months = []
+    for m in range(1, 13):
+        sc, sa = sign.get(m, (0, ZERO))
+        pc, pa = pay.get(m, (0, ZERO))
+        months.append({"month": f"{year}-{m:02d}", "sign_amount": sa, "sign_count": sc,
+                       "pay_amount": pa, "pay_count": pc})
+    return {"year": year, "months": months,
+            "totals": {"sign_amount": sum((x["sign_amount"] for x in months), ZERO),
+                       "sign_count": sum(x["sign_count"] for x in months),
+                       "pay_amount": sum((x["pay_amount"] for x in months), ZERO),
+                       "pay_count": sum(x["pay_count"] for x in months)}}

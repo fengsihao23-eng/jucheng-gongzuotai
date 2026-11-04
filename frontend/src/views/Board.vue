@@ -2,7 +2,9 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="总经办 · 经营决策" title="经营看板"
-                :desc="ov ? `数据截至 ${datetime(ov._cached_at)} · 缓存不超过 5 分钟` : '每天早上一个页面看全公司'">
+                :desc="ov ? `${ov.period || ''} 经营快照 · 数据截至 ${datetime(ov._cached_at)} · 缓存不超过 5 分钟` : '每天早上一个页面看全公司'">
+      <el-date-picker v-model="period" type="month" value-format="YYYY-MM" :clearable="false"
+                      style="width: 132px" :disabled-date="(d) => d.getTime() > Date.now()" @change="load()" />
       <el-button @click="openMorning">今日晨报</el-button>
       <el-button v-if="ov?.can_config_target" @click="openTarget">回款目标配置</el-button>
       <el-button @click="load(true)" :loading="loading">刷新数据</el-button>
@@ -16,8 +18,11 @@
           <Kpi label="当月回款" :value="wanNum(pay.amount)" unit="万" :progress="pay.rate"
                :hint="`目标 ${wan(pay.target)} · 达成 ${percent(pay.rate)} · 时间进度 ${percent(pay.time_progress, 0)}`"
                :to="pay.drill" />
-          <Kpi label="今日签约" :value="wanNum(sign.today.amount)" unit="万"
-               :hint="`${sign.today.count} 份 · 本周 ${wan(sign.week.amount)} · 本月 ${wan(sign.month.amount)}`" :to="sign.today.drill" />
+          <Kpi :label="isCurrentMonth ? '今日签约' : '当月签约'" :value="wanNum(signPoint.amount)" unit="万"
+               :hint="isCurrentMonth
+                 ? `${signPoint.count} 份 · 本周 ${wan(sign.week.amount)} · 本月 ${wan(sign.month.amount)}`
+                 : `${signPoint.count} 份 · 当月 ${wan(sign.month.amount)} · 全年 ${wan(sign.year.amount)}`"
+               :to="signPoint.drill" />
           <Kpi label="年度累计业绩" :value="wanNum(sign.year.amount, 0)" unit="万" :delta="sign.year.yoy"
                :hint="`去年同期 ${wan(sign.year.last_year_same_period)}`" :to="sign.year.drill" />
           <Kpi label="本月新增商机" :value="opp.month.count" unit="个" :to="opp.month.drill"
@@ -36,6 +41,25 @@
             <Chart :option="dailyOption(pay)" height="260px" />
           </Panel>
         </div>
+
+        <!-- ①-2 月度经营历史 -->
+        <Panel class="mt-16" title="月度经营历史" :sub="monthlySub">
+          <template #extra><el-button link type="primary" @click="go({ path: '/contracts' })">合同台账</el-button></template>
+          <Chart :option="monthlyChart" height="300px" />
+        </Panel>
+
+        <Panel v-if="ov.receivables" class="mt-16" title="开票与收款" sub="开票和到账按选定月份统计；未收与逾期为当前余额。">
+          <template #extra><el-button link type="primary" @click="go({ path: '/receivables' })">开票与收款台账</el-button></template>
+          <div class="jc-grid c4">
+            <Kpi label="本月有效开票" :value="wanNum(ov.receivables.net_issued)" unit="万元"
+                 :to="{ path: '/receivables', query: { tab: 'invoices', period } }" />
+            <Kpi label="本月其他及待匹配到账" :value="wanNum(ov.receivables.other_received)" unit="万元"
+                 :to="{ path: '/receivables', query: { tab: 'receipts', kind: 'non_contract', period } }" />
+            <Kpi label="当前已开票未收" :value="wanNum(ov.receivables.invoice_outstanding_now)" unit="万元"
+                 :to="{ path: '/receivables', query: { tab: 'invoices', state: 'outstanding' } }" />
+            <Kpi label="当前应收计划逾期" :value="wanNum(ov.receivables.plan_overdue_now)" unit="万元" />
+          </div>
+        </Panel>
 
         <!-- ② 重点项目 -->
         <Panel class="mt-16" title="② 重点项目进展" :padding="false"
@@ -213,13 +237,15 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { BUSINESS_LINES, datetime, money, num, percent, shortDate, wan, wanNum } from '@/utils/format'
-import { dailyOption, funnelOption, lineBarOption, submitOption } from './board-charts'
+import { dailyOption, funnelOption, lineBarOption, monthlyOption, submitOption } from './board-charts'
 
 const METRICS = { payment_rate: '回款完成率', payment: '回款额', sign: '签约额', opportunity: '新增商机' }
 const SOURCE = { 1: '企微审批', 2: '人工', 3: '导入' }
 const route = useRoute()
 const router = useRouter()
+const period = ref(dayjs().format('YYYY-MM'))
 const ov = ref(null)
+const monthly = ref(null)
 const loading = ref(false)
 const pay = computed(() => ov.value.payment)
 const sign = computed(() => ov.value.sign)
@@ -227,10 +253,25 @@ const opp = computed(() => ov.value.opportunity)
 const tender = computed(() => ov.value.tender)
 const sub = computed(() => ov.value.submission)
 const kp = computed(() => ov.value.key_projects)
+const isCurrentMonth = computed(() => period.value === dayjs().format('YYYY-MM'))
+const signPoint = computed(() => (isCurrentMonth.value ? sign.value?.today : sign.value?.month) || {})
+const monthlyChart = computed(() => monthlyOption(monthly.value))
+const monthlySub = computed(() => {
+  const t = monthly.value?.totals
+  if (!t) return '加载中…'
+  return `${monthly.value.year} 年 · 全年新签 ${wan(t.sign_amount)}（${t.sign_count} 份） · 回款 ${wan(t.pay_amount)}（${t.pay_count} 笔）`
+})
 
 async function load(refresh = false) {
   loading.value = true
-  try { ov.value = await api.get('/board/overview', { refresh: refresh ? 1 : 0 }) } finally { loading.value = false }
+  try {
+    const [o, m] = await Promise.all([
+      api.get('/board/overview', { refresh: refresh ? 1 : 0, period: period.value }),
+      api.get('/board/monthly'),
+    ])
+    ov.value = o
+    monthly.value = m
+  } finally { loading.value = false }
 }
 useBusinessRefresh(() => load(true))
 const go = (d) => d && router.push({ path: d.path, query: d.query || {} })

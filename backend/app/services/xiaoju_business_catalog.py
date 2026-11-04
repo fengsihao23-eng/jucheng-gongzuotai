@@ -22,6 +22,7 @@ MODULES = {
     "expenses": ("报销归集", "/expenses"), "flows": ("银行流水核对", "/flows"),
     "journal": ("出纳日记账", "/journal"), "finance_data": ("财务数据与税务", "/finance-data"),
     "reports": ("报表与项目利润", "/reports"), "projects": ("项目与进度", "/projects"),
+    "receivables": ("开票与收款", "/receivables"),
     "market": ("市场情报与复盘", "/market"), "opportunities": ("商机管理", "/opportunities"),
     "performance": ("业绩与运营", "/performance"), "clean": ("数据清洗导入", "/clean"),
     "hr": ("人事考勤与招聘", "/hr"), "service": ("客服工单", "/service"),
@@ -74,6 +75,7 @@ LABELS = {
     "wecom_status": "检查本人企微资料接入状态", "wecom_search": "搜索本人的企微微盘和在线资料",
     "wecom_preview": "读取企微原件或在线正文生成本人预览", "wecom_source": "查询本人企微读取进度",
     "wecom_confirm": "确认保存企微快照并进入资料审核或台账清洗",
+    "invoices": "查询开票和已开票未收款", "receipts": "查询已确认到账及待匹配收款", "allocations": "查询发票核销明细",
 }
 MCP_IMPLS = {
     "fin.daily_expense_report": "t_daily_expense", "fin.project_profit": "t_project_profit",
@@ -178,6 +180,7 @@ class Operation:
     connection_id: str = ""
 
     def allowed(self, p, mcp_rows):
+        if self.module == "receivables" and p.data_scope != "all": return False
         if any(not any(p.has_menu(menu) for menu in group) for group in self.groups): return False
         if any(not p.can(button) for button in self.buttons): return False
         if self.route and not _source_allowed(self.route.endpoint, p): return False
@@ -200,6 +203,8 @@ def operations():
     from app.mcp_server import server
     routes = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/api/v1/")
               and r.endpoint.__module__.rsplit(".", 1)[-1] in MODULES
+              and (r.endpoint.__module__.rsplit(".", 1)[-1] != "receivables" or
+                   r.name in {"summary", "invoices", "receipts", "allocations"})
               and not any(r.path.endswith(suffix) for suffix in ("/token/reveal-config", "/mcp-config/test", "/mcp-config/config"))]
     docs = get_openapi(title="小聚业务", version="1", routes=routes)
     components = docs.get("components", {}).get("schemas", {})

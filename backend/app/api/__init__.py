@@ -13,7 +13,7 @@ MODULES = [
     # 总办 / 台账
     "portal", "board", "contracts", "submissions",
     # 财务
-    "expenses", "flows", "journal", "finance_data", "reports",
+    "expenses", "flows", "journal", "finance_data", "reports", "receivables",
     # 市场 / 项目
     "projects", "market",
     # 营销管控

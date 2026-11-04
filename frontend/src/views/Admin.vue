@@ -165,11 +165,14 @@
             <el-table-column label="生成单号 / 错误" min-width="220">
               <template #default="{ row }">
                 <span v-if="row.dispatch_target" class="jc-mono">{{ row.dispatch_target }}</span>
-                <span v-else class="jc-down jc-small">{{ row.error }}</span>
+                <div v-if="row.error" class="jc-down jc-small">{{ row.error }}</div>
               </template>
             </el-table-column>
             <el-table-column label="来源" width="90"><template #default="{ row }">{{ VIA[row.received_via] || row.received_via }}</template></el-table-column>
-            <el-table-column width="80"><template #default="{ row }"><el-button v-if="row.dispatch_status === 2 || row.dispatch_status === 0" link type="primary" @click="retry(row)">重试</el-button></template></el-table-column>
+            <el-table-column width="110"><template #default="{ row }">
+              <el-button v-if="row.dispatch_status === 2 && row.dispatched_at" link type="primary" @click="reviewApproval(row)">确认已核对</el-button>
+              <el-button v-else-if="row.dispatch_status === 2 || row.dispatch_status === 0" link type="primary" @click="retry(row)">重试</el-button>
+            </template></el-table-column>
           </el-table>
         </Panel>
         <el-pagination v-model:current-page="af.page" layout="total, prev, pager, next" :total="apr.total" :page-size="30" @current-change="loadApprovals" />
@@ -367,6 +370,15 @@ async function retry(row) {
   const r = await api.post(`/admin/approvals/${row.sp_no}/retry`)
   r.dispatch_status === 1 ? ElMessage.success(`登记成功：${r.dispatch_target}`) : ElMessage.error(r.error || '仍未成功')
   loadApprovals()
+}
+async function reviewApproval(row) {
+  try {
+    const { value } = await ElMessageBox.prompt('请填写台账核对或更正结果。尚未开票的旧申请会关闭。', '确认审批变更已核对', {
+      inputValidator: (text) => !!text?.trim() || '请填写核对结果',
+    })
+    await api.post(`/admin/approvals/${encodeURIComponent(row.sp_no)}/review`, { reason: value })
+    ElMessage.success('已保留核对记录'); loadApprovals()
+  } catch { /* 已取消或 API 已显示错误 */ }
 }
 async function syncAddressbook() {
   syncing.value = true

@@ -15,6 +15,7 @@ const pages = [
   { path: 'clean', name: 'clean', component: () => import('@/views/Clean.vue'), meta: { menu: 'clean', title: '数据清洗' } },
   { path: 'expenses', name: 'expenses', component: () => import('@/views/Expenses.vue'), meta: { menu: 'expenses', title: '报销归集' } },
   { path: 'flows', name: 'flows', component: () => import('@/views/Flows.vue'), meta: { menu: 'flows', title: '流水核对' } },
+  { path: 'receivables', name: 'receivables', component: () => import('@/views/Receivables.vue'), meta: { menu: 'receivables', title: '开票与收款' } },
   { path: 'journal', name: 'journal', component: () => import('@/views/Journal.vue'), meta: { menu: 'journal', title: '出纳日记账' } },
   { path: 'profit', name: 'profit', component: () => import('@/views/Profit.vue'), meta: { menu: 'profit', title: '项目利润' } },
   { path: 'finance-data', name: 'finance-data', component: () => import('@/views/FinanceData.vue'), meta: { menu: 'finance_data', title: '财务数据' } },

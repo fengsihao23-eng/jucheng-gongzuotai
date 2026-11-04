@@ -27,6 +27,11 @@
             <el-option v-for="(n, k) in BUSINESS_LINES" :key="k" :label="n" :value="k" />
           </el-select>
         </el-form-item>
+        <el-form-item label="所属区域" prop="region">
+          <el-select v-model="form.region" clearable filterable allow-create default-first-option placeholder="可选" style="width: 100%">
+            <el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="销售负责人" prop="owner_id">
           <el-select v-model="form.owner_id" filterable clearable style="width: 100%">
             <el-option v-for="u in opts.owners" :key="u.id" :label="u.name" :value="u.id" />
@@ -58,8 +63,9 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 const formRef = ref()
 const saving = ref(false)
 const opts = reactive({ projects: [], owners: [] })
+const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
 const blank = () => ({ contract_no: '', name: '', project_code: '', customer_name: '', amount: null, sign_date: '',
-                       business_line: '', owner_id: null, status: 1, remark: '' })
+                       business_line: '', region: '', owner_id: null, status: 1, remark: '' })
 const form = reactive(blank())
 const rules = {
   customer_name: [{ required: true, message: '请填写客户名称' }],
@@ -73,7 +79,7 @@ async function init() {
   if (props.contract) {
     const c = props.contract
     Object.assign(form, { contract_no: c.contract_no, name: c.name, project_code: c.project_code || '', customer_name: c.customer_name,
-                          amount: Number(c.amount), sign_date: c.sign_date, business_line: c.business_line, owner_id: c.owner_id,
+                          amount: Number(c.amount), sign_date: c.sign_date, business_line: c.business_line, region: c.region || '', owner_id: c.owner_id,
                           status: c.status, remark: c.remark || '' })
   }
   if (!opts.projects.length) Object.assign(opts, await api.get('/contracts/options'))

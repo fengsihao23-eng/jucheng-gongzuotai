@@ -28,7 +28,7 @@ ZERO = Decimal("0")
 SOURCE_TYPES = {1: "企微审批", 2: "人工录入", 3: "Excel 导入"}
 PAY_SOURCE = {1: "流水核对", 2: "人工登记", 3: "归档自动关联"}
 EDIT_FIELDS = ["contract_no", "name", "project_code", "customer_name", "amount", "sign_date", "business_line",
-               "owner_id", "status", "remark"]
+               "region", "owner_id", "status", "remark"]
 LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
 
 
@@ -40,12 +40,15 @@ def _received_sq():
 
 def filtered(p, *, business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
-             keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None):
+             keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
+             region: str = ""):
     q = select(BizContract).where(BizContract.is_deleted.is_(False))
     if p is not None and p.data_scope == "self":
         q = q.where(BizContract.owner_id == p.id)
     if business_line:
         q = q.where(BizContract.business_line == business_line)
+    if region:
+        q = q.where(BizContract.region == region)
     if customer:
         q = q.where(BizContract.customer_name.contains(customer))
     if status:
@@ -89,7 +92,7 @@ def row(c: BizContract, received: Decimal, owners: dict, projects: dict, period_
     received = Decimal(received or 0)
     return {"id": c.id, "contract_no": c.contract_no, "name": c.name, "project_code": c.project_code,
             "project_name": projects.get(c.project_code), "customer_name": c.customer_name, "amount": c.amount,
-            "sign_date": c.sign_date, "business_line": c.business_line,
+            "sign_date": c.sign_date, "business_line": c.business_line, "region": c.region,
             "business_line_name": LINES.get(c.business_line, c.business_line), "owner_id": c.owner_id,
             "owner_name": owners.get(c.owner_id), "source_type": c.source_type,
             "source_name": SOURCE_TYPES.get(c.source_type), "source_approval_no": c.source_approval_no,
@@ -147,10 +150,10 @@ def export_xlsx(db: Session, p, **f) -> tuple[bytes, int]:
     wb = Workbook()
     ws = wb.active
     ws.title = "合同台账"
-    head = ["合同编号", "合同名称", "客户名称", "业务线", "所属项目", "合同金额(元)", "签订日期", "销售负责人", "状态",
+    head = ["合同编号", "合同名称", "客户名称", "业务线", "区域", "所属项目", "合同金额(元)", "签订日期", "销售负责人", "状态",
             "已回款(元)", "未回款(元)", "回款率", "来源", "来源审批单号", "已归档", "备注"]
     if f.get("paid_month"):
-        head.insert(10, f"{f['paid_month']} 回款(元)")
+        head.insert(11, f"{f['paid_month']} 回款(元)")
     ws.append(head)
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -158,13 +161,13 @@ def export_xlsx(db: Session, p, **f) -> tuple[bytes, int]:
         cell.alignment = Alignment(horizontal="center")
     for c, rec in rows:
         r = row(c, rec, owners, projects)
-        line = [r["contract_no"], r["name"], r["customer_name"], r["business_line_name"],
+        line = [r["contract_no"], r["name"], r["customer_name"], r["business_line_name"], r["region"] or "",
                 f"{r['project_code'] or ''} {r['project_name'] or ''}".strip(), float(r["amount"]), r["sign_date"],
                 r["owner_name"], r["status_name"], float(r["received"]), float(r["receivable"]),
                 float(r["received_rate"] or 0), r["source_name"], r["source_approval_no"], "是" if r["archived"] else "否",
                 r["remark"]]
         if f.get("paid_month"):
-            line.insert(10, float(pp.get(c.id, ZERO)))
+            line.insert(11, float(pp.get(c.id, ZERO)))
         ws.append(line)
     for i, w in enumerate([14, 36, 26, 12, 34, 14, 12, 10, 8, 14, 14, 8, 10, 20, 8, 20], start=1):
         ws.column_dimensions[ws.cell(1, i).column_letter].width = w
@@ -295,7 +298,7 @@ def _clean(db: Session, body: dict, creating: bool) -> dict:
             v = (v or "").strip() or None
             if v and not db.scalar(select(BizProject.id).where(BizProject.project_code == v)):
                 raise bad_request(f"项目 {v} 不存在")
-        elif k in ("customer_name", "name", "remark", "contract_no"):
+        elif k in ("customer_name", "name", "remark", "contract_no", "region"):
             v = (v or "").strip() or None
         out[k] = v
     if creating:
@@ -556,6 +559,7 @@ def auto_link_flows(db: Session, c: BizContract, user_id: int | None = None, not
     """在银行流水中查找该客户未核对的收入流水，金额等于某阶段应收额 → 自动登记回款（source_type=3）。"""
     if not c.plans:
         return []
+    db.execute(select(BizContract.id).where(BizContract.id == c.id).with_for_update())
     cands = db.scalars(select(FinBankFlow).where(FinBankFlow.direction == 1, FinBankFlow.match_status == 0,
                                                  FinBankFlow.trade_date >= c.sign_date)
                        .order_by(FinBankFlow.trade_date, FinBankFlow.id)).all()
@@ -565,6 +569,8 @@ def auto_link_flows(db: Session, c: BizContract, user_id: int | None = None, not
         if not cust or not (cust in _norm(f.counterparty) or _norm(f.counterparty) and _norm(f.counterparty) in cust):
             continue
         if db.scalar(select(BizPayment.id).where(BizPayment.bank_flow_id == f.id)):
+            continue
+        if payment_service.has_confirmed_receipt(db, c.id, f.amount, f.trade_date, c.customer_name, f.counterparty):
             continue
         open_plans = [pl for pl in sorted(c.plans, key=lambda x: x.seq) if pl.amount - pl.received_amount > 0]
         hit = next((pl for pl in open_plans if pl.amount - pl.received_amount == f.amount), None)

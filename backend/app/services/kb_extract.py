@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.response import BizError, bad_request
 from app.integration import llm
 
-MAX_BYTES = 50 * 1024 * 1024
+MAX_BYTES = 1024 * 1024 * 1024  # 单文件上传上限 1GB（超限明确拒绝，不静默截断）
 DOC_EXTS = {".docx", ".pdf", ".pptx", ".md", ".txt", ".markdown"}
 TABLE_EXTS = {".xlsx", ".xlsm", ".csv"}
 LEGACY = {".doc": ".docx", ".xls": ".xlsx", ".ppt": ".pptx", ".wps": ".docx", ".et": ".xlsx"}

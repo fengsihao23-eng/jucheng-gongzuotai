@@ -80,3 +80,32 @@ export function submitOption(sub, dark = false) {
     }],
   }
 }
+
+export function monthlyOption(data, dark = false) {
+  const c = C(dark)
+  const rows = data?.months || []
+  const counts = rows.map((x) => ({ sign: x.sign_count, pay: x.pay_count }))
+  return {
+    grid: baseGrid({ top: 30, bottom: 6 }),
+    legend: { top: 0, right: 0, textStyle: { color: c.text } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (ps) => {
+        const i = ps[0]?.dataIndex ?? 0
+        const r = rows[i] || {}
+        const line = (v) => (Number(v || 0) / 1e4).toFixed(1) + ' 万'
+        return `${r.month}<br/>新签：${line(r.sign_amount)}（${counts[i]?.sign || 0} 份）<br/>回款：${line(r.pay_amount)}（${counts[i]?.pay || 0} 笔）`
+      },
+    },
+    xAxis: { type: 'category', data: rows.map((x) => `${Number(x.month.slice(5))}月`), ...axis(dark) },
+    yAxis: { type: 'value', ...wanAxis, ...axis(dark), axisLabel: { ...wanAxis.axisLabel, color: c.text } },
+    series: [
+      { name: '新签合同', type: 'bar', barMaxWidth: 18, data: rows.map((x) => Number(x.sign_amount)),
+        itemStyle: { color: c.main },
+        label: { show: true, position: 'top', color: c.text, fontSize: 10,
+                 formatter: (p) => (rows[p.dataIndex]?.sign_count ? `${rows[p.dataIndex].sign_count}份` : '') } },
+      { name: '回款', type: 'bar', barMaxWidth: 18, data: rows.map((x) => Number(x.pay_amount)),
+        itemStyle: { color: c.accent } },
+    ],
+  }
+}

@@ -302,6 +302,10 @@ def unmatch(db: Session, flow: FinBankFlow) -> dict:
     if st == 2:
         pay = db.scalar(select(BizPayment).where(BizPayment.bank_flow_id == flow.id))
         if pay:
+            from app.models import FinReceipt
+            db.execute(select(BizContract.id).where(BizContract.id == pay.contract_id).with_for_update())
+            if db.scalar(select(FinReceipt.id).where(FinReceipt.payment_id == pay.id)):
+                raise conflict("该流水的回款已被到账台账引用，请先解除到账关联")
             c = pay.contract
             left = pay.amount
             for pl in reversed(c.plans):

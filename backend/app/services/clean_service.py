@@ -45,6 +45,7 @@ DEFAULT_TEMPLATES: dict[str, dict] = {
                                               "签订时间", "签约时间", "签署时间"]),
         _f("business_line", "业务线", "business_line", True, ["业务板块", "业务类型", "产品线", "板块", "业务", "business line",
                                                          "所属业务", "业务分类"]),
+        _f("region", "所属区域业绩", "text", False, ["区域", "所属区域", "区域业绩", "所属区域", "归属区域"]),
         _f("owner", "销售负责人", "user", False, ["负责人", "销售", "经办人", "业务员", "签约人", "owner", "跟进人"]),
         _f("remark", "备注", "text", False, ["说明", "附注", "remark", "备注说明"]),
     ]},
@@ -1047,7 +1048,7 @@ def _insert(db: Session, job: CleanJob, r: dict, user_id: int, reserved: set[str
         c = BizContract(contract_no=r.get("contract_no") or _next_contract_no(db, sd.year, reserved),
                         name=r.get("name") or (f"{proj.name}合同" if proj else f"{r['customer_name']}合同"),
                         project_code=r.get("project_code"), customer_name=r["customer_name"], amount=_dec(r["amount"]),
-                        sign_date=sd, business_line=r["business_line"],
+                        sign_date=sd, business_line=r["business_line"], region=r.get("region"),
                         owner_id=r.get("owner_id") or (proj.market_owner_id if proj else None), source_type=3, status=1,
                         remark="；".join(x for x in [r.get("remark"), note] if x))
         db.add(c)
@@ -1171,7 +1172,7 @@ def guess_target(db: Session, data: bytes, filename: str) -> tuple[str | None, d
 
 def rollback_job(db: Session, job: CleanJob) -> dict:
     """撤回一次已导入的清洗任务：删除本次写入台账的记录。全有或全无——任一条已被后续业务引用就整体拒绝并列出原因。"""
-    from app.models import BizProjectCost, BizProjectMilestone, FinCashJournal
+    from app.models import BizProjectCost, BizProjectMilestone, FinCashJournal, FinReceipt, FinSalesInvoice
     from app.services import payment_service
     if job.status != "imported":
         raise BizError(40901, "只有已导入的任务可以撤回")
@@ -1182,7 +1183,11 @@ def rollback_job(db: Session, job: CleanJob) -> dict:
             c = db.scalar(select(BizContract).where(BizContract.contract_no == ref))
             if c is None:
                 continue
-            if c.payments:
+            db.execute(select(BizContract.id).where(BizContract.id == c.id).with_for_update())
+            if db.scalar(select(FinSalesInvoice.id).where(FinSalesInvoice.contract_id == c.id).limit(1)) or db.scalar(
+                    select(FinReceipt.id).where(FinReceipt.contract_id == c.id).limit(1)):
+                blockers.append(f"合同 {ref} 已被开票或到账记录引用")
+            elif c.payments:
                 blockers.append(f"合同 {ref} 已有 {len(c.payments)} 笔回款")
             elif c.archive_file_id:
                 blockers.append(f"合同 {ref} 已归档原件")
@@ -1197,7 +1202,10 @@ def rollback_job(db: Session, job: CleanJob) -> dict:
             pay = db.get(BizPayment, int(pid)) if pid.isdigit() else None
             if pay is None:
                 continue
-            if pay.bank_flow_id:
+            db.execute(select(BizContract.id).where(BizContract.id == pay.contract_id).with_for_update())
+            if db.scalar(select(FinReceipt.id).where(FinReceipt.payment_id == pay.id)):
+                blockers.append(f"回款 {ref} 已被到账台账引用")
+            elif pay.bank_flow_id:
                 blockers.append(f"回款 {ref} 已关联银行流水")
             else:
                 plan.append(pay)

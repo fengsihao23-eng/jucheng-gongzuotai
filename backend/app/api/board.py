@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import Principal, client_ip, require_button, require_menu
-from app.core.response import ok
+from app.core.response import bad_request, ok
 from app.core.storage import file_brief
-from app.core.timeutil import month_of, prev_month, today
+from app.core.timeutil import month_of, month_range, prev_month, today
 from app.services import board_service
 
 router = APIRouter(prefix="/board", tags=["经营看板"])
@@ -17,9 +17,30 @@ Board = Depends(require_menu("board"))
 
 
 @router.get("/overview")
-def overview(refresh: int = 0, p: Principal = Board, db: Session = Depends(get_db)):
-    data = board_service.overview(db, refresh=bool(refresh))
-    return ok({**data, "can_config_target": p.can("board:target")})
+def overview(period: str = "", refresh: int = 0, p: Principal = Board, db: Session = Depends(get_db)):
+    """period=YYYY-MM 时按该月月末回放整块看板；不传为当前月。"""
+    ref = None
+    if period:
+        try:
+            _s, e = month_range(period)
+        except ValueError as exc:
+            raise bad_request("period 格式应为 YYYY-MM") from exc
+        ref = min(e, today())
+    data = board_service.overview(db, ref=ref, refresh=bool(refresh))
+    receivables = None
+    if p.has_menu("receivables") and p.data_scope == "all":
+        from app.services import receivables_service
+        end = ref or today()
+        start, _ = month_range(period or month_of(end))
+        receivables = receivables_service.summary(db, start, end)
+    return ok({**data, "period": period or month_of(today()), "can_config_target": p.can("board:target"),
+               "receivables": receivables})
+
+
+@router.get("/monthly")
+def monthly(year: int | None = None, p: Principal = Board, db: Session = Depends(get_db)):
+    """按自然月的新签与回款历史，供看板历史区展示。"""
+    return ok(board_service.monthly(db, year or today().year))
 
 
 @router.get("/compare")

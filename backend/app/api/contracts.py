@@ -20,10 +20,11 @@ Menu = Depends(require_menu("contracts"))
 
 def _filters(business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
-             keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None) -> dict:
+             keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
+             region: str = "") -> dict:
     return {"business_line": business_line, "customer": customer, "status": status, "sign_month": sign_month,
             "sign_from": sign_from, "sign_to": sign_to, "source_type": source_type, "keyword": keyword.strip(),
-            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id}
+            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id, "region": region}
 
 
 def _need(p: Principal, button: str):
@@ -75,6 +76,7 @@ class ContractIn(BaseModel):
     amount: str | float | None = None
     sign_date: date | None = None
     business_line: str | None = None
+    region: str | None = None
     owner_id: int | None = None
     status: int | None = None
     remark: str | None = None
