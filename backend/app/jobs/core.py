@@ -1,4 +1,5 @@
 """平台级定时任务：通讯录同步、审批兜底对账、通知重试。"""
+from app.core.config import settings
 from app.jobs.registry import job
 from app.services import dispatch_service, notify_service, user_service
 
@@ -10,6 +11,8 @@ def addressbook_sync(db, params):
 
 @job("approval_reconcile", "审批兜底拉取对账", {"minute": "*/10"}, "每 10 分钟")
 def approval_reconcile(db, params):
+    if not settings.approval_reconcile_enabled:
+        return {"rows": 0, "message": "已停用：企业微信审批接口未授权（301055），开通后把 APPROVAL_RECONCILE_ENABLED 置 true 即恢复"}
     r = dispatch_service.reconcile(db, hours=int(params.get("hours", 24)))
     db.commit()
     return r
