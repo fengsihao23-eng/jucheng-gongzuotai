@@ -10,6 +10,7 @@ Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=6000)]
 Money = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2, allow_inf_nan=False)]
 UnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)]
 Id = Annotated[int, Field(gt=0)]
+Month = Annotated[str, StringConstraints(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")]
 
 
 class Input(BaseModel):
@@ -28,7 +29,7 @@ class ProjectIn(Input):
 
 class MemberIn(Input):
     user_id: Id
-    role: Literal["manager", "member", "viewer"] = "member"
+    role: Literal["manager", "member", "reviewer", "viewer"] = "member"
 
 
 class SchoolIn(Input):
@@ -86,6 +87,10 @@ class TaskIn(Input):
     due_date: date
     priority: Literal["key", "normal"] = "key"
     cadence: Literal["daily", "node"] = "daily"
+    plan_month: Month | None = None
+    source: Literal["company", "self"] = "company"
+    department_reviewer_id: Id | None = None
+    company_reviewer_id: Id | None = None
     nodes: list[NodeIn] = Field(default_factory=list, max_length=30)
 
     @model_validator(mode="after")
@@ -102,6 +107,9 @@ class TaskPatch(Input):
     due_date: date | None = None
     priority: Literal["key", "normal"] | None = None
     cadence: Literal["daily", "node"] | None = None
+    plan_month: Month | None = None
+    department_reviewer_id: Id | None = None
+    company_reviewer_id: Id | None = None
 
 
 class FeedbackIn(Input):
@@ -110,6 +118,13 @@ class FeedbackIn(Input):
     status: Literal["todo", "doing", "blocked", "done"]
     progress: Annotated[int, Field(ge=0, le=100)]
     completed_node_ids: list[Id] = Field(default_factory=list, max_length=30)
+    incomplete_reason: Note = ""
+
+
+class ReviewIn(Input):
+    decision: Literal["approve", "reject"]
+    comment: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
+    expected_revision: Annotated[int, Field(ge=1)]
 
 
 class DraftIn(Input):

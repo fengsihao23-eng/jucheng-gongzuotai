@@ -116,11 +116,21 @@ class OpsTask(TimestampMixin, Base):
     due_date: Mapped[date] = mapped_column(Date, index=True)
     priority: Mapped[str] = mapped_column(String(16), default="key")
     cadence: Mapped[str] = mapped_column(String(16), default="daily")
+    plan_month: Mapped[str] = mapped_column(String(7), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="company", server_default="company")
+    approval_status: Mapped[str] = mapped_column(String(24), default="approved", server_default="approved")
+    department_reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    company_reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(16), default="todo")
     progress: Mapped[int] = mapped_column(Integer, default=0)
     next_step: Mapped[str] = mapped_column(Text, default="")
     last_feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    incomplete_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
     owner = relationship("SysUser", foreign_keys=[owner_id], lazy="joined")
+    department_reviewer = relationship("SysUser", foreign_keys=[department_reviewer_id], lazy="joined")
+    company_reviewer = relationship("SysUser", foreign_keys=[company_reviewer_id], lazy="joined")
     school = relationship("OpsSchool", lazy="joined")
     nodes: Mapped[list["OpsTaskNode"]] = relationship(lazy="selectin", order_by="OpsTaskNode.seq")
     __table_args__ = (CheckConstraint("progress >= 0 AND progress <= 100"),)
@@ -145,3 +155,16 @@ class OpsTaskUpdate(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16))
     progress: Mapped[int] = mapped_column(Integer)
     author = relationship("SysUser", lazy="joined")
+
+
+class OpsTaskReview(TimestampMixin, Base):
+    """两级审核留痕，记录审核时的任务版本和内容。"""
+    __tablename__ = "ops_task_review"
+    task_id: Mapped[int] = mapped_column(ForeignKey("ops_task.id"), index=True)
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
+    stage: Mapped[str] = mapped_column(String(16))
+    decision: Mapped[str] = mapped_column(String(16))
+    comment: Mapped[str] = mapped_column(Text)
+    task_revision: Mapped[int] = mapped_column(Integer)
+    task_snapshot: Mapped[dict] = mapped_column(JSON)
+    reviewer = relationship("SysUser", lazy="joined")

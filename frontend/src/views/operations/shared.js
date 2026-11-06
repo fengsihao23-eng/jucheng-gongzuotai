@@ -3,7 +3,9 @@ export const PROJECT_STATUS = { active: '进行中', paused: '已暂停', comple
 export const STAGES = { unknown: '待核对', contact: '接洽中', proposal: '方案沟通', negotiation: '商务洽谈', won: '已签约', operating: '运营中', lost: '暂不推进' }
 export const POTENTIAL = { unknown: '未评估', high: '高', medium: '中', low: '低' }
 export const unitPrice = v => v == null ? '未标价' : '¥' + Number(v).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 6})
-export const ROLES = { manager: '项目管理员', member: '执行成员', viewer: '只读成员' }
+export const ROLES = { manager: '项目管理员', reviewer: '部门审核人', member: '执行成员', viewer: '只读成员' }
+export const TASK_SOURCES = { self: '自行安排', company: '公司安排' }
+export const APPROVAL_STATUS = { department_pending: '待部门审核', company_pending: '待公司审核', approved: '已生效', rejected: '已退回' }
 export const tone = (status) => ({ done: 'up', blocked: 'down', doing: 'brand', todo: 'info' }[status] || 'info')
 
 export function announceChange() {

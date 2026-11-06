@@ -23,7 +23,7 @@ ROLE_DEFS: dict[str, dict] = {
     "ZB-01": {"name": "董事长/总经理", "dept": "ZB", "portal": "exec", "data_scope": "all",
               "menus": ["board", "reports", "receivables", *LEDGER_MENUS, *FINANCE_MENUS, "submissions", "projects", "market",
                         "intel", "reviews", "hr", "service", "tender"],
-              "buttons": ["board:target", "contracts:export", "report:generate", "operations:manage"]},
+              "buttons": ["board:target", "contracts:export", "report:generate", "operations:manage", "operations:approve"]},
     "ZB-02": {"name": "总经办专员", "dept": "ZB", "portal": "exec_staff", "data_scope": "all",
               "menus": ["board", "reports", "contracts", "opportunities", "performance", "submissions", "projects", "market"],
               "buttons": ["board:target", "submissions:remind", "report:generate", "contracts:export"]},

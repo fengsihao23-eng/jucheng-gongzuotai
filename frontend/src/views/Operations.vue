@@ -12,6 +12,7 @@
     </div>
     <Panel class="mt-16" :loading="loading">
       <el-tabs v-model="tab">
+        <el-tab-pane label="月度任务总表" name="monthly"><MonthlyPlan :today="data.today" @open-task="openTask" /></el-tab-pane>
         <el-tab-pane label="项目总览" name="projects">
           <div class="filters">
             <el-input v-model="query.keyword" placeholder="搜索项目或目标" clearable style="width: 240px" @change="load" />
@@ -59,6 +60,7 @@ import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
+import MonthlyPlan from './operations/MonthlyPlan.vue'
 import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
 const router = useRouter(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])

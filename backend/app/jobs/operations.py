@@ -15,7 +15,7 @@ def operations_task_reminder(db, params):
     sent = 0
     for project in projects:
         members = {m["user_id"] for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"}
-        tasks = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.status != "done")).all()
+        tasks = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.status != "done", OpsTask.approval_status == "approved")).all()
         for task in tasks:
             owner = db.get(SysUser, task.owner_id)
             if not owner or task.owner_id not in members:

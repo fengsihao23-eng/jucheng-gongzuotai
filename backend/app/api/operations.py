@@ -7,9 +7,10 @@ from app.core.db import get_db
 from app.core.deps import Principal, require_menu
 from app.core.response import ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
-from app.schemas.operations import (DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, ProductIn,
-                                    ProjectIn, SchoolIn, TaskIn, TaskPatch)
+from app.schemas.operations import (DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
+                                    ProjectIn, ReviewIn, SchoolIn, TaskIn, TaskPatch)
 from app.services import operations_service as ops
+from app.services import operations_plans as plans
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
@@ -30,7 +31,15 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
     if not manager:
         q = q.where(SysUser.id.in_([m["user_id"] for m in ops.members(db, project)] if project else [p.id]))
     return ok({"users": [{"id": u.id, "name": u.name, "dept": u.dept_code} for u in db.scalars(q)],
-               "categories": sorted(set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.category))))})
+               "categories": sorted(set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.category)))),
+               **(plans.options(db, p, project) if project else {})})
+
+
+@router.get("/monthly")
+def monthly_plan(month: Month | None = None, owner_id: int | None = None, project_id: int | None = None,
+                 mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    """读取按负责人及来源归集的月度任务、跨月事项、完成情况和待审核事项。"""
+    return ok(plans.monthly(db, p, month, owner_id, project_id, mine))
 
 
 @router.get("/products")
@@ -74,6 +83,14 @@ def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: 
 def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """提交本人负责的任务反馈，保留节点完成记录、结果和下一步安排。"""
     ops.feedback(db, p, task_id, body)
+    db.commit()
+    return ok(ops.task_detail(db, p, task_id))
+
+
+@router.post("/tasks/{task_id}/review")
+def review_operation_task(task_id: int, body: ReviewIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    """指定审核人对最新任务版本完成当前级别审核；部门通过后才能进入公司审核。"""
+    plans.review_task(db, p, task_id, body)
     db.commit()
     return ok(ops.task_detail(db, p, task_id))
 

@@ -34,6 +34,7 @@ MODULES = {
     "imports": ("资料导入与处理进度", "/imports"),
 }
 LABELS = {
+    "monthly_plan": "查询负责人月度任务表和未完成原因", "review_operation_task": "部门或公司审核自行安排的任务",
     "list_operations": "查询运营项目与当前待办", "create_operation": "新建运营项目", "operation_detail": "读取运营项目任务与学校资料",
     "edit_operation": "修改运营项目", "operation_tasks": "查询重点任务和我的任务", "operation_task": "读取任务节点和反馈记录",
     "create_operation_task": "布置运营任务", "edit_operation_task": "调整任务安排", "operation_feedback": "提交任务进展反馈",

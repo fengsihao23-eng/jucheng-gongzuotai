@@ -6,16 +6,18 @@
         <el-button @click="summary">进展汇总</el-button>
         <el-button @click="ask">问小聚</el-button>
         <el-button v-if="project.can_manage" @click="projectForm = true">项目设置</el-button>
+        <el-button v-if="project.can_propose && project.status === 'active'" @click="newSelfTask">自行安排</el-button>
         <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
       </PageHeader>
       <div class="jc-grid c4 operation-kpis">
         <Kpi label="待完成任务" :value="project.stats.pending" unit="项" :hint="`已完成 ${project.stats.done} 项 · 共 ${project.stats.total} 项`" />
         <Kpi label="逾期 / 受阻" :value="`${project.stats.overdue} / ${project.stats.blocked}`" unit="项" hint="优先处理需要协调的事项" />
-        <Kpi label="今日待反馈" :value="project.stats.needs_update" unit="项" hint="重点进展及时更新" />
+        <Kpi label="今日待反馈" :value="project.stats.needs_update" unit="项" :hint="`另有 ${project.stats.awaiting_approval || 0} 项待审核`" />
         <Kpi label="参与团队" :value="project.members.length" unit="人" :hint="`负责人 · ${project.owner_name}`" />
       </div>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
+          <el-tab-pane label="月度任务" name="monthly"><MonthlyPlan :project-id="project.id" :today="project.today" :refresh-key="refreshKey" @open-task="openTask" /></el-tab-pane>
           <el-tab-pane label="重点任务" name="tasks">
             <div class="filters">
               <el-input v-model="query" placeholder="搜索任务 / 学校 / 负责人" clearable style="width: 240px" />
@@ -26,7 +28,7 @@
               <el-table-column label="任务 / 最新进展" min-width="280"><template #default="{ row }"><div class="jc-row"><StatusPill v-if="row.priority === 'key'" text="重点" tone="brand" /><b>{{ row.title }}</b></div><p class="task-next">{{ row.latest_feedback || row.description || '尚未反馈进展' }}</p><p v-if="row.next_step" class="task-next">下一步：{{ row.next_step }}</p><span v-if="row.school_name" class="jc-muted jc-small">{{ row.school_name }}</span></template></el-table-column>
               <el-table-column prop="owner_name" label="负责人" width="100" />
               <el-table-column label="截止 / 提醒" width="150"><template #default="{ row }"><div>{{ row.due_date }}</div><span v-if="row.overdue" class="jc-down jc-small">已逾期</span><span v-else-if="row.needs_update" class="jc-muted jc-small">今日待反馈</span></template></el-table-column>
-              <el-table-column label="进度" width="140"><template #default="{ row }"><StatusPill :text="TASK_STATUS[row.status]" :tone="tone(row.status)" /><el-progress :percentage="row.progress" :stroke-width="4" color="#1B3275" class="mt-8" /><span v-if="row.nodes.length" class="jc-small jc-muted">节点 {{ row.nodes.filter(n => n.completed_at).length }} / {{ row.nodes.length }}</span></template></el-table-column>
+              <el-table-column label="进度 / 审核" width="140"><template #default="{ row }"><StatusPill :text="row.approval_status === 'approved' ? TASK_STATUS[row.status] : APPROVAL_STATUS[row.approval_status]" :tone="tone(row.status)" /><el-progress :percentage="row.progress" :stroke-width="4" color="#1B3275" class="mt-8" /><span v-if="row.nodes.length" class="jc-small jc-muted">节点 {{ row.nodes.filter(n => n.completed_at).length }} / {{ row.nodes.length }}</span></template></el-table-column>
               <el-table-column width="110"><template #default="{ row }"><el-button type="primary" link @click.stop="openTask(row)">{{ row.can_feedback ? '反馈进展' : '查看记录' }}</el-button></template></el-table-column>
               <template #empty><el-empty description="把本周最重要的工作安排在这里"><el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty></template>
             </el-table>
@@ -37,7 +39,7 @@
         </el-tabs>
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
-      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" @saved="taskSaved" />
+      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" @saved="taskSaved" />
       <TaskDrawer v-model="drawer" :task-id="selectedTask" :can-manage="project.can_manage && project.status === 'active'" @saved="load" @edit="editTask" />
     </template>
     <el-dialog v-model="summaryOpen" title="当前进展汇总" width="min(740px, 94vw)"><pre class="brief">{{ summaryText }}</pre><template #footer><el-button @click="copySummary">复制汇总</el-button><el-button type="primary" @click="ask">请小聚进一步分析</el-button></template></el-dialog>
@@ -57,9 +59,11 @@ import TaskDrawer from './operations/TaskDrawer.vue'
 import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
-import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
+import MonthlyPlan from './operations/MonthlyPlan.vue'
+import { APPROVAL_STATUS, PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
 const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = useAssistant()
-const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref(''), status = ref(''), mine = ref(false), keyOnly = ref(false), attention = ref(false)
+const project = ref(null), loading = ref(false), tab = ref('monthly'), query = ref(''), status = ref(''), mine = ref(false), keyOnly = ref(false), attention = ref(false)
+const taskMode=ref('company'),refreshKey=ref(0)
 const projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), drawer = ref(false), selectedTask = ref(null)
 const summaryOpen = ref(false), summaryText = ref('')
 const filteredTasks = computed(() => (project.value?.tasks || []).filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
@@ -69,9 +73,10 @@ let timer, version = 0
 async function load() {
   const current = ++version, id = route.params.id
   loading.value = !project.value
-  try { const data = await api.get(`/operations/${id}`); if (current === version) project.value = data } catch {} finally { if (current === version) loading.value = false }
+  try { const data = await api.get(`/operations/${id}`); if (current === version) {project.value = data;refreshKey.value++} } catch {} finally { if (current === version) loading.value = false }
 }
-function newTask() { editingTask.value = null; taskForm.value = true }
+function newTask() { taskMode.value='company';editingTask.value = null; taskForm.value = true }
+function newSelfTask() {taskMode.value='self';editingTask.value=null;taskForm.value=true}
 function editTask(task) { editingTask.value = task; drawer.value = false; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }); selectedTask.value = t.id; drawer.value = true }
 function taskSaved(t) { load(); openTask(t) }

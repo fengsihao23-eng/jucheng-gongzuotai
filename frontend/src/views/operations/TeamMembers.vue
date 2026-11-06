@@ -1,6 +1,6 @@
 <template>
   <div>
-    <p class="jc-muted">按项目组成跨部门团队。执行成员反馈自己的任务；只读成员查看进展；项目管理员维护任务和资料。</p>
+    <p class="jc-muted">按项目组成跨部门团队。执行成员可提交自行安排、反馈本人任务；部门审核人可审核分配给自己的计划；项目管理员维护任务和资料。公司审核由具备公司审核权限的人员处理。</p>
     <div v-if="project.can_manage" class="add-row">
       <el-select v-model="userId" filterable placeholder="选择团队成员" style="width: 240px"><el-option v-for="u in users" :key="u.id" :value="u.id" :label="`${u.name} · ${u.dept || '跨部门'}`" /></el-select>
       <el-select v-model="memberRole" style="width: 160px"><el-option v-for="(v, k) in ROLES" :key="k" :value="k" :label="v" /></el-select>

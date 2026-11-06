@@ -37,7 +37,7 @@ def task(client, login, db, project, name="xiekai", **kw):
 
 def report(client, login, task, name="xiekai", **kw):
     return client.post(f"{BASE}/tasks/{task['id']}/feedback", headers=login(name), json={
-        "content": "已联系校方，等待方案反馈", "status": "doing", "progress": 40, "next_step": "明天确认方案", **kw})
+        "content": "已联系校方，等待方案反馈", "status": "doing", "progress": 40, "next_step": "明天确认方案", "incomplete_reason": "等待校方确认", **kw})
 
 
 def test_membership_is_independent_of_department_data_scope(client, login, db, project):

@@ -8,13 +8,14 @@ from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsSchool,
-                        OpsTask, OpsTaskNode, OpsTaskUpdate, SysUser)
+                        OpsTask, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 SCHOOL_FIELDS = ["name", "stage", "potential", "next_action", "next_contact_date", "labor_cost", "other_cost", "note"]
 PRODUCT_FIELDS = ["name", "brand", "model", "unit", "reference_price", "note"]
 TASK_FIELDS = ["title", "description", "owner_id", "school_id", "due_date", "priority", "cadence", "status", "progress", "next_step"]
+TASK_FIELDS += ["plan_month", "source", "approval_status", "department_reviewer_id", "company_reviewer_id", "revision", "completed_at", "incomplete_reason"]
 STATUS_LABELS = {"todo": "待开始", "doing": "进行中", "blocked": "遇到阻碍", "done": "已完成"}
 ZERO = Decimal("0.00")
 
@@ -26,8 +27,10 @@ def can_create(p):
 def visible_projects(p):
     q = select(OpsProject)
     if not can_create(p):
-        q = q.where(or_(OpsProject.owner_id == p.id, OpsProject.id.in_(
-            select(OpsMember.project_id).where(OpsMember.user_id == p.id))))
+        conditions = [OpsProject.owner_id == p.id, OpsProject.id.in_(select(OpsMember.project_id).where(OpsMember.user_id == p.id))]
+        if p.can("operations:approve"):
+            conditions.append(OpsProject.id.in_(select(OpsTask.project_id).where(OpsTask.company_reviewer_id == p.id)))
+        q = q.where(or_(*conditions))
     return q
 
 
@@ -67,7 +70,7 @@ def user(db, user_id):
 def assignee(db, project, user_id):
     u = user(db, user_id)
     member_role = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == user_id))
-    if project.owner_id != user_id and member_role not in {"manager", "member"}:
+    if project.owner_id != user_id and member_role not in {"manager", "member", "reviewer"}:
         raise bad_request("任务负责人须为本项目可参与执行的成员，请先在团队中添加")
     return u
 
@@ -126,6 +129,10 @@ def set_member(db, p, project_id, body):
     if body.role == "viewer" and db.scalar(select(OpsTask.id).where(
             OpsTask.project_id == project.id, OpsTask.owner_id == body.user_id, OpsTask.status != "done").limit(1)):
         raise conflict("该成员仍有未完成任务，请先转交任务再改为只读")
+    if body.role not in {"manager", "reviewer"} and db.scalar(select(OpsTask.id).where(
+            OpsTask.project_id == project.id, OpsTask.department_reviewer_id == body.user_id,
+            OpsTask.approval_status.in_(["department_pending", "company_pending"])).limit(1)):
+        raise conflict("该成员仍是待审核任务的部门审核人，请先调整任务审核人")
     return _write(db, p, row or OpsMember(project_id=project.id), body.model_dump(), ["user_id", "role"])
 
 
@@ -140,6 +147,9 @@ def remove_member(db, p, project_id, user_id):
     if db.scalar(select(OpsTask.id).where(OpsTask.project_id == project.id, OpsTask.owner_id == user_id,
                                         OpsTask.status != "done").limit(1)):
         raise conflict("该成员仍有未完成任务，请先转交任务")
+    if db.scalar(select(OpsTask.id).where(OpsTask.project_id == project.id, OpsTask.department_reviewer_id == user_id,
+                                        OpsTask.approval_status.in_(["department_pending", "company_pending"])).limit(1)):
+        raise conflict("该成员仍有待审核任务，请先调整审核人")
     log_op(db, p.id, "operations.member.remove", "ops_member", row.id, before=snapshot(row, ["user_id", "role"]))
     db.delete(row)
 
@@ -244,7 +254,7 @@ def get_task(db, p, task_id, *, lock=False):
 
 def can_feedback(db, p, project, task):
     r = role(db, p, project)
-    return r == "manager" or (r == "member" and task.owner_id == p.id)
+    return task.approval_status == "approved" and (r == "manager" or (r in {"member", "reviewer"} and task.owner_id == p.id))
 
 
 def _event(db, p, task, kind, content, next_step=""):
@@ -259,28 +269,46 @@ def _notify(db, recipients, project, task, title, content):
 
 
 def create_task(db, p, project_id, body):
+    from app.services import operations_plans as plans
     project = get_project(db, p, project_id, lock=True)
-    manage(db, p, project)
     active(project)
+    if body.source == "company":
+        manage(db, p, project)
+    elif role(db, p, project) not in {"manager", "member", "reviewer"} or body.owner_id != p.id:
+        raise forbidden("自行安排只能由项目执行成员为本人提交")
     assigned = assignee(db, project, body.owner_id)
     if body.school_id:
         school(db, project.id, body.school_id)
-    task = OpsTask(project_id=project.id, creator_id=p.id, created_at=now(), **body.model_dump(exclude={"nodes"}))
+    values = body.model_dump(exclude={"nodes"})
+    values["plan_month"] = body.plan_month or body.due_date.strftime("%Y-%m")
+    values["approval_status"] = "approved" if body.source == "company" else "department_pending"
+    if body.source == "self":
+        plans.validate_reviewers(db, project, p.id, body.department_reviewer_id, body.company_reviewer_id)
+    else:
+        values["department_reviewer_id"] = values["company_reviewer_id"] = None
+    task = OpsTask(project_id=project.id, creator_id=p.id, created_at=now(), **values)
     db.add(task)
     db.flush()
     task.nodes = [OpsTaskNode(task_id=task.id, seq=i, **node.model_dump()) for i, node in enumerate(body.nodes, 1)]
-    _event(db, p, task, "assigned", f"布置任务给{assigned.name}，要求 {task.due_date} 前完成。")
+    _event(db, p, task, "assigned" if body.source == "company" else "submitted",
+           f"{'公司安排' if body.source == 'company' else '自行安排，提交部门审核'}：{assigned.name}，计划月份 {task.plan_month}，要求 {task.due_date} 前完成。")
     log_op(db, p.id, "operations.task.create", "ops_task", task.id, after=snapshot(task, TASK_FIELDS))
-    _notify(db, [assigned.id], project, task, "收到运营项目任务", f"{project.name}：{task.title}，截止 {task.due_date}。")
+    target = assigned.id if body.source == "company" else task.department_reviewer_id
+    _notify(db, [target], project, task, "收到运营项目任务" if body.source == "company" else "任务等待部门审核",
+            f"{project.name}：{task.title}，计划月份 {task.plan_month}，截止 {task.due_date}。")
     db.flush()
     return task
 
 
 def edit_task(db, p, task_id, body):
+    from app.services import operations_plans as plans
     task = get_task(db, p, task_id, lock=True)
     project = get_project(db, p, task.project_id, lock=True)
-    manage(db, p, project)
+    if not (task.source == "self" and task.creator_id == p.id and role(db, p, project) in {"manager", "member", "reviewer"}):
+        manage(db, p, project)
     active(project)
+    if task.status == "done":
+        raise conflict("已完成任务保留历史安排；新工作请另建任务")
     values = body.model_dump(exclude_unset=True)
     if not values or any(v is None for v in values.values()):
         raise bad_request("请提供有效的任务修改内容")
@@ -290,10 +318,23 @@ def edit_task(db, p, task_id, body):
         raise bad_request("任务截止日期不能早于已有节点日期")
     previous = task.owner_id
     before = snapshot(task, TASK_FIELDS)
+    if task.source == "self":
+        if values.get("owner_id", task.owner_id) != task.creator_id:
+            raise bad_request("自行安排任务归属于提交人，转交其他人请由公司另行安排")
+        plans.validate_reviewers(db, project, task.owner_id, values.get("department_reviewer_id", task.department_reviewer_id),
+                                 values.get("company_reviewer_id", task.company_reviewer_id))
+    elif "department_reviewer_id" in values or "company_reviewer_id" in values:
+        raise bad_request("公司安排任务无需指定两级审核人")
     _write(db, p, task, values, TASK_FIELDS)
-    labels = {"title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率"}
+    labels = {"title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率", "plan_month": "计划月份", "department_reviewer_id": "部门审核人", "company_reviewer_id": "公司审核人"}
     changed = "；".join(f"{labels[k]}：{before[k]} → {snapshot(task, TASK_FIELDS)[k]}" for k in values if before[k] != snapshot(task, TASK_FIELDS)[k])
     _event(db, p, task, "changed", changed or "核对任务安排。")
+    task.revision += 1
+    if task.source == "self":
+        task.approval_status = "department_pending"
+        _event(db, p, task, "submitted", "任务内容已调整，重新提交部门及公司两级审核。")
+        _notify(db, [task.department_reviewer_id], project, task, "任务重新提交审核", f"{task.title}已修改，请核对最新安排。")
+    log_op(db, p.id, "operations.task.revised", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     if previous != task.owner_id:
         _notify(db, [task.owner_id], project, task, "运营任务已转交给你", f"{project.name}：{task.title}，截止 {task.due_date}。")
     return task
@@ -307,6 +348,8 @@ def feedback(db, p, task_id, body):
         raise forbidden("仅任务负责人或项目管理员可反馈")
     if task.status == "done":
         raise conflict("任务已完成，历史反馈予以保留；新的工作请另建任务")
+    if body.status != "done" and (body.status == "blocked" or task.due_date < today()) and not body.incomplete_reason:
+        raise bad_request("受阻或逾期任务请填写未完成原因")
     requested = set(body.completed_node_ids)
     nodes = {n.id: n for n in task.nodes}
     if not requested.issubset(nodes):
@@ -325,7 +368,12 @@ def feedback(db, p, task_id, body):
     task.progress = 100 if body.status == "done" else body.progress
     task.next_step = body.next_step
     task.last_feedback_at = now()
+    task.completed_at = now() if body.status == "done" else None
+    task.incomplete_reason = "" if body.status == "done" else body.incomplete_reason
+    task.revision += 1
     content = body.content + ("\n完成节点：" + "、".join(completed) if completed else "")
+    if task.incomplete_reason:
+        content += "\n未完成原因：" + task.incomplete_reason
     _event(db, p, task, "feedback", content, body.next_step)
     log_op(db, p.id, "operations.task.feedback", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     recipients = {project.owner_id, task.creator_id}
@@ -343,14 +391,20 @@ def feedback(db, p, task_id, body):
 
 
 def task_dict(db, p, project, task, updates=None, viewer_role=None):
-    finished = task.status == "done"
+    from app.services import operations_plans as plans
+    finished = task.status == "done" or task.approval_status != "approved"
     overdue = not finished and (task.due_date < today() or any(not n.completed_at and n.due_date < today() for n in task.nodes))
     stale = not finished and task.cadence == "daily" and (not task.last_feedback_at or task.last_feedback_at.astimezone(TZ).date() < today())
     my_role = viewer_role or role(db, p, project)
+    stage = plans.review_stage(db, p, project, task)
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
             "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale,
-            "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role == "member" and task.owner_id == p.id)),
+            "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role in {"member", "reviewer"} and task.owner_id == p.id)),
+            "can_edit": project.status == "active" and task.status != "done" and (my_role == "manager" or (task.source == "self" and task.creator_id == p.id and my_role in {"member", "reviewer"})),
+            "can_review": project.status == "active" and stage is not None, "review_stage": stage,
+            "department_reviewer_name": task.department_reviewer.name if task.department_reviewer else None,
+            "company_reviewer_name": task.company_reviewer.name if task.company_reviewer else None,
             "nodes": [{"id": n.id, "name": n.name, "due_date": n.due_date, "completed_at": n.completed_at,
                        "overdue": not n.completed_at and n.due_date < today()} for n in task.nodes],
             **({"updates": updates} if updates is not None else {})}
@@ -362,7 +416,10 @@ def task_detail(db, p, task_id):
     updates = [{"id": u.id, "kind": u.kind, "author_name": u.author.name, "created_at": u.created_at,
                 **snapshot(u, ["content", "next_step", "status", "progress"])} for u in db.scalars(
                     select(OpsTaskUpdate).where(OpsTaskUpdate.task_id == task.id).order_by(OpsTaskUpdate.id.desc()))]
-    return task_dict(db, p, project, task, updates)
+    reviews = [{"id": r.id, "reviewer_name": r.reviewer.name, "created_at": r.created_at,
+                **snapshot(r, ["stage", "decision", "comment", "task_revision"])} for r in db.scalars(
+                    select(OpsTaskReview).where(OpsTaskReview.task_id == task_id).order_by(OpsTaskReview.id))]
+    return {**task_dict(db, p, project, task, updates), "reviews": reviews}
 
 
 def tasks(db, p, project_id=None, mine=False):
@@ -382,10 +439,13 @@ def tasks(db, p, project_id=None, mine=False):
 
 
 def task_stats(rows):
+    awaiting = sum(t["approval_status"] in {"department_pending", "company_pending"} for t in rows)
+    rejected = sum(t["approval_status"] == "rejected" for t in rows)
+    rows = [t for t in rows if t["approval_status"] == "approved"]
     pending = [t for t in rows if t["status"] != "done"]
     return {"total": len(rows), "pending": len(pending), "done": len(rows) - len(pending),
             "overdue": sum(t["overdue"] for t in pending), "blocked": sum(t["status"] == "blocked" for t in pending),
-            "needs_update": sum(t["needs_update"] for t in pending)}
+            "needs_update": sum(t["needs_update"] for t in pending), "awaiting_approval": awaiting, "rejected": rejected}
 
 
 def list_projects(db, p, keyword="", category="", key_only=False):
@@ -402,7 +462,7 @@ def list_projects(db, p, keyword="", category="", key_only=False):
     active_ids = {r.id for r in db.scalars(visible_projects(p).where(OpsProject.status == "active"))}
     active_tasks = [t for t in all_tasks if t["project_id"] in active_ids]
     return {"items": items, "can_create": can_create(p), "stats": task_stats(active_tasks),
-            "todos": [t for t in active_tasks if t["status"] != "done"], "today": today()}
+            "todos": [t for t in active_tasks if t["status"] != "done" and t["approval_status"] == "approved"], "today": today()}
 
 
 def project_detail(db, p, project_id):
@@ -421,7 +481,7 @@ def project_detail(db, p, project_id):
         daily[r["income_date"]] += Decimal(r["amount"])
     batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
         select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))]
-    return {**project_dict(db, p, project), "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
+    return {**project_dict(db, p, project), "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
             "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,
             "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),
@@ -435,9 +495,10 @@ def project_detail(db, p, project_id):
 
 def brief(db, p, project_id):
     data = project_detail(db, p, project_id)
-    pending = [t for t in data["tasks"] if t["status"] != "done"]
+    pending = [t for t in data["tasks"] if t["status"] != "done" and t["approval_status"] == "approved"]
     lines = [f"{data['name']}｜{today()} 进展汇总", f"目标：{data['objective'] or '尚未填写'}",
              f"任务 {data['stats']['total']} 项，已完成 {data['stats']['done']} 项，逾期 {data['stats']['overdue']} 项，受阻 {data['stats']['blocked']} 项。"]
+    lines.append(f"另有 {data['stats']['awaiting_approval']} 项等待审核，{data['stats']['rejected']} 项已退回，尚未进入执行。")
     for t in pending:
         flags = "、".join(x for x, yes in [("逾期", t["overdue"]), ("今日待反馈", t["needs_update"])] if yes)
         lines.append(f"- {t['title']}：{t['owner_name']}，{STATUS_LABELS[t['status']]} {t['progress']}%，截止 {t['due_date']}" + (f"（{flags}）" if flags else "") + (f"；最新反馈：{t['latest_feedback']}" if t['latest_feedback'] else "；尚无进展反馈") + (f"；下一步：{t['next_step']}" if t['next_step'] else ""))

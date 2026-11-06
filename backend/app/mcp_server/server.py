@@ -52,6 +52,10 @@ mcp_server = FastMCP(name=settings.mcp_server_name, instructions=INSTRUCTIONS, s
 
 # ---- 工具元数据（种子写入 mcp_tool；注册表可在线调整） ----
 TOOL_META: dict[str, dict] = {
+    "ops.task_create": {"name": "运营月度任务安排", "roles": ["*"],
+                        "desc": "按当前账号权限布置公司任务或提交本人计划，自动归入负责人月度表；本人计划必须经过部门和公司审核。"},
+    "ops.task_review": {"name": "运营任务审核", "roles": ["*"],
+                        "desc": "仅指定审核人可按部门、公司顺序审核最新任务版本，保留审核意见，禁止自审。"},
     "ops.project_status": {"name": "运营项目进展", "roles": ["*"],
                            "desc": "查询本人有权访问的运营项目、当前待办、负责人和节点反馈。"},
     "ops.task_feedback": {"name": "运营任务反馈", "roles": ["*"],
@@ -419,8 +423,13 @@ def t_market_weekly(db, p, period_type: str = "weekly", period: str | None = Non
 
 
 # ---- 注册（显式参数签名，供 WorkBuddy 生成调用参数） ----
-def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = None):
+def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = None,
+                 month: str | None = None, owner_id: int | None = None):
     from app.services import operations_service as ops
+    if month:
+        from app.services.operations_plans import monthly
+        result = monthly(db, p, month, owner_id, project_id)
+        return {"data": result, "summary": f"{month} 月度任务：已通过 {result['stats']['total']} 项，待审核 {result['stats']['awaiting_approval']} 项，未完成 {result['stats']['pending']} 项。"}
     if task_id:
         result = ops.task_detail(db, p, task_id)
         return {"data": result, "summary": f"{result['title']}：{result['owner_name']}，{ops.STATUS_LABELS[result['status']]} {result['progress']}%"}
@@ -432,26 +441,63 @@ def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = Non
 
 
 def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int,
-                   next_step: str = "", completed_node_ids: list[int] | None = None):
+                   next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = ""):
     from app.schemas.operations import FeedbackIn
     from app.services import operations_service as ops
     body = FeedbackIn(content=content, status=status, progress=progress, next_step=next_step,
-                      completed_node_ids=completed_node_ids or [])
+                      completed_node_ids=completed_node_ids or [], incomplete_reason=incomplete_reason)
     ops.feedback(db, p, task_id, body)
     db.commit()
     return {"data": ops.task_detail(db, p, task_id), "summary": "进展反馈已保存。"}
 
 
+def t_ops_create(db, p, project_id: int, title: str, owner_id: int, due_date: str,
+                 source: str = "company", plan_month: str | None = None, description: str = "",
+                 cadence: str = "daily", department_reviewer_id: int | None = None,
+                 company_reviewer_id: int | None = None, nodes: list[dict] | None = None):
+    from app.schemas.operations import TaskIn
+    from app.services import operations_service as ops
+    body = TaskIn(title=title, owner_id=owner_id, due_date=due_date, source=source, plan_month=plan_month,
+                  description=description, cadence=cadence, department_reviewer_id=department_reviewer_id,
+                  company_reviewer_id=company_reviewer_id, nodes=nodes or [])
+    task = ops.create_task(db, p, project_id, body)
+    db.commit()
+    return {"data": ops.task_detail(db, p, task.id), "summary": "公司任务已发布并进入月度表。" if source == "company" else "本人任务已提交，等待部门审核。"}
+
+
+def t_ops_review(db, p, task_id: int, decision: str, comment: str, expected_revision: int):
+    from app.schemas.operations import ReviewIn
+    from app.services import operations_plans as plans, operations_service as ops
+    task = plans.review_task(db, p, task_id, ReviewIn(decision=decision, comment=comment, expected_revision=expected_revision))
+    db.commit()
+    return {"data": ops.task_detail(db, p, task.id), "summary": "本级审核结果已保存，请查看当前审核状态。"}
+
+
 def _register():
-    async def ops_project_status(ctx: Context, project_id: int | None = None, task_id: int | None = None) -> str:
-        """不传 ID 时列出可访问运营项目与待办；project_id 汇总项目；task_id 读取任务全部节点与反馈。先查询取得 ID，不能猜测。"""
-        return await anyio.to_thread.run_sync(lambda: _run("ops.project_status", ctx, {"project_id": project_id, "task_id": task_id}, t_ops_status))
+    async def ops_task_create(ctx: Context, project_id: int, title: str, owner_id: int, due_date: str,
+                              source: str = "company", plan_month: str | None = None, description: str = "",
+                              cadence: str = "daily", department_reviewer_id: int | None = None,
+                              company_reviewer_id: int | None = None, nodes: list[dict] | None = None) -> str:
+        """用户明确要求安排任务后执行。先查询项目、团队与真实ID。source=company|self，due_date=YYYY-MM-DD，plan_month=YYYY-MM，cadence=daily|node；self需两位不同审核人。节点格式{name,due_date}。"""
+        params = {"project_id": project_id, "title": title, "owner_id": owner_id, "due_date": due_date, "source": source,
+                  "plan_month": plan_month, "description": description, "cadence": cadence,
+                  "department_reviewer_id": department_reviewer_id, "company_reviewer_id": company_reviewer_id, "nodes": nodes}
+        return await anyio.to_thread.run_sync(lambda: _run("ops.task_create", ctx, params, t_ops_create))
+
+    async def ops_task_review(ctx: Context, task_id: int, decision: str, comment: str, expected_revision: int) -> str:
+        """仅在当前用户明确要求审核时执行。先读task确认内容和revision。decision=approve|reject；必须提供审核意见及expected_revision，不能跳过审批或替别人批准。"""
+        return await anyio.to_thread.run_sync(lambda: _run("ops.task_review", ctx, {"task_id": task_id, "decision": decision,
+            "comment": comment, "expected_revision": expected_revision}, t_ops_review))
+    async def ops_project_status(ctx: Context, project_id: int | None = None, task_id: int | None = None,
+                                 month: str | None = None, owner_id: int | None = None) -> str:
+        """不传 ID 时列出项目与待办；project_id 汇总项目；task_id 读取任务记录；month=YYYY-MM 读取月度任务，可按owner_id筛选。先查询取得 ID，不能猜测。"""
+        return await anyio.to_thread.run_sync(lambda: _run("ops.project_status", ctx, {"project_id": project_id, "task_id": task_id, "month": month, "owner_id": owner_id}, t_ops_status))
 
     async def ops_task_feedback(ctx: Context, task_id: int, content: str, status: str, progress: int,
-                                next_step: str = "", completed_node_ids: list[int] | None = None) -> str:
-        """仅在用户要求汇报时提交。先查询任务确认 ID 和节点；status: todo/doing/blocked/done；progress: 0~100。不得推断完成节点。"""
+                                next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = "") -> str:
+        """仅在用户要求汇报时提交。先查询任务确认 ID、审核状态和节点；status: todo/doing/blocked/done；progress: 0~100。受阻或逾期未完成须提供incomplete_reason。不得推断完成节点。"""
         return await anyio.to_thread.run_sync(lambda: _run("ops.task_feedback", ctx, {"task_id": task_id, "content": content,
-            "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids}, t_ops_feedback))
+            "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids, "incomplete_reason": incomplete_reason}, t_ops_feedback))
 
     async def fin_daily_expense_report(ctx: Context, date: str | None = None, project_code: str | None = None) -> str:
         """每日支出报表。date: YYYY-MM-DD（默认昨日）；project_code: 项目编码（可选，如 JC-XY-2026-001）"""
@@ -511,7 +557,8 @@ def _register():
         """重点项目周报/月报。period_type: weekly|monthly；period: 2026-W43 或 2026-10（默认本周/本月）"""
         return await anyio.to_thread.run_sync(lambda: _run("market.weekly_report", ctx, {"period_type": period_type, "period": period}, t_market_weekly))
 
-    for code, fn in [("ops.project_status", ops_project_status), ("ops.task_feedback", ops_task_feedback),
+    for code, fn in [("ops.task_create", ops_task_create), ("ops.task_review", ops_task_review),
+                     ("ops.project_status", ops_project_status), ("ops.task_feedback", ops_task_feedback),
                      ("fin.daily_expense_report", fin_daily_expense_report), ("fin.project_profit", fin_project_profit),
                      ("fin.bank_flow_sync", fin_bank_flow_sync), ("oa.pending_approvals", oa_pending_approvals),
                      ("crm.contract_register", crm_contract_register), ("board.executive_daily", board_executive_daily),

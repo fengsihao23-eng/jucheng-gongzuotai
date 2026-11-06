@@ -73,6 +73,7 @@ try {
   await member.screenshot({ path: path.join(OUT, 'screens', 'operations-feedback.png'), fullPage: true })
 
   await admin.goto(`${WEB}/operations/${projectId}`)
+  await admin.getByRole('tab', { name: '重点任务', exact: true }).click()
   await admin.getByText('已与校方完成需求确认，明天进入方案编制。', { exact: false }).waitFor()
   await admin.getByRole('button', { name: '进展汇总', exact: true }).click()
   await admin.getByRole('dialog', { name: '当前进展汇总', exact: true }).getByText('已完成', { exact: false }).waitFor()

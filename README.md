@@ -71,7 +71,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 面向公司员工：企业系统由管理员统一授权一次，员工通过小聚按各自权限使用，无需各自提供企业密钥。员工个人 WorkBuddy 授权由小聚自动生成、自检并提供完整配置下载；不能把网站服务器当成员工的电脑，首次客户端导入仍需在客户端完成。
 
-登录工作台 →「WorkBuddy 接入」→ 生成个人令牌 → 复制配置片段到 WorkBuddy。端点 `https://<域名>/mcp`，鉴权 `Authorization: Bearer <令牌>`。15 个工具见该页「工具注册表」，管理员可在线启停与授权。
+登录工作台 →「WorkBuddy 接入」→ 生成个人令牌 → 复制配置片段到 WorkBuddy。端点 `https://<域名>/mcp`，鉴权 `Authorization: Bearer <令牌>`。17 个工具见该页「工具注册表」，管理员可在线启停与授权。
 
 ## 测试与验收
 
