@@ -2,10 +2,10 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base, TimestampMixin
+from app.core.db import Base, JSON, TimestampMixin
 
 
 class OpsProject(TimestampMixin, Base):
@@ -49,9 +49,9 @@ class OpsProduct(TimestampMixin, Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("ops_project.id"), index=True)
     name: Mapped[str] = mapped_column(String(128))
     brand: Mapped[str] = mapped_column(String(64), default="")
-    model: Mapped[str] = mapped_column(String(128), default="")
+    model: Mapped[str] = mapped_column(Text, default="")
     unit: Mapped[str] = mapped_column(String(16), default="台")
-    reference_price: Mapped[Decimal] = mapped_column(default=Decimal("0"))
+    reference_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     note: Mapped[str] = mapped_column(Text, default="")
     __table_args__ = (CheckConstraint("reference_price >= 0"),)
 
@@ -61,10 +61,25 @@ class OpsEquipment(TimestampMixin, Base):
     school_id: Mapped[int] = mapped_column(ForeignKey("ops_school.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("ops_product.id"))
     quantity: Mapped[int] = mapped_column(Integer)
-    unit_price: Mapped[Decimal]
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    recorded_amount: Mapped[Decimal | None]
+    review_note: Mapped[str] = mapped_column(Text, default="", server_default="")
     note: Mapped[str] = mapped_column(Text, default="")
     product = relationship("OpsProduct", lazy="joined")
-    __table_args__ = (CheckConstraint("quantity > 0 AND unit_price >= 0"),)
+    __table_args__ = (CheckConstraint("quantity > 0 AND unit_price >= 0"),
+                      CheckConstraint("recorded_amount IS NULL OR recorded_amount >= 0"),)
+
+
+class OpsImportBatch(TimestampMixin, Base):
+    """已核对的资料快照；文件指纹防重复，结果保留逐条来源及核对说明。"""
+    __tablename__ = "ops_import_batch"
+    __table_args__ = (UniqueConstraint("project_id", "source_sha256"),)
+    project_id: Mapped[int] = mapped_column(ForeignKey("ops_project.id"), index=True)
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    source_name: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(32))
+    operator_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
+    result: Mapped[dict] = mapped_column(JSON)
 
 
 class OpsIncome(TimestampMixin, Base):
@@ -76,6 +91,18 @@ class OpsIncome(TimestampMixin, Base):
     note: Mapped[str] = mapped_column(Text, default="")
     operator_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
     __table_args__ = (UniqueConstraint("school_id", "income_date"), CheckConstraint("amount >= 0"))
+
+
+class OpsProjectIncome(TimestampMixin, Base):
+    """暂未归属学校的项目实收，例如平台通话加油包。"""
+    __tablename__ = "ops_project_income"
+    __table_args__ = (UniqueConstraint("project_id", "income_date"), CheckConstraint("amount >= 0"))
+    project_id: Mapped[int] = mapped_column(ForeignKey("ops_project.id"), index=True)
+    income_date: Mapped[date] = mapped_column(Date)
+    amount: Mapped[Decimal]
+    source: Mapped[str] = mapped_column(String(128))
+    note: Mapped[str] = mapped_column(Text, default="")
+    operator_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
 
 
 class OpsTask(TimestampMixin, Base):

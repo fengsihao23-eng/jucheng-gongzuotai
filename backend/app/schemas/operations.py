@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=6000)]
 Money = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2, allow_inf_nan=False)]
+UnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)]
 Id = Annotated[int, Field(gt=0)]
 
 
@@ -32,8 +33,8 @@ class MemberIn(Input):
 
 class SchoolIn(Input):
     name: Name
-    stage: Literal["contact", "proposal", "negotiation", "won", "operating", "lost"] = "contact"
-    potential: Literal["high", "medium", "low"] = "medium"
+    stage: Literal["unknown", "contact", "proposal", "negotiation", "won", "operating", "lost"] = "contact"
+    potential: Literal["unknown", "high", "medium", "low"] = "medium"
     next_action: Note = ""
     next_contact_date: date | None = None
     labor_cost: Money = Decimal("0")
@@ -44,17 +45,25 @@ class SchoolIn(Input):
 class ProductIn(Input):
     name: Name
     brand: Annotated[str, StringConstraints(max_length=64)] = ""
-    model: Annotated[str, StringConstraints(max_length=128)] = ""
+    model: Note = ""
     unit: Annotated[str, StringConstraints(min_length=1, max_length=16)] = "台"
-    reference_price: Money = Decimal("0")
+    reference_price: UnitPrice | None = None
     note: Note = ""
 
 
 class EquipmentIn(Input):
     product_id: Id
     quantity: Annotated[int, Field(gt=0, le=1000000)] = 1
-    unit_price: Money
+    unit_price: UnitPrice | None = None
+    recorded_amount: Money | None = None
+    review_note: Note = ""
     note: Note = ""
+
+    @model_validator(mode="after")
+    def explicit_amount_reason(self):
+        if self.recorded_amount is not None and self.unit_price is not None and self.recorded_amount != self.quantity * self.unit_price and not self.review_note:
+            raise ValueError("清单金额与数量乘单价不一致，请填写核对说明")
+        return self
 
 
 class IncomeIn(Input):

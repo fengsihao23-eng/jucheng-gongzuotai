@@ -85,7 +85,7 @@ try {
   dialog = admin.getByRole('dialog', { name: '新增产品', exact: true })
   await dialog.getByLabel('产品名称', { exact: true }).fill(productName)
   await dialog.getByLabel('品牌', { exact: true }).fill('测试品牌')
-  await dialog.getByLabel('参考单价（元）', { exact: true }).fill('123.45')
+  await dialog.getByLabel('参考单价（元，未标价可留空）', { exact: true }).fill('123.45')
   await dialog.getByRole('button', { name: '保存产品', exact: true }).click()
   await admin.getByRole('cell', { name: productName, exact: true }).waitFor()
   check('设备产品库手工维护')

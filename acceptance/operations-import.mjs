@@ -1,0 +1,57 @@
+// Read-only browser validation of a prepared snapshot in an isolated test service.
+import assert from 'node:assert/strict'
+import path from 'node:path'
+import fs from 'node:fs'
+import { chromium } from 'playwright'
+import { API, WEB, OUT, call, loginPage } from './lib.mjs'
+
+assert.equal((await fetch(API + '/health').then(r => r.json())).env, 'test')
+const id = Number(process.env.PROJECT_ID)
+assert.ok(id > 0)
+const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST, 'utf8'))
+const equipment = manifest.snapshots.find(s => s.kind === 'equipment')
+const income = manifest.snapshots.find(s => s.kind === 'income')
+const unpriced = equipment.equipment.find(r => r.values.unit_price == null)
+const precise = equipment.equipment.find(r => r.values.unit_price && String(r.values.unit_price).split('.')[1]?.length > 2)
+const product = key => equipment.products.find(p => p.key === key)
+const money = value => '¥' + Number(value).toLocaleString('zh-CN', {minimumFractionDigits:2,maximumFractionDigits:2})
+const price = value => '¥' + Number(value).toLocaleString('zh-CN', {minimumFractionDigits:2,maximumFractionDigits:6})
+const detail = await call('admin', 'GET', `/operations/${id}`)
+assert.equal(detail.schools.length, equipment.schools.length)
+assert.equal(detail.products.length, equipment.products.length)
+assert.equal(Number(detail.financials.total_investment), Number(equipment.expected_total))
+assert.equal(Number(detail.financials.total_income), Number(income.expected_total))
+assert.equal(detail.financials.unpriced_count, equipment.equipment.filter(r => r.values.unit_price == null && r.values.recorded_amount == null).length)
+const browser = await chromium.launch({headless:true, channel:'chrome'})
+const errors = []
+try {
+  const page = await loginPage(browser, 'admin')
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto(`${WEB}/operations/${id}`)
+  await page.getByRole('tab', {name:'学校与经营资料', exact:true}).click()
+  await page.getByText(money(equipment.expected_total), {exact:true}).waitFor()
+  await page.getByText(money(income.expected_total), {exact:true}).waitFor()
+  await page.getByText('已导入资料与核对说明', {exact:true}).click()
+  await page.getByText(income.notes[0], {exact:true}).waitFor()
+  await page.evaluate(() => window.scrollTo(0,0))
+  await page.screenshot({path:path.join(OUT,'screens','campus-import-overview.png')})
+  const high = page.getByRole('row').filter({has:page.getByRole('cell',{name:unpriced.school,exact:true})})
+  await high.getByRole('button',{name:'查看清单',exact:true}).click()
+  const reused = page.getByRole('row').filter({hasText:product(unpriced.product_key).name}).filter({hasText:unpriced.values.note})
+  await reused.getByText('未标价',{exact:true}).first().waitFor()
+  await reused.getByRole('button',{name:'编辑',exact:true}).click()
+  const form = page.getByRole('dialog',{name:'编辑学校设备',exact:true})
+  assert.equal(await form.getByLabel('实际采购单价（元，未知可留空）',{exact:true}).inputValue(),'')
+  await form.getByRole('button',{name:'取消',exact:true}).click()
+  await page.keyboard.press('Escape')
+  const experiment = page.getByRole('row').filter({has:page.getByRole('cell',{name:precise.school,exact:true})})
+  await experiment.getByRole('button',{name:'查看清单',exact:true}).click()
+  const cable = page.getByRole('row').filter({hasText:product(precise.product_key).name}).filter({hasText:precise.values.note})
+  await cable.getByText(price(precise.values.unit_price),{exact:true}).waitFor()
+  await cable.getByRole('cell').filter({hasText:money(precise.values.recorded_amount)}).waitFor()
+  await page.waitForFunction(() => [...document.querySelectorAll('.el-drawer')].some(e => {const r=e.getBoundingClientRect(); return r.height>0 && r.width>0 && r.right <= innerWidth + 1}))
+  await cable.scrollIntoViewIfNeeded()
+  await page.screenshot({path:path.join(OUT,'screens','campus-import-equipment.png')})
+  assert.deepEqual(errors,[])
+  console.log('PASS 原表金额、三位小数单价、未标价、待核对说明和年度收入在页面展示正确')
+} finally { await browser.close() }

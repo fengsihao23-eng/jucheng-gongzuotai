@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
-from app.models import (OpsEquipment, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsSchool,
+from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsSchool,
                         OpsTask, OpsTaskNode, OpsTaskUpdate, SysUser)
 from app.services import notify_service
 
@@ -183,12 +183,12 @@ def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
         OpsProduct.project_id.in_(visible_projects(p).with_only_columns(OpsProject.id))))
     if not product:
         raise not_found("可用产品")
-    if body.unit_price * body.quantity >= Decimal("1000000000000"):
+    if body.unit_price is not None and body.unit_price * body.quantity >= Decimal("1000000000000"):
         raise bad_request("设备总金额超出支持范围")
     row = db.get(OpsEquipment, equipment_id) if equipment_id else OpsEquipment(school_id=school_id)
     if not row or row.school_id != school_id:
         raise not_found("本学校设备")
-    return _write(db, p, row, body.model_dump(), ["product_id", "quantity", "unit_price", "note"])
+    return _write(db, p, row, body.model_dump(), ["product_id", "quantity", "unit_price", "recorded_amount", "review_note", "note"])
 
 
 def save_income(db, p, project_id, school_id, body, income_id=None):
@@ -212,17 +212,22 @@ def school_data(db, project):
     ids = [r.id for r in rows]
     equipment, incomes = defaultdict(list), defaultdict(list)
     for e in db.scalars(select(OpsEquipment).where(OpsEquipment.school_id.in_(ids)).order_by(OpsEquipment.id)):
+        calculated = e.unit_price * e.quantity if e.unit_price is not None else None
+        amount = e.recorded_amount if e.recorded_amount is not None else calculated
         equipment[e.school_id].append({"id": e.id, "product_id": e.product_id, "product_name": e.product.name,
             "brand": e.product.brand, "model": e.product.model, "unit": e.product.unit, "quantity": e.quantity,
-            "unit_price": e.unit_price, "amount": e.unit_price * e.quantity, "note": e.note})
+            "unit_price": e.unit_price, "amount": amount, "calculated_amount": calculated,
+            "recorded_amount": e.recorded_amount, "review_note": e.review_note, "note": e.note})
     for r in db.scalars(select(OpsIncome).where(OpsIncome.school_id.in_(ids)).order_by(OpsIncome.income_date.desc(), OpsIncome.id.desc())):
         incomes[r.school_id].append({"id": r.id, **snapshot(r, ["income_date", "amount", "source", "note"])})
     result = []
     for s in rows:
-        cost = sum((e["amount"] for e in equipment[s.id]), ZERO)
+        cost = sum((e["amount"] for e in equipment[s.id] if e["amount"] is not None), ZERO)
         income = sum((Decimal(i["amount"]) for i in incomes[s.id]), ZERO)
         result.append({"id": s.id, **snapshot(s, SCHOOL_FIELDS), "equipment": equipment[s.id], "incomes": incomes[s.id],
-                       "equipment_cost": cost, "total_investment": cost + s.labor_cost + s.other_cost, "total_income": income})
+                       "equipment_cost": cost, "total_investment": cost + s.labor_cost + s.other_cost, "total_income": income,
+                       "unpriced_count": sum(e["amount"] is None for e in equipment[s.id]),
+                       "review_count": sum(bool(e["review_note"]) for e in equipment[s.id])})
     return result
 
 
@@ -409,12 +414,23 @@ def project_detail(db, p, project_id):
     for s in schools:
         for i in s["incomes"]:
             daily[i["income_date"]] += Decimal(i["amount"])
+    unassigned = [{"id": r.id, **snapshot(r, ["income_date", "amount", "source", "note"])} for r in db.scalars(
+        select(OpsProjectIncome).where(OpsProjectIncome.project_id == project.id).order_by(OpsProjectIncome.income_date.desc()))]
+    unassigned_total = sum((Decimal(r["amount"]) for r in unassigned), ZERO)
+    for r in unassigned:
+        daily[r["income_date"]] += Decimal(r["amount"])
+    batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
+        select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))]
     return {**project_dict(db, p, project), "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
             "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
+            "unassigned_incomes": unassigned, "import_batches": batches,
             "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),
-                           "total_income": sum((s["total_income"] for s in schools), ZERO),
+                           "total_income": sum((s["total_income"] for s in schools), ZERO) + unassigned_total,
+                           "unassigned_income": unassigned_total,
+                           "unpriced_count": sum(s["unpriced_count"] for s in schools),
+                           "review_count": sum(s["review_count"] for s in schools),
                            "daily": [{"date": k, "amount": v} for k, v in sorted(daily.items())],
-                           "note": "设备投入按数量 × 实际采购单价计算，加人工及其他投入；收入为已登记的学校每日收入，不等同于财务利润。"}}
+                           "note": "已登记投入按清单金额（有填写时）或数量 × 单价汇总，加人工及其他投入；未标价不计入已知金额。利旧、拆回、调拨及折扣请结合备注核对。收入按实际收款日期登记，不等同于财务利润。"}}
 
 
 def brief(db, p, project_id):

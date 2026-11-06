@@ -2,8 +2,8 @@
   <div>
     <div class="jc-grid c3">
       <Kpi label="项目学校" :value="project.schools.length" unit="所" :hint="`高意向 ${project.schools.filter(s => s.potential === 'high' && !['lost', 'operating', 'won'].includes(s.stage)).length} 所`" />
-      <Kpi label="合计投入" :value="money(project.financials.total_investment)" unit="元" hint="设备 + 人工 + 其他投入" />
-      <Kpi label="累计登记收入" :value="money(project.financials.total_income)" unit="元" hint="按学校、日期登记的收入合计" />
+      <Kpi label="已登记投入" :value="money(project.financials.total_investment)" unit="元" :hint="`建设清单 + 人工 + 其他 · ${project.financials.unpriced_count || 0} 条未标价`" />
+      <Kpi label="累计登记收入" :value="money(project.financials.total_income)" unit="元" hint="学校收入及未分摊的项目公共收入" />
     </div>
     <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
     <el-table :data="schools" @row-click="s => selectedId = s.id">
@@ -15,14 +15,17 @@
       <el-table-column width="100"><template #default="{ row }"><el-button link type="primary" @click.stop="selectedId = row.id">查看清单</el-button></template></el-table-column>
     </el-table>
     <p class="jc-muted jc-small">{{ project.financials.note }}</p>
+    <el-alert v-if="project.financials.unpriced_count || project.financials.review_count" :title="`${project.financials.unpriced_count || 0} 条未标价，${project.financials.review_count || 0} 条需核对金额或设备去向，请打开学校清单查看说明。`" type="warning" :closable="false" />
+    <el-collapse v-if="project.import_batches?.length" class="mt-16"><el-collapse-item title="已导入资料与核对说明" name="sources"><div v-for="b in project.import_batches" :key="b.id"><b>{{ b.source_name }}</b><p class="jc-small">{{ b.result.rows }} 条记录 · 已登记金额 {{ money(b.result.amount) }}</p><p v-for="(n, i) in b.result.notes" :key="i" class="jc-muted jc-small">{{ n }}</p></div></el-collapse-item></el-collapse>
     <Panel v-if="project.financials.daily.length" title="每日收入" class="mt-16"><Chart :option="incomeChart" height="240px" /></Panel>
+    <Panel v-if="project.unassigned_incomes?.length" title="项目公共收入（未分摊学校）" :sub="`合计 ${money(project.financials.unassigned_income)}，已计入累计登记收入`" class="mt-16"><el-table :data="project.unassigned_incomes" max-height="300"><el-table-column prop="income_date" label="收款日期" width="130" /><el-table-column label="金额（元）" width="130"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="note" label="来源与说明" min-width="300" show-overflow-tooltip /></el-table></Panel>
 
     <el-drawer :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
       <template v-if="selected">
         <div class="jc-row between"><p>合计投入 <b>{{ money(selected.total_investment) }} 元</b> · 累计收入 <b>{{ money(selected.total_income) }} 元</b></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
         <p class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
         <p v-if="selected.note" class="plain">{{ selected.note }}</p>
-        <el-tabs>
+        <el-tabs v-model="schoolTab">
           <el-tab-pane label="客户跟进过程">
             <h4>关联重点任务</h4>
             <div v-for="t in schoolTasks" :key="t.id" class="follow-task" @click="emit('open-task', t); selectedId = null">
@@ -39,13 +42,14 @@
               <p v-if="h.after?.note" class="plain">{{ h.after.note }}</p>
             </el-timeline-item></el-timeline>
           </el-tab-pane>
-          <el-tab-pane label="设备建设清单">
+          <el-tab-pane label="设备建设清单" name="equipment">
             <div class="jc-row between section-head"><span class="jc-muted jc-small">设备 {{ money(selected.equipment_cost) }} 元 · 人工 {{ money(selected.labor_cost) }} 元 · 其他 {{ money(selected.other_cost) }} 元</span><el-button v-if="project.can_manage" type="primary" @click="editEquipment()">添加设备</el-button></div>
             <el-table :data="selected.equipment">
               <el-table-column label="设备 / 品牌型号" min-width="210"><template #default="{ row }">{{ row.product_name }}<div class="jc-small jc-muted">{{ row.brand }} {{ row.model }}</div></template></el-table-column>
               <el-table-column prop="quantity" label="数量" width="80" />
-              <el-table-column label="采购单价" width="130"><template #default="{ row }">{{ money(row.unit_price) }}</template></el-table-column>
-              <el-table-column label="金额" width="140"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column>
+              <el-table-column label="单价" width="130"><template #default="{ row }">{{ unitPrice(row.unit_price) }}</template></el-table-column>
+              <el-table-column label="清单金额" width="140"><template #default="{ row }">{{ row.amount == null ? '未标价' : money(row.amount) }}<div v-if="row.recorded_amount != null" class="jc-small jc-muted">按原表金额</div></template></el-table-column>
+              <el-table-column label="备注 / 待核对" min-width="250"><template #default="{ row }"><p v-if="row.review_note" class="jc-down plain">{{ row.review_note }}</p><p class="jc-small plain">{{ row.note }}</p></template></el-table-column>
               <el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editEquipment(row)">编辑</el-button></template></el-table-column>
             </el-table>
           </el-tab-pane>
@@ -69,8 +73,10 @@
         <template v-else-if="kind === 'equipment'">
           <el-form-item label="选择设备产品" prop="product_id" :rules="[{ required: true, message: '选择产品' }]"><el-select v-model="form.product_id" filterable placeholder="可使用有权限项目中的产品" @change="chooseProduct"><el-option v-for="p in library" :key="p.id" :value="p.id" :label="`${p.name} · ${p.brand} ${p.model} · ${p.source_project}`" /></el-select></el-form-item>
           <el-alert v-if="!library.length" type="info" :closable="false" title="请先在设备产品库中新增产品" />
-          <div class="two"><el-form-item label="数量"><el-input-number v-model="form.quantity" :min="1" :max="1000000" :precision="0" /></el-form-item><el-form-item label="实际采购单价（元）"><el-input-number v-model="form.unit_price" :min="0" :max="999999999999.99" :precision="2" /></el-form-item></div>
-          <p>设备金额：{{ money((form.quantity || 0) * (form.unit_price || 0)) }} 元</p>
+          <div class="two"><el-form-item label="数量"><el-input-number v-model="form.quantity" :min="1" :max="1000000" :precision="0" /></el-form-item><el-form-item label="实际采购单价（元，未知可留空）"><el-input-number v-model="form.unit_price" :min="0" :max="999999999999.99" :precision="6" /></el-form-item></div>
+          <el-form-item label="原表清单金额（可选；填写后按此金额汇总）"><el-input-number v-model="form.recorded_amount" :min="0" :max="999999999999.99" :precision="2" /></el-form-item>
+          <el-form-item label="核对说明"><el-input v-model="form.review_note" type="textarea" maxlength="6000" placeholder="单价与金额不符、折扣、共用、拆回或调拨等情况" /></el-form-item>
+          <p>数量 × 单价：{{ form.unit_price == null ? '未标价' : money(form.quantity * form.unit_price) }}</p>
         </template>
         <template v-else>
           <div class="two"><el-form-item label="收入日期" prop="income_date" :rules="[{ required: true, message: '选择日期' }]"><el-date-picker v-model="form.income_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item><el-form-item label="当日合计收入（元）"><el-input-number v-model="form.amount" :min="0" :precision="2" :max="999999999999.99" /></el-form-item></div>
@@ -87,9 +93,10 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { money, datetime } from '@/utils/format'
-import { STAGES, POTENTIAL, TASK_STATUS, announceChange } from './shared'
+import { STAGES, POTENTIAL, TASK_STATUS, unitPrice, announceChange } from './shared'
 const props = defineProps({ project: Object }), emit = defineEmits(['saved', 'open-task'])
 const search = ref(''), stage = ref(''), highOnly = ref(false), selectedId = ref(null)
+const schoolTab = ref('equipment')
 const schools = computed(() => props.project.schools.filter(s => s.name.includes(search.value) && (!stage.value || stage.value === s.stage) && (!highOnly.value || s.potential === 'high')))
 const selected = computed(() => props.project.schools.find(s => s.id === selectedId.value))
 const schoolTasks = computed(() => props.project.tasks.filter(t => t.school_id === selectedId.value))
@@ -106,8 +113,8 @@ const dialog = ref(false), kind = ref('school'), editId = ref(null), saving = re
 const dialogTitle = computed(() => `${editId.value ? '编辑' : '新增'}${{ school: '学校资料', equipment: '学校设备', income: '每日收入' }[kind.value]}`)
 function reset(k, row, values) { Object.keys(form).forEach(k => delete form[k]); Object.assign(form, values); kind.value = k; editId.value = row?.id || null; dialog.value = true }
 function editSchool(s) { reset('school', s, { name: s?.name || '', stage: s?.stage || 'contact', potential: s?.potential || 'medium', next_action: s?.next_action || '', next_contact_date: s?.next_contact_date || null, labor_cost: Number(s?.labor_cost || 0), other_cost: Number(s?.other_cost || 0), note: s?.note || '' }) }
-async function editEquipment(e) { try { library.value = (await api.get('/operations/products')).items; reset('equipment', e, { product_id: e?.product_id || null, quantity: e?.quantity || 1, unit_price: Number(e?.unit_price || 0), note: e?.note || '' }) } catch {} }
-function chooseProduct(id) { form.unit_price = Number(library.value.find(p => p.id === id)?.reference_price || 0) }
+async function editEquipment(e) { try { library.value = (await api.get('/operations/products')).items; reset('equipment', e, { product_id: e?.product_id || null, quantity: e?.quantity || 1, unit_price: e?.unit_price == null ? null : Number(e.unit_price), recorded_amount: e?.recorded_amount == null ? null : Number(e.recorded_amount), review_note: e?.review_note || '', note: e?.note || '' }) } catch {} }
+function chooseProduct(id) { const price = library.value.find(p => p.id === id)?.reference_price; form.unit_price = price == null ? null : Number(price) }
 function editIncome(i) { reset('income', i, { income_date: i?.income_date || props.project.today, amount: Number(i?.amount || 0), source: i?.source || '财务收款表', note: i?.note || '' }) }
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
