@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
+from app.core.accounts import resolve_account
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.deps import Principal, build_principal, client_ip, get_principal
@@ -80,6 +81,7 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
         raise BizError(40301, "已关闭口令登录，请使用企业微信扫码登录")
     u = db.scalar(select(SysUser).where(or_(SysUser.wecom_userid == body.username, SysUser.mobile == body.username,
                                             SysUser.name == body.username), SysUser.is_deleted.is_(False)))
+    u = resolve_account(db, u)
     if not u or not verify_password(body.password, u.password_hash):
         log_op(db, u.id if u else None, "auth.login_failed", "user", body.username, ip=client_ip(request))
         db.commit()

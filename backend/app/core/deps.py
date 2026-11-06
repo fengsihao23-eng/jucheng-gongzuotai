@@ -72,6 +72,8 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
         code = 40102 if exc.__class__.__name__ == "ExpiredSignatureError" else 40101
         raise BizError(code, "登录已过期，请重新登录" if code == 40102 else "登录无效") from exc
     user = db.get(SysUser, int(payload["sub"]))
+    from app.core.accounts import resolve_account
+    user = resolve_account(db, user)
     if not user or user.is_deleted or user.status != 1:
         raise BizError(40101, "账号不可用")
     from app.core.config import settings

@@ -22,7 +22,7 @@ from app.core.audit import mask
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.deps import build_principal
-from app.core.response import encode
+from app.core.response import BizError, encode
 from app.core.security import hash_token
 from app.core.timeutil import utcnow
 from app.models import LogMcpAudit, McpTool, SysUser
@@ -576,7 +576,11 @@ def _lookup_user(token: str) -> int | None:
     db = SessionLocal()
     try:
         u = db.scalar(select(SysUser).where(SysUser.access_token == hash_token(token)))
+        from app.core.accounts import resolve_account
+        u = resolve_account(db, u)
         return u.id if u and u.status == 1 and not u.is_deleted else None
+    except BizError:
+        return None
     finally:
         db.close()
 

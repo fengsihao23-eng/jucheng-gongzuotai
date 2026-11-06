@@ -34,6 +34,9 @@ def create_jwt(user_id: int, minutes: int | None = None) -> tuple[str, int]:
     from app.models import SysUser
     with SessionLocal() as db:
         user = db.get(SysUser, user_id)
+        from app.core.accounts import resolve_account
+        user = resolve_account(db, user)
+        user_id = user.id if user else user_id
         version = password_version(user.password_hash if user else None)
     exp = datetime.now(timezone.utc) + timedelta(minutes=minutes or settings.jwt_expire_minutes)
     token = jwt.encode({"sub": str(user_id), "exp": exp, "typ": "session", "pwdv": version, "authv": 2}, settings.secret_key, algorithm=ALGO)

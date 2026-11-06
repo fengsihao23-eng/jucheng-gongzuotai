@@ -59,6 +59,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 公司员工账号与组织架构在「系统管理 → 配置公司应用」一次填写应用凭证，自动验证并读取真实成员预览，确认后独立建档。支持演示账号归档、身份冲突保护和增量更新，详见[公司通讯录接入](docs/COMPANY_DIRECTORY.md)。
 
+所有者明确核实本地管理员与真实企微身份后，可受控关联登录并迁移个人业务归属、小聚历史及工作文件，保留历史审计和其他成员的独立账号，见[管理员账号关联](docs/ACCOUNT_LINK.md)。
+
 经理可以在「资料导入 → 从企业微信导入」绑定本人连接，粘贴微盘/在线文档链接，或搜索并选择资料；读取后核对正文、子表和样例，再保存到知识审核或台账清洗。保留来源及原始字段类型快照，默认仅本人可见。详见[企微资料接入](docs/WECOM_IMPORT.md)。
 
 小聚也能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，自动发现和验证企业微信、柠檬云凭证。接入范围见 [接入说明](docs/INTEGRATION_ASSISTANT.md)。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
