@@ -29,6 +29,57 @@ def caliber(db: Session) -> dict:
     return c
 
 
+def accounting_groups(db):
+    """合同项目来自台账自动建档时，一张项目报表可明确其合并核算关系。"""
+    from app.models import FinProjectReport, FinProjectReportContract
+    links = db.execute(select(FinProjectReport.id, FinProjectReport.primary_project_code, BizContract.project_code)
+        .join(FinProjectReportContract, FinProjectReportContract.report_id == FinProjectReport.id)
+        .join(BizContract, BizContract.id == FinProjectReportContract.contract_id)
+        .where(BizContract.is_deleted.is_(False)).order_by(FinProjectReport.id)).all()
+    by_report = {}
+    for ident, primary, code in links:
+        by_report.setdefault((ident, primary), set()).add(code)
+    groups = []
+    for (_, primary), members in by_report.items():
+        if len(members) < 2:
+            continue
+        overlaps = [g for g in groups if g[1] & members]
+        if overlaps:
+            primary = overlaps[0][0]
+            for group in overlaps:
+                members |= group[1]
+                groups.remove(group)
+        groups.append((primary, members))
+    return groups
+
+
+def scoped_project_codes(db, code, scope=None):
+    for _, members in accounting_groups(db):
+        if code in members and (scope is None or members.issubset(scope)):
+            return sorted(members)
+    return [code]
+
+
+def _combine_rows(db, rows, selected_codes):
+    numeric = ("income", "cost", "cost_expense", "cost_project", "cost_lemon", "gross_profit",
+               "period_income", "period_cost", "period_expense", "period_project_cost")
+    for primary, members in accounting_groups(db):
+        grouped = [r for r in rows if r["project_code"] in members]
+        if not grouped:
+            continue
+        if not members.issubset(selected_codes):
+            for row in grouped:
+                row["group_note"] = "该项目成本按合并报表核算，当前可见范围不含完整项目组"
+            continue
+        base = next((r for r in grouped if r["project_code"] == primary), grouped[0])
+        combined = {**base, "project_code": primary, "name": base["name"] + "（合并核算）",
+                    "group_codes": sorted(members), "group_note": "按同一项目报表合并合同及成本，未向单份合同分摊"}
+        combined.update({key: sum((r[key] for r in grouped), ZERO) for key in numeric})
+        combined["gross_margin"] = (combined["gross_profit"] / combined["income"]).quantize(Decimal("0.0001")) if combined["income"] else None
+        rows = [r for r in rows if r["project_code"] not in members] + [combined]
+    return sorted(rows, key=lambda r: r["project_code"])
+
+
 def _sum_by_project(db: Session, col_project, col_amount, col_date, start: date | None, end: date, *where) -> dict:
     q = select(col_project, func.coalesce(func.sum(col_amount), 0)).where(col_project.is_not(None), col_date <= end, *where)
     if start:
@@ -57,9 +108,11 @@ def _costs(db: Session, sources: list[str], start: date | None, end: date) -> di
     if "expense" in sources:
         add("expense", _sum_by_project(db, BizExpenseReport.project_code, BizExpenseReport.amount,
                                        BizExpenseReport.expense_date, start, end, BizExpenseReport.status == 4))
+        add("expense", _sum_by_project(db, BizProjectCost.project_code, BizProjectCost.amount,
+                                       BizProjectCost.cost_date, start, end, BizProjectCost.cost_type == "历史报销"))
     if "project_cost" in sources:
         add("project_cost", _sum_by_project(db, BizProjectCost.project_code, BizProjectCost.amount,
-                                            BizProjectCost.cost_date, start, end))
+                                            BizProjectCost.cost_date, start, end, BizProjectCost.cost_type != "历史报销"))
     if "lemon_aux" in sources:
         add("lemon_aux", _sum_by_project(db, FinVoucher.aux_project, FinVoucher.amount, FinVoucher.voucher_date, start,
                                          end, FinVoucher.direction == 1, FinVoucher.subject_code.like("5%")))
@@ -95,6 +148,7 @@ def project_profit(db: Session, start: date, end: date, project_codes: list[str]
             "period_income": inc_per.get(p.project_code, ZERO), "period_cost": sum(cp.values(), ZERO),
             "period_expense": cp.get("expense", ZERO), "period_project_cost": cp.get("project_cost", ZERO),
         })
+    rows = _combine_rows(db, rows, {p.project_code for p in projects})
     t_inc = sum((r["income"] for r in rows), ZERO)
     t_cost = sum((r["cost"] for r in rows), ZERO)
     pub_q = select(func.coalesce(func.sum(BizExpenseReport.amount), 0)).where(

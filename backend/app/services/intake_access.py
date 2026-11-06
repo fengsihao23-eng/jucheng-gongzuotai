@@ -5,7 +5,7 @@ from sqlalchemy.orm import aliased
 from app.core.response import not_found
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
 
-PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report"}
+PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source"}
 
 
 def can_handle_department(p, dept_code):
@@ -64,7 +64,12 @@ def require_file_access(db, p, file):
     if file.category not in PROTECTED_FILE_CATEGORIES:
         return
     allowed = False
-    if file.category == "kb":
+    if file.category == "project_finance_source":
+        from app.models import FinProjectReport
+        from app.services.project_report_service import can_view
+        report = db.scalar(select(FinProjectReport).where(FinProjectReport.file_id == file.id))
+        allowed = report is not None and can_view(db, p, report)
+    elif file.category == "kb":
         from app.services.kb_service import can_view
         current_file = aliased(SysFile)
         doc = db.scalar(select(KbDocument).join(current_file, KbDocument.file_id == current_file.id)

@@ -75,6 +75,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 ## 测试与验收
 
+历史项目分析表支持按合同核对后批量导入，贯通原件、凭证成本、待支付快照、回款挂接与统一利润统计；差异在「项目利润 / 合同详情 / 项目详情 → 历史项目报表」查看。导入与防重说明见 [历史项目报表](docs/PROJECT_FINANCE_IMPORT.md)。
+
 ```bash
 cd backend && TEST_DB=jucheng_test .venv/bin/python -m pytest tests -q   # 308 项
 cd acceptance && npm install && node e2e.mjs                            # 端到端 68 项，需服务在运行

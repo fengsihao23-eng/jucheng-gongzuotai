@@ -225,6 +225,12 @@ def _check_cost(db: Session, body: CostBody):
         raise bad_request(f"成本类型应为 {'/'.join(COST_TYPES)}")
 
 
+def _historical_cost_guard(db, cost_id):
+    from app.models import FinProjectReportEntry
+    if db.scalar(select(FinProjectReportEntry.id).where(FinProjectReportEntry.cost_id == cost_id).limit(1)):
+        raise conflict("该成本来自历史项目报表，须连同原凭证核对更正，不能单独修改或删除来源记录")
+
+
 @router.post("/costs")
 def cost_create(body: CostBody, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _need(p, "cost:write")
@@ -243,6 +249,7 @@ def cost_update(cost_id: int, body: CostBody, request: Request, p: Principal = M
     _need(p, "cost:write")
     _check_cost(db, body)
     c = get_or_404(db, BizProjectCost, cost_id, "项目成本")
+    _historical_cost_guard(db, c.id)
     if c.bank_flow_id and (c.amount != body.amount.quantize(Decimal("0.01"))):
         raise conflict("已关联银行流水的成本不可修改金额，请先在流水核对中撤销")
     before = snapshot(c, COST_FIELDS)
@@ -264,6 +271,7 @@ def cost_update(cost_id: int, body: CostBody, request: Request, p: Principal = M
 def cost_delete(cost_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _need(p, "cost:write")
     c = get_or_404(db, BizProjectCost, cost_id, "项目成本")
+    _historical_cost_guard(db, c.id)
     if c.bank_flow_id:
         raise conflict("已关联银行流水的成本不可删除，请先在流水核对中撤销")
     log_op(db, p.id, "cost.delete", "project_cost", c.id, snapshot(c, COST_FIELDS), None, client_ip(request))

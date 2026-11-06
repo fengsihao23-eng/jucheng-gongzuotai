@@ -75,6 +75,7 @@ REPORT_TYPES: dict[str, dict] = {
             "收入口径（sys_dict caliber.profit.income_basis）：contract=截至期末已签合同额；payment=截至期末已到账回款。",
             "成本口径（cost_sources）：expense=已归集到项目的报销（按费用发生日）；project_cost=人工标记的采购/分包成本；"
             "lemon_aux=柠檬云项目辅助核算成本类科目（5 开头借方）。",
+            "历史项目报表按凭证记账日计入采购、施工及报销，保留负数冲销；待核对凭证、待支付快照和税费测算不计入。多合同同一项目按来源报表合并核算，不向各合同猜测分摊。",
             "累计 = 截至周末；本周发生 = 周一至周日区间内发生额。毛利 = 收入 − 成本；毛利率 = 毛利 ÷ 收入。",
             "公共费用（未归集到项目的已归集报销）不摊入项目毛利，单列为「管理费用-公共」。",
             "毛利率低于预警线（sys_dict report_rule.profit_alert_margin，默认 20%）的项目标红。",
@@ -499,6 +500,7 @@ def collect_project_operation(db: Session, ctx: dict) -> dict:
     received = _received_by_project(db, end)
     received_week = _received_by_project(db, end, ctx["start"])
     pr = {r["project_code"]: r for r in profit_service.project_profit(db, ctx["start"], end, codes or None)["rows"]}
+    group_anchor = {code: row["project_code"] for row in pr.values() for code in row.get("group_codes", [])}
     overdue = defaultdict(lambda: [ZERO, 0])
     for code, amt, rec in db.execute(
             select(BizContract.project_code, BizPaymentPlan.amount, BizPaymentPlan.received_amount)
@@ -520,15 +522,18 @@ def collect_project_operation(db: Session, ctx: dict) -> dict:
         ca = contract_amt.get(p.project_code, ZERO)
         rc = received.get(p.project_code, ZERO)
         prow = pr.get(p.project_code, {})
+        combined_elsewhere = p.project_code in group_anchor and group_anchor[p.project_code] != p.project_code
+        finance_note = (f"利润合并列于 {group_anchor[p.project_code]}，未向各合同分摊" if combined_elsewhere else prow.get("group_note", ""))
         rows.append({"project_code": p.project_code, "name": p.name,
                      "line_name": LINES.get(p.business_line, p.business_line), "customer_name": p.customer_name,
                      "status": p.status, "status_name": PROJECT_STATUS.get(p.status, ""), "is_key": p.is_key,
                      "owner": owners.get(p.owner_id, ""), "group": "在建" if p.status == 2 else "运营",
                      "contract_amount": ca, "received": rc, "received_week": received_week.get(p.project_code, ZERO),
                      "receive_rate": _ratio(rc, ca), "unreceived": ca - rc,
-                     "income": prow.get("income", ZERO), "cost": prow.get("cost", ZERO),
-                     "gross_profit": prow.get("gross_profit", ZERO), "gross_margin": prow.get("gross_margin"),
-                     "period_cost": prow.get("period_cost", ZERO),
+                     "income": None if combined_elsewhere else prow.get("income", ZERO),
+                     "cost": None if combined_elsewhere else prow.get("cost", ZERO),
+                     "gross_profit": None if combined_elsewhere else prow.get("gross_profit", ZERO), "gross_margin": prow.get("gross_margin"),
+                     "period_cost": None if combined_elsewhere else prow.get("period_cost", ZERO), "finance_note": finance_note,
                      "current_node": cur.node_name if cur else "全部完成",
                      "current_plan": cur.plan_date if cur else None,
                      "progress": f"{sum(1 for x in ms if x.status == 3)}/{len(ms)}",
@@ -537,9 +542,9 @@ def collect_project_operation(db: Session, ctx: dict) -> dict:
 
     def agg(rs):
         ca, rc = sum((r["contract_amount"] for r in rs), ZERO), sum((r["received"] for r in rs), ZERO)
-        gp, inc = sum((r["gross_profit"] for r in rs), ZERO), sum((r["income"] for r in rs), ZERO)
+        gp, inc = sum((r["gross_profit"] or ZERO for r in rs), ZERO), sum((r["income"] or ZERO for r in rs), ZERO)
         return {"count": len(rs), "contract_amount": ca, "received": rc, "receive_rate": _ratio(rc, ca),
-                "cost": sum((r["cost"] for r in rs), ZERO), "gross_profit": gp, "gross_margin": _ratio(gp, inc),
+                "cost": sum((r["cost"] or ZERO for r in rs), ZERO), "gross_profit": gp, "gross_margin": _ratio(gp, inc),
                 "received_week": sum((r["received_week"] for r in rs), ZERO),
                 "delay_count": sum(r["delay_count"] for r in rs),
                 "overdue_amount": sum((r["overdue_amount"] for r in rs), ZERO)}
@@ -565,6 +570,7 @@ def render_project_operation(db, m: dict, ctx: dict, lines: list[str]) -> list[t
             ("receive_rate", "回款率", "pct"), ("unreceived", "未回款", "money"),
             ("received_week", "本周回款", "money"), ("overdue_amount", "逾期未回款", "money"),
             ("cost", "累计成本", "money"), ("gross_profit", "毛利", "money"), ("gross_margin", "毛利率", "pct"),
+            ("finance_note", "利润核算说明", "text"),
             ("current_node", "当前节点", "text"), ("current_plan", "节点计划日", "date"),
             ("progress", "节点进度", "text"), ("delay_count", "延期节点数", "int"), ("delay_nodes", "延期节点", "text")]
     for title, key in (("在建项目", "在建"), ("运营项目", "运营")):

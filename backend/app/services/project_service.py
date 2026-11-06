@@ -177,16 +177,18 @@ def contract_detail(db: Session, code: str) -> dict:
     return {"contracts": items, "payments": payments[:50], **money_summary(db, [code])[code]}
 
 
-def profit_of(db: Session, code: str, T: date | None = None) -> dict:
-    from app.services.profit_service import project_profit
+def profit_of(db: Session, code: str, T: date | None = None, p=None) -> dict:
+    from app.services.profit_service import project_profit, scoped_project_codes
     T = T or today()
-    res = project_profit(db, date(T.year, 1, 1), T, project_codes=[code])
+    scope = None if p is None or p.data_scope == "all" else set(db.scalars(visible_query(p).with_only_columns(BizProject.project_code)))
+    codes = scoped_project_codes(db, code, scope)
+    res = project_profit(db, date(T.year, 1, 1), T, project_codes=codes)
     row = res["rows"][0] if res["rows"] else None
     if not row:
         return {"income": ZERO, "cost": ZERO, "gross_profit": ZERO, "gross_margin": None, "cost_expense": ZERO,
                 "cost_project": ZERO, "caliber": res["caliber"]}
     return {k: row[k] for k in ("income", "cost", "gross_profit", "gross_margin", "cost_expense", "cost_project")} | \
-        {"caliber": res["caliber"]}
+        {"caliber": res["caliber"], "group_codes": row.get("group_codes", []), "group_note": row.get("group_note")}
 
 
 # ------------------------------------------------------------------ 列表 / 新建 / 详情
@@ -262,7 +264,7 @@ def project_detail(db: Session, proj: BizProject, p=None) -> dict:
     fb = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == proj.id)
                     .order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50)).all()
     money = contract_detail(db, proj.project_code)
-    prof = profit_of(db, proj.project_code, T)
+    prof = profit_of(db, proj.project_code, T, p)
     d = project_brief(db, proj, T)
     d.update({
         "milestones": [ms_dict(m, T) for m in sorted(proj.milestones, key=lambda x: x.seq)],

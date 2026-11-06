@@ -25,6 +25,8 @@
         <Kpi label="回款计划" :value="c.plans.length" unit="期" :hint="c.plans.length ? `已完成 ${c.plans.filter((p) => p.status === 4).length} 期` : '归档后自动读取付款条款'" />
       </div>
 
+      <ProjectReportSources :contract-id="c.id" />
+
       <div class="jc-grid c2 mt-16">
         <Panel title="基本信息">
           <el-descriptions :column="2" size="small">
@@ -178,6 +180,7 @@ import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import ProjectReportSources from '@/components/ProjectReportSources.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, filesize, money, num, percent, wanNum } from '@/utils/format'
 import ContractForm from './contract-form.vue'

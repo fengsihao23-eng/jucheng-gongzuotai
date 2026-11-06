@@ -163,20 +163,23 @@ def _range(week: str | None, start: date | None, end: date | None) -> tuple[date
     return s, e, w
 
 
-def project_detail(db: Session, code: str, start: date, end: date, cal: dict) -> dict:
-    exps = db.scalars(select(BizExpenseReport).where(BizExpenseReport.project_code == code,
+def project_detail(db: Session, code: str, start: date, end: date, cal: dict, codes=None) -> dict:
+    codes = codes or [code]
+    exps = db.scalars(select(BizExpenseReport).where(BizExpenseReport.project_code.in_(codes),
                                                      BizExpenseReport.status == 4, BizExpenseReport.expense_date <= end)
                       .order_by(BizExpenseReport.expense_date.desc(), BizExpenseReport.id.desc())).all()
-    costs = db.scalars(select(BizProjectCost).where(BizProjectCost.project_code == code, BizProjectCost.cost_date <= end)
+    costs = db.scalars(select(BizProjectCost).where(BizProjectCost.project_code.in_(codes), BizProjectCost.cost_date <= end)
                        .order_by(BizProjectCost.cost_date.desc())).all()
-    cons = db.scalars(select(BizContract).where(BizContract.project_code == code, BizContract.is_deleted.is_(False),
+    historical_expenses = [c for c in costs if c.cost_type == "历史报销"]
+    costs = [c for c in costs if c.cost_type != "历史报销"]
+    cons = db.scalars(select(BizContract).where(BizContract.project_code.in_(codes), BizContract.is_deleted.is_(False),
                                                 BizContract.sign_date <= end).order_by(BizContract.sign_date)).all()
     received = dict(db.execute(select(BizPayment.contract_id, func.sum(BizPayment.amount)).where(
         BizPayment.contract_id.in_([c.id for c in cons] or [0]), BizPayment.payment_date <= end)
         .group_by(BizPayment.contract_id)).all())
     lemon = []
     if "lemon_aux" in cal.get("cost_sources", []):
-        lemon = db.scalars(select(FinVoucher).where(FinVoucher.aux_project == code, FinVoucher.direction == 1,
+        lemon = db.scalars(select(FinVoucher).where(FinVoucher.aux_project.in_(codes), FinVoucher.direction == 1,
                                                     FinVoucher.subject_code.like("5%"), FinVoucher.voucher_date <= end)
                            .order_by(FinVoucher.voucher_date.desc())).all()
     inp = lambda d: start <= d <= end  # noqa: E731
@@ -184,7 +187,9 @@ def project_detail(db: Session, code: str, start: date, end: date, cal: dict) ->
         "expenses": [{"approval_no": e.approval_no, "expense_date": e.expense_date, "approved_at": e.approved_at,
                       "applicant": e.applicant.name if e.applicant else "", "dept_code": e.dept_code,
                       "category": e.category, "reason": e.reason, "amount": e.amount, "in_period": inp(e.expense_date)}
-                     for e in exps],
+                     for e in exps] + [{"approval_no": "历史凭证", "expense_date": c.cost_date, "approved_at": None,
+                         "applicant": "", "dept_code": None, "category": "历史报销", "reason": c.summary,
+                         "amount": c.amount, "in_period": inp(c.cost_date)} for c in historical_expenses],
         "costs": [{"id": c.id, "cost_date": c.cost_date, "cost_type": c.cost_type, "summary": c.summary,
                    "amount": c.amount, "in_period": inp(c.cost_date)} for c in costs],
         "contracts": [{"contract_no": c.contract_no, "name": c.name, "sign_date": c.sign_date, "amount": c.amount,
@@ -202,7 +207,7 @@ def profit(week: str | None = None, start: date | None = None, end: date | None 
     _profit_principal(p)
     s, e, label = _range(week, start, end)
     scope = _scope_codes(p, db)
-    codes = [project_code] if project_code else scope
+    codes = profit_service.scoped_project_codes(db, project_code, scope) if project_code else scope
     if project_code and scope is not None and project_code not in scope:
         raise forbidden("无权查看该项目")
     pr = profit_service.project_profit(db, s, e, codes)
@@ -214,7 +219,7 @@ def profit(week: str | None = None, start: date | None = None, end: date | None 
                "period_gross_profit": r["period_income"] - r["period_cost"],
                "low_margin": r["gross_margin"] is not None and r["gross_margin"] < th}
         if include_detail:
-            row["detail"] = project_detail(db, r["project_code"], s, e, pr["caliber"])
+            row["detail"] = project_detail(db, r["project_code"], s, e, pr["caliber"], r.get("group_codes"))
         rows.append(row)
     t = pr["totals"]
     out = {"period": label, "week": None if (start and end) else label, "start": s, "end": e,
@@ -267,13 +272,31 @@ def profit_project(project_code: str, week: str | None = None, start: date | Non
     if not proj:
         raise not_found("项目")
     s, e, label = _range(week, start, end)
-    pr = profit_service.project_profit(db, s, e, [project_code])
+    codes = profit_service.scoped_project_codes(db, project_code, scope)
+    pr = profit_service.project_profit(db, s, e, codes)
     row = pr["rows"][0] if pr["rows"] else None
     return ok(rs._keep_precision({"project_code": project_code, "name": proj.name, "period": label, "start": s,
-                                  "end": e, "profit": row, "detail": project_detail(db, project_code, s, e, pr["caliber"])}))
+                                  "end": e, "profit": row, "detail": project_detail(db, project_code, s, e, pr["caliber"], codes)}))
 
 
 # ---------------------------------------------------------------- 详情 / 历史版本
+@router.get("/project-sources")
+def project_sources(project_code: str | None = None, contract_id: int | None = None,
+                    period: str | None = Query(None, pattern=r"^20\d{2}-(0[1-9]|1[0-2])$"),
+                    page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100),
+                    p: Principal = Depends(require_menu("profit", "board")), db: Session = Depends(get_db)):
+    from app.services import project_report_service as source
+    return ok(source.list_reports(db, p, project_code=project_code, contract_id=contract_id, period=period,
+                                  page=page, size=size))
+
+
+@router.get("/project-sources/{source_id}")
+def project_source(source_id: int, p: Principal = Depends(require_menu("profit", "board")),
+                   db: Session = Depends(get_db)):
+    from app.services import project_report_service as source
+    return ok(source.report_view(db, source.get_report(db, p, source_id), detail=True))
+
+
 @router.get("/{report_id}")
 def detail(report_id: int, p: Principal = Reports, db: Session = Depends(get_db)):
     r = db.get(RptReport, report_id)

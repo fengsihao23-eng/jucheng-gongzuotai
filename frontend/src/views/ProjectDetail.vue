@@ -34,7 +34,11 @@
         <Kpi label="毛利率" :value="d.profit.gross_margin == null ? '—' : (d.profit.gross_margin * 100).toFixed(1)" unit="%" :hint="`毛利 ${wan(d.profit.gross_profit)}`" />
       </div>
 
-      <div class="layout">
+      <el-alert v-if="d.profit.group_note" class="mt-16" type="info" :closable="false"
+        :title="`${d.profit.group_note}。合同额与回款按当前项目显示。`" />
+      <ProjectReportSources :project-code="d.project_code" />
+
+      <div class="layout mt-16">
         <Panel title="标准控制流程" :sub="`已完成 ${d.done_nodes}/${d.total_nodes} · 当前节点 ${d.current_node || '—'}`">
           <template #extra>
             <el-button v-if="d.can_edit" type="primary" size="small" @click="openNode()">新增节点</el-button>
@@ -163,6 +167,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import api from '@/api/client'
+import ProjectReportSources from '@/components/ProjectReportSources.vue'
 import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, MILESTONE_STATUS, PROJECT_STATUS, date, datetime, percent, wan, wanNum } from '@/utils/format'
 

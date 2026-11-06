@@ -18,6 +18,8 @@
       <Kpi label="公共费用" :value="wanNum(k.public_expense, 2)" unit="万元" hint="管理费用-公共，不摊入项目" />
     </div>
 
+    <ProjectReportSources />
+
     <Panel class="mt-16" title="项目利润表" :sub="`点击项目展开下钻：归集报销、采购成本、合同${hasLemon ? '、柠檬云辅助核算' : ''}`" :padding="false" :loading="loading">
       <template #extra>
         <el-select v-model="lineFilter" placeholder="业务线" clearable size="small" style="width: 130px">
@@ -78,6 +80,7 @@
           <template #default="{ row }">
             <div class="pn">{{ row.name }}<StatusPill v-if="row.is_key" text="重点" tone="brand" /></div>
             <div class="jc-small jc-muted jc-mono">{{ row.project_code }} · {{ row.line_name }} · {{ row.status_name }}</div>
+            <div v-if="row.group_note" class="jc-small jc-muted">{{ row.group_note }}</div>
           </template>
         </el-table-column>
         <el-table-column label="累计收入" min-width="120" align="right" prop="income"><template #default="{ row }"><span class="jc-num">{{ money(row.income, 0) }}</span></template></el-table-column>
@@ -128,6 +131,7 @@ import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import ProjectReportSources from '@/components/ProjectReportSources.vue'
 import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, date, money, percent, wan, wanNum } from '@/utils/format'
 import { baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
