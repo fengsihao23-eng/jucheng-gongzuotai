@@ -9,12 +9,12 @@ MENUS = {
     "contracts": "合同台账", "opportunities": "商机信息", "performance": "业绩与运营",
     "expenses": "报销归集", "flows": "流水核对", "journal": "出纳日记账", "finance_data": "财务数据",
     "profit": "项目利润", "receivables": "开票与收款", "submissions": "汇报提交", "projects": "项目流程", "market": "市场跟进",
-    "intel": "竞品情报", "reviews": "项目复盘", "hr": "人事中心", "service": "客服工单",
+    "operations": "运营项目", "intel": "竞品情报", "reviews": "项目复盘", "hr": "人事中心", "service": "客服工单",
     "tender": "标书助手", "kb": "知识库", "imports": "资料导入", "clean": "数据清洗", "mcp": "WorkBuddy 接入", "admin": "系统管理",
 }
 
 # 全员可见
-PUBLIC_MENUS = ["portal", "kb", "imports", "mcp"]
+PUBLIC_MENUS = ["portal", "kb", "imports", "mcp", "operations"]  # 运营项目数据另按项目成员隔离
 
 FINANCE_MENUS = ["expenses", "flows", "journal", "finance_data", "profit", "reports"]
 LEDGER_MENUS = ["contracts", "opportunities", "performance"]
@@ -23,7 +23,7 @@ ROLE_DEFS: dict[str, dict] = {
     "ZB-01": {"name": "董事长/总经理", "dept": "ZB", "portal": "exec", "data_scope": "all",
               "menus": ["board", "reports", "receivables", *LEDGER_MENUS, *FINANCE_MENUS, "submissions", "projects", "market",
                         "intel", "reviews", "hr", "service", "tender"],
-              "buttons": ["board:target", "contracts:export", "report:generate"]},
+              "buttons": ["board:target", "contracts:export", "report:generate", "operations:manage"]},
     "ZB-02": {"name": "总经办专员", "dept": "ZB", "portal": "exec_staff", "data_scope": "all",
               "menus": ["board", "reports", "contracts", "opportunities", "performance", "submissions", "projects", "market"],
               "buttons": ["board:target", "submissions:remind", "report:generate", "contracts:export"]},
@@ -40,7 +40,7 @@ ROLE_DEFS: dict[str, dict] = {
               "buttons": ["expense:allocate", "finance:sync", "tax:upload", "cost:write", "report:generate", "receivables:invoice"]},
     "SC-01": {"name": "市场经理", "dept": "SC", "portal": "market", "data_scope": "all",
               "menus": ["market", "projects", "intel", "reviews", "reports", "contracts", "opportunities", "submissions"],
-              "buttons": ["intel:write", "review:write", "feedback:write", "report:generate", "project:key"]},
+              "buttons": ["intel:write", "review:write", "feedback:write", "report:generate", "project:key", "operations:manage"]},
     "SC-02": {"name": "市场专员", "dept": "SC", "portal": "market", "data_scope": "all",
               "menus": ["market", "projects", "intel", "reviews", "reports", "opportunities"],
               "buttons": ["intel:write", "feedback:write", "review:write"]},

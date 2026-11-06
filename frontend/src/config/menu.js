@@ -32,6 +32,7 @@ export const MENU_GROUPS = [
   {
     title: '市场与项目',
     items: [
+      { key: 'operations', path: '/operations', label: '运营项目' },
       { key: 'market', path: '/market', label: '重点项目跟进' },
       { key: 'projects', path: '/projects', label: '项目流程' },
       { key: 'intel', path: '/intel', label: '竞品情报' },

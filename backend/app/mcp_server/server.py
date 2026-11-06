@@ -52,6 +52,10 @@ mcp_server = FastMCP(name=settings.mcp_server_name, instructions=INSTRUCTIONS, s
 
 # ---- 工具元数据（种子写入 mcp_tool；注册表可在线调整） ----
 TOOL_META: dict[str, dict] = {
+    "ops.project_status": {"name": "运营项目进展", "roles": ["*"],
+                           "desc": "查询本人有权访问的运营项目、当前待办、负责人和节点反馈。"},
+    "ops.task_feedback": {"name": "运营任务反馈", "roles": ["*"],
+                          "desc": "对本人负责的运营任务提交简短进展，沿用项目成员权限并保留记录。"},
     "fin.daily_expense_report": {"name": "每日支出报表", "roles": ["CW", "ZB", "ADMIN"],
                                  "desc": "查询某日（默认昨日）或某项目的支出明细，生成每日支出报表文件并返回摘要。"},
     "fin.project_profit": {"name": "项目利润表", "roles": ["CW", "ZB", "ADMIN"],
@@ -415,7 +419,40 @@ def t_market_weekly(db, p, period_type: str = "weekly", period: str | None = Non
 
 
 # ---- 注册（显式参数签名，供 WorkBuddy 生成调用参数） ----
+def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = None):
+    from app.services import operations_service as ops
+    if task_id:
+        result = ops.task_detail(db, p, task_id)
+        return {"data": result, "summary": f"{result['title']}：{result['owner_name']}，{ops.STATUS_LABELS[result['status']]} {result['progress']}%"}
+    if project_id:
+        result = ops.brief(db, p, project_id)
+        return {"data": result, "summary": result["text"]}
+    result = ops.list_projects(db, p)
+    return {"data": result, "summary": f"可访问 {len(result['items'])} 个运营项目，当前待办 {len(result['todos'])} 项。"}
+
+
+def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int,
+                   next_step: str = "", completed_node_ids: list[int] | None = None):
+    from app.schemas.operations import FeedbackIn
+    from app.services import operations_service as ops
+    body = FeedbackIn(content=content, status=status, progress=progress, next_step=next_step,
+                      completed_node_ids=completed_node_ids or [])
+    ops.feedback(db, p, task_id, body)
+    db.commit()
+    return {"data": ops.task_detail(db, p, task_id), "summary": "进展反馈已保存。"}
+
+
 def _register():
+    async def ops_project_status(ctx: Context, project_id: int | None = None, task_id: int | None = None) -> str:
+        """不传 ID 时列出可访问运营项目与待办；project_id 汇总项目；task_id 读取任务全部节点与反馈。先查询取得 ID，不能猜测。"""
+        return await anyio.to_thread.run_sync(lambda: _run("ops.project_status", ctx, {"project_id": project_id, "task_id": task_id}, t_ops_status))
+
+    async def ops_task_feedback(ctx: Context, task_id: int, content: str, status: str, progress: int,
+                                next_step: str = "", completed_node_ids: list[int] | None = None) -> str:
+        """仅在用户要求汇报时提交。先查询任务确认 ID 和节点；status: todo/doing/blocked/done；progress: 0~100。不得推断完成节点。"""
+        return await anyio.to_thread.run_sync(lambda: _run("ops.task_feedback", ctx, {"task_id": task_id, "content": content,
+            "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids}, t_ops_feedback))
+
     async def fin_daily_expense_report(ctx: Context, date: str | None = None, project_code: str | None = None) -> str:
         """每日支出报表。date: YYYY-MM-DD（默认昨日）；project_code: 项目编码（可选，如 JC-XY-2026-001）"""
         return await anyio.to_thread.run_sync(lambda: _run("fin.daily_expense_report", ctx, {"date": date, "project_code": project_code}, t_daily_expense))
@@ -474,7 +511,8 @@ def _register():
         """重点项目周报/月报。period_type: weekly|monthly；period: 2026-W43 或 2026-10（默认本周/本月）"""
         return await anyio.to_thread.run_sync(lambda: _run("market.weekly_report", ctx, {"period_type": period_type, "period": period}, t_market_weekly))
 
-    for code, fn in [("fin.daily_expense_report", fin_daily_expense_report), ("fin.project_profit", fin_project_profit),
+    for code, fn in [("ops.project_status", ops_project_status), ("ops.task_feedback", ops_task_feedback),
+                     ("fin.daily_expense_report", fin_daily_expense_report), ("fin.project_profit", fin_project_profit),
                      ("fin.bank_flow_sync", fin_bank_flow_sync), ("oa.pending_approvals", oa_pending_approvals),
                      ("crm.contract_register", crm_contract_register), ("board.executive_daily", board_executive_daily),
                      ("board.compare", board_compare), ("kb.search", kb_search), ("kb.bid_check", kb_bid_check),

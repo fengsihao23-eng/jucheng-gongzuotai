@@ -444,13 +444,15 @@ class BusinessExecutor:
         text = (query + " " + area).lower()
         aliases = {"财务": ["expenses", "flows", "journal", "finance_data", "reports"], "利润": ["reports"], "流水": ["flows", "journal"],
                    "合同": ["contracts"], "报销": ["expenses"], "报表": ["reports", "performance", "market"], "商机": ["opportunities"],
-                   "业绩": ["performance"], "项目": ["projects", "market", "reports"], "市场": ["market"], "复盘": ["market"], "竞品": ["market"],
+                   "业绩": ["performance"], "项目": ["projects", "market", "reports", "operations"], "市场": ["market"], "复盘": ["market"], "竞品": ["market"],
+                   "运营": ["operations", "performance"], "智慧校园": ["operations"], "重点任务": ["operations"], "产品库": ["operations"],
+                   "任务": ["operations"], "设备": ["operations"], "进展反馈": ["operations", "market"],
                    "人事": ["hr"], "考勤": ["hr"], "员工": ["hr"], "招聘": ["hr"], "入职": ["hr"], "工单": ["service"], "客服": ["service"],
                    "标书": ["tender"], "投标": ["tender"], "方案": ["tender"], "知识": ["kb"], "制度": ["kb", "hr"], "清洗": ["clean"],
                    "附件": ["portal"], "上传文件预览": ["portal"], "attachments": ["portal"],
                    "企业微信": ["wecom_cli"], "企微": ["wecom_cli"], "wecom": ["wecom_cli"], "cli": ["wecom_cli"],
                    "通讯录": ["admin", "wecom_cli"], "公司人员": ["admin"], "员工账号": ["admin"], "组织架构": ["admin"], "人员导入": ["admin"],
-                   "日程": ["wecom_cli"], "微盘": ["wecom_cli"], "待办": ["wecom_cli"], "群聊": ["wecom_cli"],
+                   "日程": ["wecom_cli"], "微盘": ["wecom_cli"], "待办": ["wecom_cli", "operations"], "群聊": ["wecom_cli"],
                    "文档": ["wecom_cli", "kb", "tender"], "表格": ["wecom_cli"], "邮件": ["wecom_cli"], "会议": ["wecom_cli"],
                    "资料": ["imports", "kb"], "导入": ["imports", "clean", "flows", "hr", "finance_data"], "汇报": ["submissions", "market"], "审批": ["portal", "admin"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
         selected = {module for word, modules in aliases.items() if word in text for module in modules}

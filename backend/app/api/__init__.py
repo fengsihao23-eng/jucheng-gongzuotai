@@ -21,7 +21,7 @@ MODULES = [
     # 财务
     "expenses", "flows", "journal", "finance_data", "reports", "receivables",
     # 市场 / 项目
-    "projects", "market",
+    "projects", "market", "operations",
     # 营销管控
     "opportunities", "performance", "clean",
     # 人事 / 客服 / 产品 / 知识库

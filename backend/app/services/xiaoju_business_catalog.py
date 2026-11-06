@@ -17,6 +17,7 @@ from app.core.response import forbidden, not_found
 from app.models import McpTool
 
 MODULES = {
+    "operations": ("运营项目与重点任务", "/operations"),
     "portal": ("个人工作台", "/"), "board": ("经营看板", "/board"),
     "contracts": ("合同与回款", "/contracts"), "submissions": ("汇报与催交", "/submissions"),
     "expenses": ("报销归集", "/expenses"), "flows": ("银行流水核对", "/flows"),
@@ -33,6 +34,14 @@ MODULES = {
     "imports": ("资料导入与处理进度", "/imports"),
 }
 LABELS = {
+    "list_operations": "查询运营项目与当前待办", "create_operation": "新建运营项目", "operation_detail": "读取运营项目任务与学校资料",
+    "edit_operation": "修改运营项目", "operation_tasks": "查询重点任务和我的任务", "operation_task": "读取任务节点和反馈记录",
+    "create_operation_task": "布置运营任务", "edit_operation_task": "调整任务安排", "operation_feedback": "提交任务进展反馈",
+    "operation_brief": "汇总运营项目进展", "draft_feedback": "整理反馈草稿", "save_operation_member": "设置项目团队权限",
+    "remove_operation_member": "移除项目成员", "product_library": "查询可用设备产品库", "create_school": "登记项目学校",
+    "edit_school": "更新学校跟进和投入", "school_history": "查询学校客户跟进记录", "create_product": "登记设备产品", "edit_product": "更新产品资料",
+    "add_school_equipment": "登记学校设备投入", "edit_school_equipment": "修正学校设备投入",
+    "add_school_income": "登记学校每日收入", "edit_school_income": "修正学校每日收入",
     "list_contracts": "查询合同", "create": "新增记录", "update": "更新记录", "detail": "查看详情",
     "options": "查询选项与人员编码", "export": "导出文件", "archive": "归档合同原件", "save_plans": "维护回款计划",
     "add_payment": "登记合同回款", "list_expenses": "查询报销单", "stats": "查询汇总", "allocate": "归集报销项目",
@@ -149,6 +158,8 @@ def resolve(schema, components, seen=()):
 def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
+    if module == "operations":
+        return "query" if name == "draft_feedback" else "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"
     if module == 'imports' and name in {'upload', 'analyze'}: return 'execute'
     if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports"}: return "confirm"

@@ -1,0 +1,94 @@
+<template>
+  <div class="jc-page">
+    <PageHeader eyebrow="运营管理 · 重点工作" title="运营项目" desc="把目标落到负责人，按节点反馈进展。">
+      <el-button @click="load" :loading="loading">刷新</el-button>
+      <el-button v-if="data.can_create" type="primary" @click="createOpen = true">新建运营项目</el-button>
+    </PageHeader>
+    <div class="jc-grid c4 operation-kpis">
+      <Kpi label="当前待办" :value="data.stats.pending || 0" unit="项" hint="进行中项目的未完成任务" />
+      <Kpi label="逾期事项" :value="data.stats.overdue || 0" unit="项" hint="任务或阶段节点已逾期" />
+      <Kpi label="遇到阻碍" :value="data.stats.blocked || 0" unit="项" hint="需要协调推进" />
+      <Kpi label="今日待反馈" :value="data.stats.needs_update || 0" unit="项" hint="按日反馈且今天尚未更新" />
+    </div>
+    <Panel class="mt-16" :loading="loading">
+      <el-tabs v-model="tab">
+        <el-tab-pane label="项目总览" name="projects">
+          <div class="filters">
+            <el-input v-model="query.keyword" placeholder="搜索项目或目标" clearable style="width: 240px" @change="load" />
+            <el-select v-model="query.category" placeholder="全部分类" clearable style="width: 170px" @change="load"><el-option v-for="c in categories" :key="c" :value="c" :label="c" /></el-select>
+            <el-checkbox v-model="query.key_only" @change="load">仅重点项目</el-checkbox>
+          </div>
+          <div class="project-grid">
+            <button v-for="p in data.items" :key="p.id" class="project-card" @click="router.push(`/operations/${p.id}`)">
+              <div class="jc-row between"><span class="jc-small jc-muted">{{ p.category }}</span><StatusPill v-if="p.is_key" text="重点项目" tone="brand" /></div>
+              <h3>{{ p.name }}</h3>
+              <p class="objective">{{ p.objective || '目标待补充，进入项目安排首批重点工作。' }}</p>
+              <div class="jc-row between jc-small"><span>负责人 · {{ p.owner_name }}</span><span class="jc-muted">{{ PROJECT_STATUS[p.status] }}</span></div>
+              <div class="progress-line"><i :style="{ width: (p.stats.total ? p.stats.done / p.stats.total * 100 : 0) + '%' }" /></div>
+              <div class="jc-row between jc-small"><span>已完成 {{ p.stats.done }} / {{ p.stats.total }}</span><span :class="p.stats.overdue ? 'jc-down' : 'jc-muted'">{{ p.stats.overdue ? `${p.stats.overdue} 项逾期` : '查看任务与进展 →' }}</span></div>
+            </button>
+          </div>
+          <el-empty v-if="!data.items.length && !loading" :description="data.can_create ? '从智慧校园开始，建立第一个运营项目' : '暂无参与的运营项目，请由项目负责人加入团队'">
+            <el-button v-if="data.can_create" type="primary" @click="createOpen = true">建立智慧校园项目</el-button>
+          </el-empty>
+        </el-tab-pane>
+        <el-tab-pane label="当前需要做什么" name="todos">
+          <div class="filters">
+            <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button></el-radio-group>
+            <el-checkbox v-model="mine">只看我负责的</el-checkbox>
+          </div>
+          <el-table :data="todos" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-click="openTask">
+            <el-table-column label="任务 / 项目" min-width="260"><template #default="{ row }"><b>{{ row.title }}</b><div class="jc-small jc-muted">{{ row.project_name }}{{ row.school_name ? ` · ${row.school_name}` : '' }}</div></template></el-table-column>
+            <el-table-column prop="owner_name" label="负责人" width="110" />
+            <el-table-column prop="due_date" label="截止日期" width="120" />
+            <el-table-column label="状态" width="110"><template #default="{ row }"><StatusPill :text="TASK_STATUS[row.status]" :tone="tone(row.status)" /></template></el-table-column>
+            <el-table-column prop="next_step" label="下一步" min-width="190" show-overflow-tooltip />
+            <el-table-column width="110"><template #default="{ row }"><el-button link type="primary" @click.stop="openTask(row)">{{ row.can_feedback ? '反馈进展' : '查看详情' }}</el-button></template></el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </Panel>
+    <ProjectForm v-model="createOpen" @saved="p => router.push(`/operations/${p.id}`)" />
+  </div>
+</template>
+
+<script setup>
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import api from '@/api/client'
+import { useAuth } from '@/store/auth'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
+import ProjectForm from './operations/ProjectForm.vue'
+import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
+const router = useRouter(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
+const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
+const data = reactive({ items: [], todos: [], stats: {}, can_create: false })
+const todoFilter = ref('all'), mine = ref(false)
+const todos = computed(() => data.todos.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
+  (todoFilter.value === 'all' || (todoFilter.value === 'blocked' ? t.status === 'blocked' : t[todoFilter.value]))))
+let loadingNow = false, timer
+async function load() {
+  if (loadingNow) return
+  loadingNow = true; loading.value = true
+  try { Object.assign(data, await api.get('/operations', query)) } catch {} finally { loading.value = false; loadingNow = false }
+}
+function openTask(t) { router.push({ path: `/operations/${t.project_id}`, query: { task: t.id } }) }
+useBusinessRefresh(load)
+onMounted(async () => {
+  await load()
+  try { categories.value = (await api.get('/operations/options')).categories } catch {}
+  timer = setInterval(() => { if (!document.hidden) load() }, 30000)
+})
+onBeforeUnmount(() => clearInterval(timer))
+</script>
+<style scoped>
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 20px; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+.project-card { border: 1px solid var(--jc-line); background: var(--jc-surface); padding: 22px; border-radius: var(--jc-radius); text-align: left; color: var(--jc-ink); cursor: pointer; font: inherit; transition: border-color .15s; }
+.project-card:hover { border-color: var(--jc-brand); }
+.project-card h3 { font-family: var(--jc-font-serif); font-size: 22px; margin: 18px 0 8px; }
+.objective { color: var(--jc-ink-2); font-size: 13px; line-height: 1.7; min-height: 44px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 24px; }
+.progress-line { height: 4px; background: var(--jc-line-2); margin: 18px 0 10px; border-radius: 4px; overflow: hidden; }
+.progress-line i { height: 100%; display: block; background: var(--jc-brand); }
+@media(max-width: 560px) { .operation-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>

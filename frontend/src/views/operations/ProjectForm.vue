@@ -1,0 +1,65 @@
+<template>
+  <el-dialog v-model="visible" :title="initial?.id ? '编辑运营项目' : '新建运营项目'" width="min(580px, 94vw)" destroy-on-close>
+    <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="save">
+      <el-form-item label="项目名称" prop="name" :rules="[{ required: true, whitespace: true, message: '填写项目名称' }]">
+        <el-input v-model="form.name" maxlength="128" placeholder="例如：智慧校园运营" />
+      </el-form-item>
+      <div class="two">
+        <el-form-item label="项目分类" prop="category" :rules="[{ required: true, message: '选择或填写分类' }]">
+          <el-select v-model="form.category" filterable allow-create default-first-option>
+            <el-option v-for="v in categories" :key="v" :label="v" :value="v" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="项目负责人" prop="owner_id" :rules="[{ required: true, message: '选择负责人' }]">
+          <el-select v-model="form.owner_id" filterable><el-option v-for="u in users" :key="u.id" :value="u.id" :label="`${u.name} · ${u.dept || '跨部门'}`" /></el-select>
+        </el-form-item>
+      </div>
+      <p v-if="initial?.id" class="jc-small jc-muted">更换项目负责人后，原负责人保留执行成员权限，可在项目团队中调整。</p>
+      <el-form-item label="本阶段目标"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="6000" placeholder="本月要推进哪些学校、完成什么结果" /></el-form-item>
+      <div class="two">
+        <el-form-item label="目标日期"><el-date-picker v-model="form.target_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" /></el-form-item>
+        <el-form-item label="项目状态"><el-select v-model="form.status"><el-option v-for="(v, k) in PROJECT_STATUS" :key="k" :label="v" :value="k" /></el-select></el-form-item>
+      </div>
+      <el-checkbox v-model="form.is_key">列为重点项目</el-checkbox>
+    </el-form>
+    <template #footer><el-button @click="visible = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目</el-button></template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import api from '@/api/client'
+import { useAuth } from '@/store/auth'
+import { PROJECT_STATUS, announceChange } from './shared'
+
+const props = defineProps({ modelValue: Boolean, initial: Object })
+const emit = defineEmits(['update:modelValue', 'saved'])
+const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
+const users = ref([]), categories = ref([]), formRef = ref(), saving = ref(false), auth = useAuth()
+const form = reactive({})
+watch(visible, async v => {
+  if (!v) return
+  const source = props.initial
+  Object.assign(form, { name: source?.name || '智慧校园', category: source?.category || '智慧校园',
+    owner_id: source?.owner_id || auth.profile?.id, objective: source?.objective || '', target_date: source?.target_date || null,
+    status: source?.status || 'active', is_key: source?.is_key ?? true })
+  try {
+    const data = await api.get('/operations/options', source?.id ? { project_id: source.id } : {})
+    users.value = data.users
+    categories.value = [...new Set(['智慧校园', '心理服务', '其他运营', ...data.categories])]
+  } catch { /* API displays the error. */ }
+})
+async function save() {
+  if (!await formRef.value.validate().catch(() => false)) return
+  saving.value = true
+  try {
+    const result = props.initial?.id ? await api.put(`/operations/${props.initial.id}`, form) : await api.post('/operations', form)
+    visible.value = false
+    ElMessage.success('运营项目已保存')
+    emit('saved', result)
+    announceChange()
+  } catch { /* Keep the form for correction. */ } finally { saving.value = false }
+}
+</script>
+<style scoped>.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media(max-width: 500px) { .two { grid-template-columns: 1fr; gap: 0; } }</style>
