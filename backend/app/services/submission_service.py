@@ -18,6 +18,17 @@ from app.models import OaSubmission, SysDepartment, SysNotify, SysUser
 from app.services import dict_service, notify_service
 
 TYPES = {"weekly": "周报", "monthly": "月报", "daily": "日报"}
+
+WECOM_PERMISSION_HINT = ("企业微信拒绝了汇报接口（错误码 {code}）：当前自建应用还没有「汇报」接口权限。"
+                        "请企业微信管理员在「管理后台 → 应用管理 → 自建应用 → 接口权限」勾选「汇报」，"
+                        "并在汇报模板设置里把该应用加入可调用范围，保存后再点「同步企微汇报」。")
+
+
+def wecom_error_hint(exc) -> str:
+    code = getattr(exc, "errcode", None)
+    if code == 48002:
+        return WECOM_PERMISSION_HINT.format(code=code)
+    return f"企业微信接口返回错误 {code}：{exc}"
 TEMPLATE_TYPES = [("周报", "weekly"), ("月报", "monthly"), ("日报", "daily"), ("weekly", "weekly"),
                   ("monthly", "monthly"), ("daily", "daily")]
 DEFAULT_RULE = {"weekly": {"exclude_depts": ["ADMIN"], "exclude_roles": ["EMP"]},

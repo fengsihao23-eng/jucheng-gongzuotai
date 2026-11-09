@@ -10,6 +10,12 @@
       <el-button v-if="d?.can_remind" :loading="syncing" @click="sync">同步企微汇报</el-button>
     </PageHeader>
 
+    <el-alert v-if="syncIssue" type="warning" :closable="false" show-icon class="mb-16" :title="syncIssue" />
+    <div v-else-if="syncState?.job" class="sync-note jc-small jc-muted mb-16">
+      企微汇报{{ syncState.schedule }} · 最近同步 {{ dayjs(syncState.job.finished_at || syncState.job.run_at).format('MM-DD HH:mm') }}
+      · {{ syncState.job.message || '—' }}<template v-if="syncState.last_submit_time"> · 最近一条提交 {{ dayjs(syncState.last_submit_time).format('MM-DD HH:mm') }}</template>
+    </div>
+
     <div v-loading="loading && !d">
       <template v-if="d">
         <div class="jc-grid c4">
@@ -104,6 +110,7 @@ const type = ref(route.query.type || 'weekly')
 const period = ref(route.query.period || '')
 const periods = ref([])
 const d = ref(null)
+const syncState = ref(null)
 const loading = ref(false); const syncing = ref(false); const reminding = ref(false)
 const selected = ref([])
 const deptFilter = ref('')
@@ -112,11 +119,23 @@ const pct = (v) => (v == null ? '—' : (v * 100).toFixed(1))
 const deadlineHint = computed(() => (d.value && dayjs().isBefore(dayjs(d.value.deadline)) ? '尚未截止' : '已截止'))
 const people = computed(() => (d.value?.people || []).filter((p) => !deptFilter.value || p.dept_code === deptFilter.value)
   .sort((a, b) => a.submitted - b.submitted))
+const syncIssue = computed(() => {
+  const j = syncState.value?.job
+  if (!j) return ''
+  if (j.status === 'failed') return `汇报同步失败：${(j.error || '').split('\n')[0]}`
+  if ((j.message || '').startsWith('未同步')) return j.message.replace(/^未同步：/, '')
+  return ''
+})
 
 async function load() {
   loading.value = true
   try {
-    d.value = await api.get('/submissions', { type: type.value, period: period.value || undefined })
+    const [data, state] = await Promise.all([
+      api.get('/submissions', { type: type.value, period: period.value || undefined }),
+      api.get('/submissions/sync-state').catch(() => null),
+    ])
+    d.value = data
+    syncState.value = state
     periods.value = d.value.periods
     period.value = d.value.period
     selected.value = []
@@ -166,5 +185,7 @@ onMounted(load)
 </script>
 
 <style scoped>
+.sync-note { margin-top: -4px; }
+
 .summary { margin: 0; line-height: 1.8; font-size: 14px; }
 </style>
