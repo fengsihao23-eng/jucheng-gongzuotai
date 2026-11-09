@@ -11,6 +11,7 @@ Money = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2, allow_in
 UnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)]
 Id = Annotated[int, Field(gt=0)]
 Month = Annotated[str, StringConstraints(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")]
+TaskSource = Literal["company", "self", "project_plan"]
 
 
 class Input(BaseModel):
@@ -38,6 +39,11 @@ class ProjectProgressIn(Input):
         if bool(self.next_plan) != bool(self.next_due_date):
             raise ValueError("下一步计划和计划完成日期须一起填写")
         return self
+
+
+class ProjectProgressEntriesIn(Input):
+    entries: list[ProjectProgressIn] = Field(min_length=1, max_length=20, description="项目负责人一次填报的事项。带下一步和日期的条目自动生成可跟踪的项目计划。")
+    expected_owner_id: Id | None = Field(default=None, description="预览时的项目负责人编号；未核对时留空")
 
 
 class MemberIn(Input):

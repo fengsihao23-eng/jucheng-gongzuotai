@@ -21,6 +21,11 @@
         <div class="body-grid" :class="{ 'one-column': !task.can_feedback && !task.can_review }">
           <div class="details">
             <section v-if="task.description" class="section"><h3>完成要求</h3><p class="plain">{{ task.description }}</p></section>
+            <section v-if="task.plan_context" class="section">
+              <h3>登记时的项目进度</h3>
+              <p class="plain">{{ task.plan_context.progress }}</p>
+              <p v-if="task.plan_context.problems" class="plain jc-muted">遇到的问题：{{ task.plan_context.problems }}</p>
+            </section>
             <section v-if="task.source === 'self'" class="section"><h3>审核流程</h3><p>部门审核：{{ task.department_reviewer_name }}<br>公司审核：{{ task.company_reviewer_name }}</p></section>
             <TaskDelayPanel v-if="task.delay_status" class="section" :task="task" :save="save" :busy="saving" />
             <section v-if="task.nodes.length" class="section">
@@ -138,7 +143,7 @@ watch(() => [visible.value, props.taskId], () => { version++; task.value = null;
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => visible.value })
 
 function updateTitle(update) {
-  return ({ assigned: '任务安排', changed: '调整安排', review: '审核记录' })[update.kind] ||
+  return ({ assigned: '任务安排', planned: '登记负责人计划', changed: '调整安排', review: '审核记录' })[update.kind] ||
     TASK_STATUS[update.status] + (update.progress > 0 ? ` · ${update.progress}%` : '')
 }
 function acceptLatest() {

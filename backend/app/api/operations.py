@@ -1,5 +1,4 @@
 """运营项目跟进：任务、学校基础资料、产品库及手工收入。"""
-from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,7 +8,7 @@ from app.core.deps import Principal, require_menu
 from app.core.response import ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
 from app.schemas.operations import (DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
-                                    ProjectIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch)
+                                    ProjectIn, ProjectProgressEntriesIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch, TaskSource)
 from app.services import operations_deadlines as deadlines
 from app.services import operations_service as ops
 from app.services import operations_plans as plans
@@ -39,9 +38,9 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
 
 @router.get("/monthly")
 def monthly_plan(month: Month | None = None, owner_id: int | None = None, project_id: int | None = None,
-                 mine: bool = False, source: Literal["company", "self"] | None = None,
+                 mine: bool = False, source: TaskSource | None = None,
                  review_mine: bool = False, delay_review_mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
-    """按月份、负责人、项目、来源或待本人处理筛选；stats 和 owner_stats 含按时、逾期完成和未完成数。"""
+    """按月查询负责人计划、公司安排及自行安排；stats 和 owner_stats 含按时、逾期完成和未完成数。"""
     return ok(plans.monthly(db, p, month, owner_id, project_id, mine, source, review_mine, delay_review_mine))
 
 
@@ -155,8 +154,16 @@ def project_progress_history(project_id: int, before_id: int | None = Query(None
 
 @router.post("/{project_id}/progress")
 def record_project_progress(project_id: int, body: ProjectProgressIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    """以当前账号填写项目进度；由项目负责人或管理员提交。新增一条历史记录，不改动任务状态。"""
+    """仅保存项目情况说明；保留旧接口，不新增待跟进事项。新填写项目进度请使用 record_project_progress_entries。"""
     result = ops.record_project_progress(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.post("/{project_id}/progress/entries")
+def record_project_progress_entries(project_id: int, body: ProjectProgressEntriesIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    """一次填写一条或多条进度。每条同时给出下一步和计划日期时，新增一条归项目负责人的可跟踪计划；无计划则仅保存汇报。已有事项更新请用任务反馈。"""
+    result = ops.record_project_progress_entries(db, p, project_id, body.entries, body.expected_owner_id)
     db.commit()
     return ok(result)
 

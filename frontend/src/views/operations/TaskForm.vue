@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" :title="initial?.id ? '调整任务安排' : form.source === 'self' ? '提交自行安排任务' : '布置重点任务'" width="min(680px, 94vw)" align-center append-to-body destroy-on-close @closed="emit('closed')">
     <el-form ref="formRef" :model="form" label-position="top">
       <div class="two">
-        <el-form-item label="任务来源"><el-radio-group v-model="form.source" :disabled="!!initial?.id" @change="sourceChanged"><el-radio-button value="company" :disabled="!project.can_manage">公司安排</el-radio-button><el-radio-button value="self">自行安排</el-radio-button></el-radio-group></el-form-item>
+        <el-form-item label="任务来源"><span v-if="form.source === 'project_plan'">负责人计划</span><el-radio-group v-else v-model="form.source" :disabled="!!initial?.id" @change="sourceChanged"><el-radio-button value="company" :disabled="!project.can_manage">公司安排</el-radio-button><el-radio-button value="self">自行安排</el-radio-button></el-radio-group></el-form-item>
         <el-form-item label="计划月份" prop="plan_month" :rules="[{required:true,message:'选择计划月份'}]"><el-date-picker v-model="form.plan_month" type="month" value-format="YYYY-MM" :clearable="false" style="width:100%" @change="monthChanged=true" /></el-form-item>
       </div>
       <el-form-item label="要完成什么" prop="title" :rules="[{ required: true, whitespace: true, message: '填写具体任务' }]">
@@ -67,7 +67,7 @@ async function save() {
   saving.value = true
   try {
     const body = { ...form, school_id: form.school_id || null }
-    if (form.source === 'company') {delete body.department_reviewer_id;delete body.company_reviewer_id}
+    if (form.source !== 'self') {delete body.department_reviewer_id;delete body.company_reviewer_id}
     if (props.initial?.id) { delete body.nodes; delete body.school_id; delete body.source }
     const result = props.initial?.id ? await api.put(`/operations/tasks/${props.initial.id}`, body) : await api.post(`/operations/${props.project.id}/tasks`, body)
     visible.value = false; ElMessage.success('任务安排已保存'); emit('saved', result); announceChange()

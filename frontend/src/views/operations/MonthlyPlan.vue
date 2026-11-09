@@ -27,7 +27,7 @@
     <el-table v-if="rows.length" class="monthly-table" :data="rows" :row-class-name="({row}) => row.overdue ? 'is-alert' : ''" @row-click="t => emit('open-task', t)">
       <el-table-column label="负责人 / 项目" min-width="170"><template #default="{row}"><b>{{ row.owner_name }}</b><div class="jc-muted jc-small">{{ row.project_name }}</div></template></el-table-column>
       <el-table-column label="本月任务" width="130"><template #default="{row}">{{ TASK_SOURCES[row.source] }}<div v-if="row.carryover" class="jc-small jc-muted">从 {{ row.plan_month }} 延续</div><div v-if="row.approval_status !== 'approved'" class="jc-small jc-down">{{ APPROVAL_STATUS[row.approval_status] }}</div></template></el-table-column>
-      <el-table-column label="具体事项" min-width="260"><template #default="{row}"><b>{{ row.title }}</b><p class="plain jc-small jc-muted">{{ row.latest_feedback || row.description || '尚未反馈进展' }}</p></template></el-table-column>
+      <el-table-column label="具体事项" min-width="260"><template #default="{row}"><b>{{ row.title }}</b><p class="plain jc-small jc-muted">{{ row.latest_feedback || row.plan_context?.progress || row.description || '尚未反馈进展' }}</p></template></el-table-column>
       <el-table-column label="完成情况" min-width="215"><template #default="{row}">
         <div class="row-status"><StatusPill v-if="row.approval_status === 'approved'" :text="completionLabel(row)" :tone="row.status === 'done' ? deadlineTone(row) : 'warn'" /><StatusPill v-else :text="APPROVAL_STATUS[row.approval_status]" tone="info" />
           <b v-if="row.approval_status === 'approved' && row.status !== 'done' && (row.progress > 0 || row.last_feedback_at)" class="row-progress">{{ taskProgress(row).label }}</b></div>

@@ -21,6 +21,7 @@
               <button type="button" class="expand" :class="{ mobile: !row.hasLongText }" :aria-expanded="expanded.has(row.id)" @click="toggle(row.id)">
                 {{ expanded.has(row.id) ? '收起' : row.hasLongText ? '展开全文' : '查看详情' }}
               </button>
+              <button v-if="row.task_id" type="button" class="expand" @click="emit('open-task', row.task_id)">打开事项</button>
             </th>
             <td class="desktop">{{ row.author_name }}</td>
             <td class="progress-cell"><span>{{ value(row, 'progress') }}</span></td>
@@ -44,6 +45,7 @@ import { computed, ref } from 'vue'
 import { datetime } from '@/utils/format'
 
 const props = defineProps({ entries: { type: Array, required: true } })
+const emit = defineEmits(['open-task'])
 const expanded = ref(new Set())
 const textFields = ['progress', 'problems', 'next_plan']
 const rows = computed(() => props.entries.map(entry => {

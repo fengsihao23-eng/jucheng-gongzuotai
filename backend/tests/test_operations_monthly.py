@@ -32,7 +32,7 @@ def test_company_task_automatically_in_month_and_group(client, login, db, projec
     t=task(client,login,db,project)
     assert t["plan_month"]=="2026-10" and t["source"]=="company" and t["approval_status"]=="approved"
     m=monthly(client,login,project,"xiekai")
-    assert m["source_counts"]=={"self":0,"company":1}
+    assert m["source_counts"]=={"self":0,"company":1,"project_plan":0}
     assert m["groups"][0]["company_tasks"][0]["id"]==t["id"]
     assert m["groups"][0]["self_tasks"]==[]
 

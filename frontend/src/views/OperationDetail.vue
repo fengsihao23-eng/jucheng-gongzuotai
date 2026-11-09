@@ -6,11 +6,16 @@
         <el-button @click="ask">问小聚</el-button>
         <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
       </PageHeader>
-      <ProjectProgress :key="project.id" :project="project" @saved="progressSaved">
-        <template #history-actions="{ close }"><el-button link type="primary" @click="close(summary)">进展汇总</el-button></template>
-      </ProjectProgress>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
+          <el-tab-pane label="项目进度" name="progress">
+            <ProjectProgress :key="project.id" :project="project" @saved="progressSaved" @open-task="openTask">
+              <template #actions><el-button v-if="delayRows.length" size="small" @click="delayOpen = true">待处理延期（{{ delayRows.length }}）</el-button></template>
+              <template #history-actions="{ close }"><el-button link type="primary" @click="close(summary)">进展汇总</el-button></template>
+            </ProjectProgress>
+            <ProjectTrackingTable :rows="projectPlans" plans @open-task="openTask" />
+            <ProjectTrackingTable :rows="companyTasks" @open-task="openTask" />
+          </el-tab-pane>
           <el-tab-pane label="月度任务" name="monthly">
             <MonthlyPlan :key="project.id" :project-id="project.id" :today="project.today" :active="tab === 'monthly'" @open-task="openTask">
               <template #actions><el-button v-if="project.can_propose && project.status === 'active'" link type="primary" @click="newSelfTask">自行安排</el-button></template>
@@ -35,6 +40,15 @@
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
       <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" @saved="t => pendingTask = t" @closed="taskFormClosed" />
       <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" />
+      <el-dialog v-model="delayOpen" title="待处理延期" width="min(660px, calc(100vw - 24px))" align-center append-to-body @closed="delayClosed">
+        <ul v-if="delayRows.length" class="delay-list">
+          <li v-for="row in delayRows" :key="row.id">
+            <div><strong>{{ row.title }}</strong><p>{{ TASK_SOURCES[row.source] }} · {{ row.owner_name }} · 原定 {{ row.deadline_basis }}</p></div>
+            <el-button link type="primary" @click="selectDelay(row)">{{ row.can_review_delay ? '复核延期' : '补充延期原因' }}</el-button>
+          </li>
+        </ul>
+        <p v-else class="jc-muted">暂无需要你处理的延期事项。</p>
+      </el-dialog>
       <el-dialog v-model="summaryOpen" class="ops-summary-dialog" title="当前进展汇总" width="min(960px, calc(100vw - 24px))" align-center append-to-body>
         <ProjectProgress :project="project" read-only />
         <TaskOverview :rows="project.tasks" title="项目任务概览" />
@@ -58,6 +72,7 @@ import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
 import ProjectProgress from './operations/ProjectProgress.vue'
+import ProjectTrackingTable from './operations/ProjectTrackingTable.vue'
 import TaskForm from './operations/TaskForm.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskCards from './operations/TaskCards.vue'
@@ -66,11 +81,12 @@ import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
-import { PROJECT_STATUS, taskStatus } from './operations/shared'
+import { PROJECT_STATUS, TASK_SOURCES, taskStatus } from './operations/shared'
 const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = useAssistant()
-const project = ref(null), loading = ref(false), tab = ref('monthly'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
+const project = ref(null), loading = ref(false), tab = ref('progress'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
 const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
 const popupPaused = ref(false)
+const delayOpen = ref(false), pendingDelay = ref(null)
 const statuses = { ongoing: '进行中', done: '已完成' }
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
@@ -85,6 +101,10 @@ const taskGroups = computed(() => {
 })
 const filteredTasks = computed(() => taskGroups.value[status.value])
 const followUps = computed(() => (project.value?.tasks || []).filter(needsAttention))
+const projectPlans = computed(() => (project.value?.tasks || []).filter(t => t.source === 'project_plan'))
+const companyTasks = computed(() => (project.value?.tasks || []).filter(t => t.source === 'company'))
+const delayRows = computed(() => (project.value?.tasks || []).filter(t => t.can_review_delay ||
+  (t.can_explain_delay && ['needs_reason', 'rejected'].includes(t.delay_status))))
 let version = 0
 async function load(background = false) {
   const current = ++version, id = route.params.id
@@ -98,6 +118,8 @@ function newSelfTask() {taskMode.value='self';editingTask.value=null;taskForm.va
 function editTask(task) { editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
+function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
+function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }
 function taskFormClosed() { popupPaused.value = false; if (pendingTask.value) { openTask(pendingTask.value); pendingTask.value = null } }
 function progressSaved(progress) { if (project.value?.id === progress.project_id) project.value = { ...project.value, latest_progress: progress } }
 function summary() { summaryOpen.value = true; load(true) }
@@ -105,8 +127,8 @@ async function copySummary() {
   try { const brief = await api.get(`/operations/${project.value.id}/brief`); await navigator.clipboard.writeText(brief.text); ElMessage.success('汇总已复制') }
   catch { ElMessage.info('暂时无法复制汇总，请重试') }
 }
-function ask() { assistant.open(`请查询运营项目「${project.value.name}」（运营项目 ID：${project.value.id}）的实际任务和反馈，总结当前进展、逾期受阻事项，以及接下来需要推进什么；请标明尚未反馈或缺少信息的部分。`) }
-watch(() => route.params.id, id => { if (id) { project.value = null; status.value = 'ongoing'; taskForm.value = false; pendingTask.value = null; popupPaused.value = false; summaryOpen.value = false; load() } }, { immediate: true })
+function ask() { assistant.open(`请查询运营项目「${project.value.name}」（运营项目 ID：${project.value.id}）的实际记录，分负责人计划和公司安排，说明当前进展、逾期受阻事项和下一步；如有自行安排另列。请标明尚未反馈或缺少信息的部分。`) }
+watch(() => route.params.id, id => { if (id) { project.value = null; tab.value = 'progress'; status.value = 'ongoing'; taskForm.value = false; pendingTask.value = null; popupPaused.value = false; summaryOpen.value = false; delayOpen.value = false; pendingDelay.value = null; load() } }, { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => Boolean(route.params.id) })
 onBeforeUnmount(() => { version++ })
 </script>
@@ -117,4 +139,7 @@ onBeforeUnmount(() => { version++ })
 .board-status button[data-status="done"] { --tone: var(--jc-up); }
 .board-status button[aria-pressed="true"], .board-status button:hover { border-color: var(--jc-brand); color: var(--jc-brand); }.board-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }.board-status b { font-size: 15px; color: var(--jc-ink); }.recent { margin-top: 15px; }.recent h3 { font-size: 15px; }
 :global(.ops-summary-dialog > .el-dialog__body) { max-height: 67dvh; overflow: auto; }
+.delay-list { margin: 0; padding: 0; list-style: none; max-height: 62dvh; overflow: auto; }
+.delay-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; overflow-wrap: anywhere; }
+.delay-list li + li { border-top: 1px solid var(--jc-line-2); }.delay-list strong { color: var(--jc-ink); }.delay-list p { margin: 3px 0 0; color: var(--jc-ink-3); font-size: 12px; }.delay-list .el-button { flex-shrink: 0; }
 </style>

@@ -125,10 +125,10 @@ def monthly(db, p, month=None, owner_id=None, project_id=None, mine=False, sourc
     owner_stats = [{"owner_id": key[0], "owner_name": key[1], **ops.task_stats(values)}
                    for key, values in groups.items() if any(row["approval_status"] == "approved" for row in values)]
     return {"month": month, "items": selected, "groups": [{"owner_id": key[0], "owner_name": key[1],
-        "self_tasks": [t for t in values if t["source"] == "self"], "company_tasks": [t for t in values if t["source"] == "company"]}
+        **{f"{origin}_tasks": [t for t in values if t["source"] == origin] for origin in ops.SOURCE_LABELS}}
         for key, values in groups.items()], "stats": ops.task_stats(selected), "owner_stats": owner_stats,
         "review_inbox": [t for t in selected if t["can_review"]],
-        "source_counts": {"self": sum(t["source"] == "self" for t in approved), "company": sum(t["source"] == "company" for t in approved)},
+        "source_counts": {origin: sum(t["source"] == origin for t in approved) for origin in ops.SOURCE_LABELS},
         "carryover_count": sum(t["carryover"] for t in selected), "today": today(),
         "available_months": sorted({r["plan_month"] for r in rows}),
         "note": "只统计已生效任务，含跨月事项，显示当前状态。准时按首次生效的截止日与实际完成日期比较（北京时间）；改期或认可延期原因不会改写准时结果。"}

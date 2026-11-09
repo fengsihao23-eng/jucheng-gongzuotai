@@ -319,12 +319,23 @@ def _snapshot(op, request, user_id):
 
 def _concrete_targets(op, request, user_id):
     """Freeze outbound recipients so later joiners are never added after approval."""
-    if op.id == "operations.record_project_progress":
+    if op.id in {"operations.record_project_progress", "operations.record_project_progress_entries"}:
         from app.services import operations_service as ops
         p = principal(user_id)
         with SessionLocal() as db:
             project = ops.get_project(db, p, request["path"]["project_id"])
             ops.manage(db, p, project)
+            if op.id == "operations.record_project_progress_entries":
+                entries = request["body"]["entries"]
+                count = sum(bool(entry.get("next_due_date")) for entry in entries)
+                target = {"运营项目": project.name, "新增进度记录": len(entries), "新增负责人计划": count}
+                if count:
+                    ops.active(project)
+                    if request["body"].get("expected_owner_id") not in {None, project.owner_id}:
+                        raise conflict("项目负责人已变更，请核对后重新填写")
+                    request["body"]["expected_owner_id"] = project.owner_id
+                    target["项目负责人"] = ops.user(db, project.owner_id).name
+                return request, target
             return request, {"运营项目": project.name, "记录类型": "新增一条项目进度"}
     task_actions = {"operations.operation_feedback": "can_feedback", "operations.review_operation_task": "can_review",
                     "operations.submit_operation_delay_reason": "can_explain_delay", "operations.review_operation_delay": "can_review_delay"}
@@ -426,7 +437,7 @@ def save_result(op, user_id, task_id, workflow_id, data, message, result_id=None
         task = data.get("data") if op.source == "mcp" else data
         if isinstance(task, dict) and isinstance(task.get("project_id"), int) and isinstance(task.get("id"), int) and "plan_month" in task:
             page = f"/operations/{task['project_id']}?task={task['id']}"
-        elif op.id == "operations.record_project_progress" and isinstance(data.get("project_id"), int):
+        elif op.id in {"operations.record_project_progress", "operations.record_project_progress_entries"} and isinstance(data.get("project_id"), int):
             page = f"/operations/{data['project_id']}"
     if op.id == "imports.decision" and isinstance(data, dict) and isinstance(data.get("id"), int): page = f"/imports?batch={data['id']}"
     record = {"id": result_id or uuid.uuid4().hex, "user_id": user_id, "task_id": task_id, "workflow_id": workflow_id,

@@ -7,8 +7,8 @@
         <span v-if="task.overdue" class="jc-down flag">已逾期</span><span v-else-if="task.deadline_status === 'overdue'" class="jc-down flag">原定期限已过</span><span v-else-if="task.needs_update" class="flag">今日待反馈</span>
       </div>
       <strong class="title">{{ task.title }}</strong>
-      <span v-if="showProject || task.school_name" class="context">{{ [showProject ? task.project_name : '', task.school_name].filter(Boolean).join(' · ') }}</span>
-      <span class="latest">{{ task.latest_feedback || task.description || '尚未反馈进展' }}</span>
+      <span class="context">{{ [TASK_SOURCES[task.source], showProject ? task.project_name : '', task.school_name].filter(Boolean).join(' · ') }}</span>
+      <span class="latest">{{ task.latest_feedback || task.plan_context?.progress || task.description || '尚未反馈进展' }}</span>
       <span v-if="task.next_step" class="next">下一步：{{ task.next_step }}</span>
       <template v-if="task.approval_status === 'approved'">
         <span class="progress-label"><span>任务进度</span><b class="jc-num">{{ taskProgress(task).label }}</b></span>
@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'
+import { TASK_SOURCES, completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'
 defineProps({ rows: { type: Array, required: true }, showProject: Boolean, single: Boolean })
 defineEmits(['open-task'])
 </script>

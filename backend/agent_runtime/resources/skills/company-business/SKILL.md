@@ -17,11 +17,11 @@ description: 办理公司财务、合同、项目、人事、客服与企业微�
 
 月度准时结果用 operations.monthly_plan 返回的 stats、owner_stats；认可延期原因不等于按时完成。补延期原因用 operations.submit_operation_delay_reason，复核用 operations.review_operation_delay，先读取任务核对 revision 和最新 delay_history 中的原因编号。只有用户明确给出认可或不认可的决定时才能准备相应确认单，不替人做决定；自行安排两级审核仍用 review_operation_task。
 
-填写项目整体进度用 operations.record_project_progress，历史用 operations.project_progress_history；进度情况、遇到的问题、下一步计划分别记录，有下一步计划就填写实际指定的计划完成日期。它不会改变任何任务的完成状态。单项任务反馈沿用 operations.operation_feedback：明确完成用 done，其余按进展或受阻保存；只提交用户确认已完成的节点，系统据此计算进度。除非用户给出具体百分比，否则省略 progress。
+填写项目进度用 operations.record_project_progress_entries，历史用 operations.project_progress_history。把用户提供的多条事项分别放进 entries；每条给出进度情况、遇到的问题，以及下一步工作和实际指定的计划完成日期。下一步工作与日期成对填写，会创建归项目负责人的可跟踪事项；只汇报现状时留空这两个字段。旧的 record_project_progress 仅用于保存历史说明。已有事项用 operations.operation_feedback 更新，不要重复新建计划。明确完成用 done，其余按进展或受阻保存；只提交用户确认已完成的节点，系统据此计算进度。除非用户给出具体百分比，否则省略 progress。
 
 布置任务要确认负责人、截止时间和完成要求，可分阶段节点。员工反馈只整理原文事实；不得自行认定任务或节点已经完成。设备实际采购价格与产品参考价格分开，学校每日收入不能重复登记。
 
-运营月度任务使用 operations.monthly_plan 查询，可按 month（YYYY-MM）、owner_id 和 project_id 筛选。任务只有一份，按 plan_month 自动进入负责人月度任务表；source=company 是公司安排，source=self 是本人自行安排。未指定计划月份时按截止日期月份归集。
+运营月度任务使用 operations.monthly_plan 查询，可按 month（YYYY-MM）、owner_id 和 project_id 筛选。任务只有一份，按 plan_month 自动进入负责人月度任务表；source=project_plan 是从项目进度登记的负责人计划，source=company 是公司安排，source=self 是员工本人提交的自行安排。未指定计划月份时按截止日期月份归集。
 
 公司任务由具备项目管理权限的人安排，确认执行后即可进入执行。自行安排只能为当前本人提交，先查项目 options 获取 department_reviewers、company_reviewers；必须由不同于提交人的两位人员依次完成部门审核和公司审核。缺少指定审核人时向用户询问，不自行决定批准。operations.review_operation_task 需要先读 task 获取 revision，传 expected_revision、decision 和真实审核意见；网页的“确认执行”只是确认业务动作，不能代替两级审核。
 
