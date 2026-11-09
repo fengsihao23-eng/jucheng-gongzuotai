@@ -16,7 +16,7 @@ let chat
 try {
   const watcher = await loginPage(browser, 'admin')
   watcher.on('pageerror', error => errors.push(error.message))
-  await watcher.goto(`${WEB}/operations/${project.id}`)
+  await watcher.goto(`${WEB}/operations/${project.id}?view=monthly`)
   const overview = watcher.getByRole('region', { name: '2026-10 月度汇总' })
   await overview.getByText('0%', { exact: true }).waitFor()
   await watcher.evaluate(() => {

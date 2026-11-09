@@ -11,18 +11,28 @@ export const tone = (status) => ({ done: 'up', blocked: 'down', doing: 'brand', 
 export const taskStatus = (task) => task.approval_status === 'approved' ? task.status : task.approval_status === 'rejected' ? 'rejected' : 'review'
 export const statusLabel = (task) => task.approval_status === 'approved' ? TASK_STATUS[task.status] : APPROVAL_STATUS[task.approval_status]
 
+export function taskAttention(task) {
+  if (task.can_review) return { label: '待我审核', tone: 'warn', rank: 0 }
+  if (task.overdue) return { label: '已逾期', tone: 'down', rank: 1 }
+  if (taskStatus(task) === 'blocked') return { label: '受阻', tone: 'down', rank: 2 }
+  if (task.needs_update) return { label: '待反馈', tone: 'warn', rank: 3 }
+  if (taskStatus(task) === 'review') return { label: statusLabel(task), tone: 'warn', rank: 4 }
+  if (taskStatus(task) === 'rejected') return { label: '已退回', tone: 'down', rank: 5 }
+  return null
+}
+
+export function orderTasks(rows) {
+  return [...rows].sort((a, b) => (taskAttention(a)?.rank ?? 6) - (taskAttention(b)?.rank ?? 6) ||
+    Number(a.status === 'done') - Number(b.status === 'done') ||
+    (a.status === 'done' && b.status === 'done'
+      ? (b.completed_at || '').localeCompare(a.completed_at || '')
+      : Number(b.priority === 'key') - Number(a.priority === 'key') || a.due_date.localeCompare(b.due_date)) || a.id - b.id)
+}
+
 export function taskSummary(rows) {
-  const counts = { todo: 0, doing: 0, blocked: 0, done: 0, review: 0, rejected: 0, company: 0, self: 0, overdue: 0, needsUpdate: 0, carryover: 0 }
-  for (const task of rows) {
-    counts[taskStatus(task)]++
-    if (task.approval_status !== 'approved') continue
-    counts[task.source]++
-    if (task.overdue) counts.overdue++
-    if (task.needs_update) counts.needsUpdate++
-    if (task.carryover) counts.carryover++
-  }
-  const total = counts.company + counts.self
-  return { ...counts, total, pending: total - counts.done, rate: total ? Math.round(counts.done * 100 / total) : null }
+  const approved = rows.filter(task => task.approval_status === 'approved')
+  const total = approved.length, done = approved.filter(task => task.status === 'done').length
+  return { total, done, pending: total - done, rate: total ? Math.round(done * 100 / total) : null }
 }
 
 export { announceBusinessChange as announceChange } from '@/composables/useBusinessRefresh'

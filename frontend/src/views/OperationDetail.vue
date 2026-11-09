@@ -1,60 +1,97 @@
 <template>
-  <div class="jc-page" v-loading="loading">
-    <el-button link @click="router.push('/operations')">← 运营项目</el-button>
+  <div class="jc-page operation-detail" v-loading="loading">
+    <router-link class="back" to="/operations">← 运营项目</router-link>
     <template v-if="project">
-      <PageHeader :eyebrow="`${project.category} · ${PROJECT_STATUS[project.status]}`" :title="project.name" :desc="project.objective || '明确阶段目标，推进关键任务。'">
-        <el-button @click="summary">进展汇总</el-button>
-        <el-button @click="ask">问小聚</el-button>
-        <el-button v-if="project.can_manage" @click="projectForm = true">项目设置</el-button>
-        <el-button v-if="project.can_propose && project.status === 'active'" @click="newSelfTask">自行安排</el-button>
-        <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
+      <PageHeader class="project-heading" :title="project.name" :desc="project.objective || undefined">
+        <template #meta>
+          <div class="project-meta">
+            <StatusPill :text="PROJECT_STATUS[project.status]" :tone="project.status === 'active' ? 'brand' : project.status === 'completed' ? 'up' : 'info'" />
+            <span>负责人 {{ project.owner_name }}</span><span v-if="project.target_date">目标日期 {{ project.target_date }}</span>
+          </div>
+        </template>
+        <el-button text @click="ask">问小聚</el-button>
+        <el-dropdown trigger="click" @command="handleAction">
+          <el-button text>更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="canAssign && canPropose" command="self">自行安排</el-dropdown-item>
+              <el-dropdown-item v-if="project.latest_progress" command="history">进度记录</el-dropdown-item>
+              <el-dropdown-item command="copy">复制进展汇总</el-dropdown-item>
+              <el-dropdown-item v-if="project.can_manage" command="settings">项目设置</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button v-if="canAssign" type="primary" @click="newTask('company')">布置任务</el-button>
+        <el-button v-else-if="canPropose" type="primary" @click="newTask('self')">自行安排</el-button>
       </PageHeader>
-      <ProjectProgress :key="project.id" :project="project" @saved="progressSaved" />
-      <div class="jc-grid c4 operation-kpis" aria-label="项目整体进展">
-        <Kpi label="待完成任务" :value="project.stats.pending" unit="项" :progress="project.stats.total ? project.stats.done / project.stats.total : null" :hint="`已完成 ${project.stats.done} 项 · 共 ${project.stats.total} 项`" />
-        <Kpi label="逾期 / 受阻" :value="`${project.stats.overdue} / ${project.stats.blocked}`" unit="项" hint="优先处理需要协调的事项" />
-        <Kpi label="今日待反馈" :value="project.stats.needs_update" unit="项" :hint="`另有 ${project.stats.awaiting_approval || 0} 项待审核`" />
-        <Kpi label="参与团队" :value="project.members.length" unit="人" :hint="`负责人 · ${project.owner_name}`" />
-      </div>
-      <Panel class="mt-16">
-        <el-tabs v-model="tab">
-          <el-tab-pane label="月度任务" name="monthly"><MonthlyPlan :key="project.id" :project-id="project.id" :today="project.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
-          <el-tab-pane label="重点任务" name="tasks">
-            <div class="filters">
-              <el-input v-model="query" placeholder="搜索任务 / 学校 / 负责人" clearable style="width: 240px" />
-              <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="keyOnly">仅重点</el-checkbox><el-checkbox v-model="attention">需要关注</el-checkbox>
+
+      <div v-if="fetchError" class="notice" role="status">暂时无法获取最新进展。<el-button link type="primary" @click="load()">重试</el-button></div>
+      <el-tabs v-model="section" class="project-tabs">
+        <el-tab-pane label="概览" name="overview">
+          <div class="overview-layout">
+            <ProjectProgress :key="project.id" ref="progressPanel" :project="project" @saved="progressSaved" />
+            <section class="task-preview surface" aria-label="任务进展">
+              <header class="preview-header">
+                <h2>任务进展</h2>
+                <el-button v-if="project.tasks.length" link type="primary" @click="showTasks(false)">查看全部</el-button>
+              </header>
+              <div v-if="project.tasks.length" class="preview-summary">
+                <span v-if="counts.total">已完成 <strong>{{ counts.done }} / {{ counts.total }}</strong> 项</span>
+                <el-button v-if="attentionCount" link type="warning" @click="showTasks(true)">{{ attentionCount }} 项需关注</el-button>
+              </div>
+              <TaskList v-if="previewTasks.length" :rows="previewTasks" label="当前任务" compact @open-task="openTask" />
+              <p v-else class="empty">还没有任务</p>
+            </section>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="任务" name="tasks" lazy>
+          <section class="surface work-panel" aria-label="项目任务">
+            <div class="task-toolbar">
+              <div class="view-switch" role="group" aria-label="任务视图">
+                <button type="button" :aria-pressed="view === 'tasks'" @click="navigate('tasks')">当前任务</button>
+                <button type="button" :aria-pressed="view === 'monthly'" @click="navigate('monthly')">月度任务</button>
+              </div>
+              <el-button v-if="view !== 'monthly'" plain :aria-expanded="filtersOpen" :aria-controls="filterId" @click="filtersOpen = !filtersOpen">筛选<span v-if="filterCount">（{{ filterCount }}）</span></el-button>
             </div>
-            <div class="board-status" role="group" aria-label="按任务状态筛选">
-              <button v-for="(label, value) in statuses" :key="value" type="button" :aria-pressed="status === value" :data-status="value" @click="status = status === value ? 'all' : value"><i /><span>{{ label }}</span><b class="jc-num">{{ value === 'all' ? matches.length : counts[value] }}</b></button>
+            <div v-show="view === 'tasks'">
+              <div v-show="filtersOpen" :id="filterId" class="filters">
+                <el-input v-model="keyword" aria-label="搜索任务" placeholder="任务、学校或负责人" clearable />
+                <el-select v-model="status" aria-label="任务状态"><el-option v-for="(label, value) in taskFilters" :key="value" :label="label" :value="value" /></el-select>
+                <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="keyOnly">仅重点</el-checkbox>
+                <el-button v-if="filterCount" link type="primary" @click="clearFilters">清除筛选</el-button>
+              </div>
+              <TaskList v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" />
+              <p v-else class="empty">{{ project.tasks.length ? '没有符合筛选条件的任务' : '还没有任务' }}</p>
             </div>
-            <TaskCards v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" />
-            <el-empty v-else :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
-          </el-tab-pane>
-          <el-tab-pane label="学校与经营资料" name="schools"><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
-          <el-tab-pane label="设备产品库" name="products"><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
-          <el-tab-pane label="项目团队" name="team"><TeamMembers :project="project" @saved="load" /></el-tab-pane>
-        </el-tabs>
-      </Panel>
+            <MonthlyPlan v-if="monthlyMounted" v-show="view === 'monthly'" :key="project.id" ref="monthlyPanel" :project-id="project.id" :today="project.today" :active="view === 'monthly'" :show-assistant="false" @open-task="openTask" />
+          </section>
+        </el-tab-pane>
+
+        <el-tab-pane label="项目资料" name="materials" lazy>
+          <section class="surface work-panel" aria-label="项目资料">
+            <el-tabs v-model="materialTab" class="material-tabs">
+              <el-tab-pane label="学校与经营资料" name="schools" lazy><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
+              <el-tab-pane label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" /></el-tab-pane>
+            </el-tabs>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
+
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
-      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" @saved="t => pendingTask = t" @closed="taskFormClosed" />
+      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" @saved="task => pendingTask = task" @closed="taskFormClosed" />
       <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" />
-      <el-dialog v-model="summaryOpen" class="ops-summary-dialog" title="当前进展汇总" width="min(960px, calc(100vw - 24px))" align-center append-to-body>
-        <ProjectProgress :project="project" read-only />
-        <TaskOverview :rows="project.tasks" title="项目任务概览" :caption="`${project.name} · 全部计划月份`" />
-        <div v-if="project.tasks.length" class="recent">
-          <h3>{{ followUps.length ? '优先跟进' : '最新进展' }}</h3>
-          <TaskCards :rows="(followUps.length ? followUps : project.tasks).slice(0, 6)" @open-task="t => { summaryOpen = false; openTask(t) }" />
-        </div>
-        <template #footer><el-button @click="copySummary">复制汇总</el-button><el-button type="primary" @click="ask">请小聚进一步分析</el-button></template>
-      </el-dialog>
     </template>
-    <el-empty v-else-if="!loading" description="无法打开运营项目，请检查访问权限或重试。"><el-button @click="load()">重试</el-button></el-empty>
+    <el-empty v-else-if="!loading" description="无法打开运营项目"><el-button @click="load()">重试</el-button></el-empty>
   </div>
 </template>
+
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useAssistant } from '@/store/assistant'
@@ -63,58 +100,116 @@ import ProjectForm from './operations/ProjectForm.vue'
 import ProjectProgress from './operations/ProjectProgress.vue'
 import TaskForm from './operations/TaskForm.vue'
 import TaskDialog from './operations/TaskDialog.vue'
-import TaskCards from './operations/TaskCards.vue'
-import TaskOverview from './operations/TaskOverview.vue'
+import TaskList from './operations/TaskList.vue'
 import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
-import { PROJECT_STATUS, TASK_STATUS, taskStatus, taskSummary } from './operations/shared'
+import { PROJECT_STATUS, TASK_STATUS, orderTasks, taskAttention, taskStatus, taskSummary } from './operations/shared'
+
 const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = useAssistant()
-const project = ref(null), loading = ref(false), tab = ref('monthly'), query = ref(''), status = ref('all'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
-const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
-const popupPaused = ref(false)
-const statuses = { all: '全部', ...TASK_STATUS, review: '待审核', rejected: '已退回' }
+const project = ref(null), loading = ref(false), fetchError = ref(false), materialTab = ref('schools')
+const progressPanel = ref(), monthlyPanel = ref(), monthlyMounted = ref(false)
+const filtersOpen = ref(false), keyword = ref(''), status = ref('all'), mine = ref(false), keyOnly = ref(false), filterId = useId()
+const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), popupPaused = ref(false)
+const taskFilters = { all: '全部状态', attention: '需关注', pending: '未完成', ...TASK_STATUS, review: '待审核', rejected: '已退回' }
+const view = computed(() => ['tasks', 'monthly', 'materials'].includes(route.query.view) ? route.query.view : 'overview')
+const section = computed({ get: () => view.value === 'monthly' ? 'tasks' : view.value, set: navigate })
+const canAssign = computed(() => project.value?.can_manage && project.value?.status === 'active')
+const canPropose = computed(() => project.value?.can_propose && project.value?.status === 'active')
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
-const needsAttention = t => t.overdue || t.needs_update || ['blocked', 'review', 'rejected'].includes(taskStatus(t))
-const matches = computed(() => (project.value?.tasks || []).filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
-  (!keyOnly.value || t.priority === 'key') && (!attention.value || needsAttention(t)) &&
-  `${t.title} ${t.owner_name} ${t.school_name}`.toLowerCase().includes(query.value.trim().toLowerCase())))
-const counts = computed(() => taskSummary(matches.value))
-const filteredTasks = computed(() => matches.value.filter(t => status.value === 'all' || taskStatus(t) === status.value))
-const followUps = computed(() => (project.value?.tasks || []).filter(needsAttention))
+const orderedTasks = computed(() => orderTasks(project.value?.tasks || []))
+const counts = computed(() => taskSummary(orderedTasks.value))
+const attentionCount = computed(() => orderedTasks.value.filter(taskAttention).length)
+const previewTasks = computed(() => {
+  const pending = orderedTasks.value.filter(task => taskStatus(task) !== 'done')
+  return (pending.length ? pending : orderedTasks.value).slice(0, 4)
+})
+const filterCount = computed(() => [keyword.value.trim(), status.value !== 'all', mine.value, keyOnly.value].filter(Boolean).length)
+const filteredTasks = computed(() => orderedTasks.value.filter(task => {
+  const state = taskStatus(task)
+  return (!mine.value || task.owner_id === auth.profile?.id) && (!keyOnly.value || task.priority === 'key') &&
+    (status.value === 'all' || (status.value === 'attention' ? taskAttention(task) : status.value === 'pending' ? ['todo', 'doing', 'blocked'].includes(state) : state === status.value)) &&
+    `${task.title} ${task.owner_name} ${task.school_name || ''}`.toLowerCase().includes(keyword.value.trim().toLowerCase())
+}))
+
 let version = 0
 async function load(background = false) {
   const current = ++version, id = route.params.id
   loading.value = !project.value
-  try { const data = await api.get(`/operations/${id}`, null, { silent: background }); if (current === version) project.value = data }
-  catch (err) { if (current === version && [40301, 40401].includes(err.code)) project.value = null }
-  finally { if (current === version) loading.value = false }
+  try {
+    const result = await api.get(`/operations/${id}`, null, { silent: background === true })
+    if (current === version) { project.value = result; fetchError.value = false }
+  } catch (err) {
+    if (current === version) {
+      fetchError.value = true
+      if ([40301, 40401].includes(err.code)) project.value = null
+    }
+  } finally { if (current === version) loading.value = false }
 }
-function newTask() { taskMode.value='company';editingTask.value = null; taskForm.value = true }
-function newSelfTask() {taskMode.value='self';editingTask.value=null;taskForm.value=true}
+function navigate(target) {
+  if (target === view.value) return
+  const query = { ...route.query }
+  if (target === 'overview') delete query.view
+  else query.view = target
+  router.replace({ query })
+}
+function clearFilters() { keyword.value = ''; status.value = 'all'; mine.value = false; keyOnly.value = false }
+function showTasks(onlyAttention) {
+  clearFilters(); filtersOpen.value = onlyAttention
+  if (onlyAttention) status.value = 'attention'
+  navigate('tasks')
+}
+function newTask(mode) { taskMode.value = mode; editingTask.value = null; taskForm.value = true }
 function editTask(task) { editingTask.value = task; popupPaused.value = true; taskForm.value = true }
-function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
+function openTask(task) { router.replace({ query: { ...route.query, task: task.id } }) }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 function taskFormClosed() { popupPaused.value = false; if (pendingTask.value) { openTask(pendingTask.value); pendingTask.value = null } }
 function progressSaved(progress) { if (project.value?.id === progress.project_id) project.value = { ...project.value, latest_progress: progress } }
-function summary() { summaryOpen.value = true; load(true) }
-async function copySummary() {
-  try { const brief = await api.get(`/operations/${project.value.id}/brief`); await navigator.clipboard.writeText(brief.text); ElMessage.success('汇总已复制') }
-  catch { ElMessage.info('暂时无法复制汇总，请重试') }
+async function handleAction(action) {
+  if (action === 'self') newTask('self')
+  else if (action === 'settings') projectForm.value = true
+  else if (action === 'history') progressPanel.value?.openHistory()
+  else if (action === 'copy') {
+    try {
+      const brief = await api.get(`/operations/${project.value.id}/brief`)
+      await navigator.clipboard.writeText(brief.text)
+      ElMessage.success('汇总已复制')
+    } catch { ElMessage.info('暂时无法复制汇总，请重试') }
+  }
 }
-function ask() { assistant.open(`请查询运营项目「${project.value.name}」（运营项目 ID：${project.value.id}）的实际任务和反馈，总结当前进展、逾期受阻事项，以及接下来需要推进什么；请标明尚未反馈或缺少信息的部分。`) }
-watch(() => route.params.id, id => { if (id) { project.value = null; taskForm.value = false; pendingTask.value = null; popupPaused.value = false; summaryOpen.value = false; load() } }, { immediate: true })
+function ask() {
+  if (view.value === 'monthly' && monthlyPanel.value) return monthlyPanel.value.summarize()
+  assistant.open(`请查看运营项目「${project.value.name}」（项目 ID：${project.value.id}），按最新进展、需要关注的问题和下一步三点简短汇报。只使用实际记录。`)
+}
+watch(() => route.params.id, id => {
+  if (!id) return
+  project.value = null; taskForm.value = false; pendingTask.value = null; popupPaused.value = false
+  materialTab.value = 'schools'; clearFilters(); filtersOpen.value = false; monthlyMounted.value = view.value === 'monthly'
+  load()
+}, { immediate: true })
+watch(view, value => { if (value === 'monthly') monthlyMounted.value = true }, { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => Boolean(route.params.id) })
 onBeforeUnmount(() => { version++ })
 </script>
+
 <style scoped>
-.filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
-.board-status { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 15px; }
-.board-status button { --tone: var(--jc-brand); display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--jc-line); border-radius: 7px; padding: 7px 10px; font: inherit; font-size: 12px; color: var(--jc-ink-2); background: var(--jc-bg-2, #f9f8f5); cursor: pointer; }
-.board-status button[data-status="done"] { --tone: var(--jc-up); }.board-status button[data-status="todo"] { --tone: #aaa89f; }.board-status button[data-status="blocked"], .board-status button[data-status="rejected"] { --tone: var(--jc-down); }.board-status button[data-status="review"] { --tone: var(--jc-warn); }
-.board-status button[aria-pressed="true"], .board-status button:hover { border-color: var(--jc-brand); color: var(--jc-brand); }.board-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }.board-status b { font-size: 15px; color: var(--jc-ink); }.recent { margin-top: 15px; }.recent h3 { font-size: 15px; }
-:global(.ops-summary-dialog > .el-dialog__body) { max-height: 67dvh; overflow: auto; }
-@media(max-width: 560px) { .operation-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .operation-kpis :deep(.kpi) { padding: 10px; } .operation-kpis :deep(.kpi .val) { margin-top: 6px; } .operation-kpis :deep(.kpi .v) { font-size: 24px; } .operation-kpis :deep(.kpi .bar), .operation-kpis :deep(.kpi .foot) { margin-top: 6px; } }
+.operation-detail { max-width: 1320px; }
+.back { display: inline-block; margin-bottom: 10px; color: var(--jc-ink-2); font-size: 13px; text-decoration: none; }.back:hover { color: var(--jc-brand); }
+.project-heading { margin-bottom: 13px; }.project-heading :deep(h1) { font-size: clamp(25px, 2.4vw, 34px); line-height: 1.25; overflow-wrap: anywhere; }.project-heading :deep(.l) { min-width: 0; }.project-heading :deep(.el-button + .el-button) { margin-left: 0; }
+.project-meta { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; margin-top: 9px; color: var(--jc-ink-2); font-size: 13px; }.project-meta :deep(.jc-pill) { font-size: 11px; }
+.project-tabs > :deep(.el-tabs__header) { margin-bottom: 16px; }
+.overview-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 14px; align-items: start; }
+.surface { min-width: 0; padding: 19px 21px; border: 1px solid var(--jc-line); border-radius: var(--jc-radius); background: var(--jc-surface); }
+.preview-header, .preview-summary, .task-toolbar, .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }.preview-header, .task-toolbar { justify-content: space-between; }
+.preview-header h2 { margin: 0; color: var(--jc-ink); font-size: 18px; }.preview-summary { margin: 8px 0 3px; color: var(--jc-ink-2); font-size: 13px; }.preview-summary strong { color: var(--jc-ink); }
+.preview-summary .el-button { margin: 0; }.preview-summary:not(:empty) { padding-bottom: 6px; border-bottom: 1px solid var(--jc-line-2); }
+.empty { margin: 16px 0 4px; color: var(--jc-ink-3); font-size: 14px; }.notice { margin: 6px 0; color: var(--jc-warn); font-size: 13px; }
+.task-toolbar { margin-bottom: 10px; }.view-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: var(--jc-surface-2); }
+.view-switch button { min-height: 28px; border: 1px solid transparent; border-radius: 5px; padding: 3px 10px; background: transparent; color: var(--jc-ink-2); cursor: pointer; font: inherit; font-size: 13px; }.view-switch button[aria-pressed='true'] { border-color: var(--jc-line); color: var(--jc-brand); background: var(--jc-surface); }
+.filters { margin-bottom: 5px; padding: 10px 12px; border-radius: 6px; background: var(--jc-surface-2); }.filters .el-input { width: 194px; }.filters .el-select { width: 126px; }.filters .el-checkbox { margin-right: 6px; }
+.material-tabs :deep(.el-tabs__header) { margin-bottom: 14px; }
+@media (max-width: 1020px) { .overview-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .surface { padding: 14px; }.project-heading { gap: 10px; }.filters .el-input { width: 100%; }.project-tabs > :deep(.el-tabs__header) { margin-bottom: 12px; } }
 </style>
