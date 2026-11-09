@@ -4,16 +4,18 @@
       <el-button @click="load" :loading="loading">刷新</el-button>
       <el-button v-if="data.can_create" type="primary" @click="createOpen = true">新建运营项目</el-button>
     </PageHeader>
-    <div class="jc-grid c4 operation-kpis">
-      <Kpi label="当前待办" :value="data.stats.pending || 0" unit="项" hint="进行中项目的未完成任务" />
-      <Kpi label="逾期事项" :value="data.stats.overdue || 0" unit="项" hint="任务或阶段节点已逾期" />
-      <Kpi label="遇到阻碍" :value="data.stats.blocked || 0" unit="项" hint="需要协调推进" />
-      <Kpi label="今日待反馈" :value="data.stats.needs_update || 0" unit="项" hint="按日反馈且今天尚未更新" />
-    </div>
     <Panel class="mt-16" :loading="loading && !data.today">
       <el-tabs v-model="tab">
         <el-tab-pane label="月度任务总表" name="monthly" lazy><MonthlyPlan :today="data.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
         <el-tab-pane label="项目总览" name="projects">
+          <section v-if="attention" class="attention-line" aria-label="需要关注">
+            <button type="button" class="attention-task" @click="openTask(attention.task)">
+              <StatusPill :text="attention.label" :tone="attention.tone" dot />
+              <span class="attention-copy"><span class="attention-project">{{ attention.task.project_name }} · </span><strong>{{ attention.task.title }}</strong></span>
+              <span class="attention-arrow" aria-hidden="true">›</span>
+            </button>
+            <el-button link type="primary" @click="showTodos">查看待办</el-button>
+          </section>
           <div class="filters">
             <el-input v-model="query.keyword" placeholder="搜索项目或目标" clearable style="width: 240px" @change="load" />
             <el-select v-model="query.category" placeholder="全部分类" clearable style="width: 170px" @change="load"><el-option v-for="c in categories" :key="c" :value="c" :label="c" /></el-select>
@@ -68,13 +70,23 @@ import TaskForm from './operations/TaskForm.vue'
 import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
 const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
-const data = reactive({ items: [], todos: [], stats: {}, can_create: false })
+const data = reactive({ items: [], todos: [], can_create: false })
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
 const todoFilter = ref('all'), mine = ref(false)
 const todos = computed(() => data.todos.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
   (todoFilter.value === 'all' || (todoFilter.value === 'blocked' ? t.status === 'blocked' : t[todoFilter.value]))))
+const attention = computed(() => {
+  const projectIds = new Set(data.items.map(project => project.id))
+  const tasks = data.todos.filter(task => projectIds.has(task.project_id))
+  const overdue = tasks.find(task => task.overdue)
+  if (overdue) return { task: overdue, label: '已逾期', tone: 'down' }
+  const blocked = tasks.find(task => task.status === 'blocked')
+  if (blocked) return { task: blocked, label: '受阻', tone: 'down' }
+  const needsUpdate = tasks.find(task => task.needs_update)
+  return needsUpdate ? { task: needsUpdate, label: '今日待反馈', tone: 'warn' } : null
+})
 let version = 0
 async function load(background = false) {
   const current = ++version
@@ -83,6 +95,7 @@ async function load(background = false) {
   catch {} finally { if (current === version) loading.value = false }
 }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
+function showTodos() { todoFilter.value = 'all'; mine.value = false; tab.value = 'todos' }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 async function editTask(task) {
   try {
@@ -99,6 +112,11 @@ onMounted(async () => {
 </script>
 <style scoped>
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 20px; }
+.attention-line { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 4px 10px; border-radius: 7px; background: var(--jc-surface-2); }
+.attention-task { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; border: 0; border-radius: 4px; background: none; color: var(--jc-ink); text-align: left; font: inherit; padding: 4px 0; cursor: pointer; }
+.attention-task :deep(.jc-pill) { flex-shrink: 0; }.attention-copy { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.attention-task:hover strong { color: var(--jc-brand); }.attention-task:focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 2px; }.attention-task strong { font-weight: 600; }
+.attention-project, .attention-arrow { color: var(--jc-ink-3); }.attention-arrow { font-size: 17px; }.attention-line .el-button { flex-shrink: 0; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
 .project-card { border: 1px solid var(--jc-line); background: var(--jc-surface); padding: 22px; border-radius: var(--jc-radius); text-align: left; color: var(--jc-ink); cursor: pointer; font: inherit; transition: border-color .15s; }
 .project-card:hover { border-color: var(--jc-brand); }
@@ -106,5 +124,5 @@ onMounted(async () => {
 .objective { color: var(--jc-ink-2); font-size: 13px; line-height: 1.7; min-height: 44px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 24px; }
 .progress-line { height: 4px; background: var(--jc-line-2); margin: 18px 0 10px; border-radius: 4px; overflow: hidden; }
 .progress-line i { height: 100%; display: block; background: var(--jc-brand); }
-@media(max-width: 560px) { .operation-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media(max-width: 560px) { .attention-line { gap: 6px; padding-inline: 7px; }.attention-task { gap: 6px; }.attention-project { display: none; } }
 </style>
