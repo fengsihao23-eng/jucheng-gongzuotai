@@ -10,6 +10,7 @@ const pages = [
   { path: 'submissions', name: 'submissions', component: () => import('@/views/Submissions.vue'), meta: { menu: 'submissions', title: '汇报提交' } },
   { path: 'contracts', name: 'contracts', component: () => import('@/views/Contracts.vue'), meta: { menu: 'contracts', title: '合同台账' } },
   { path: 'contracts/:id', name: 'contract-detail', component: () => import('@/views/ContractDetail.vue'), meta: { menu: 'contracts', title: '合同详情' } },
+  { path: 'approvals', name: 'approvals', component: () => import('@/views/Approvals.vue'), meta: { menu: 'contracts', title: '审批台账' } },
   { path: 'opportunities', name: 'opportunities', component: () => import('@/views/Opportunities.vue'), meta: { menu: 'opportunities', title: '商机信息' } },
   { path: 'performance', name: 'performance', component: () => import('@/views/Performance.vue'), meta: { menu: 'performance', title: '业绩与运营' } },
   { path: 'clean', name: 'clean', component: () => import('@/views/Clean.vue'), meta: { menu: 'clean', title: '数据清洗' } },

@@ -13,6 +13,7 @@ export const MENU_GROUPS = [
     title: '台账',
     items: [
       { key: 'contracts', path: '/contracts', label: '合同台账' },
+      { key: 'contracts', path: '/approvals', label: '审批台账' },
       { key: 'opportunities', path: '/opportunities', label: '商机信息' },
       { key: 'performance', path: '/performance', label: '业绩与运营' },
       { key: 'clean', path: '/clean', label: '数据清洗' },

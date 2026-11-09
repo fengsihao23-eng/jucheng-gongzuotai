@@ -63,3 +63,65 @@ def submit(body: SubmitBody, request: Request = None, p: Principal = Depends(get
     _guard(p, body.kind)
     result = wecom_approval_service.submit(db, p.user, body.kind, body.values)
     return ok(result)
+
+
+# ---------------------------------------------------------------- 审批台账（同步记录）
+STATUS_TEXT = {1: "审批中", 2: "已通过", 3: "已驳回", 4: "已撤销"}
+DISPATCH_TEXT = {0: "待处理", 1: "已登记台账", 2: "登记失败", 3: "无需处理"}
+LedgerMenu = Depends(require_menu("contracts"))
+
+
+@router.get("/records")
+def records(status: int | None = None, template_key: str | None = None, keyword: str | None = None,
+            page: int = 1, page_size: int = 30, p: Principal = LedgerMenu, db: Session = Depends(get_db)):
+    """企微审批同步台账：按状态/模板/关键词筛选，供合同与财务核对。"""
+    from sqlalchemy import func, or_, select
+
+    from app.models import SyncWecomApproval, SysUser
+
+    q = select(SyncWecomApproval)
+    if status:
+        q = q.where(SyncWecomApproval.status == status)
+    if template_key:
+        q = q.where(SyncWecomApproval.template_key == template_key)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        q = q.where(or_(SyncWecomApproval.sp_no.ilike(like), SyncWecomApproval.sp_name.ilike(like),
+                        SyncWecomApproval.applicant_userid.ilike(like)))
+    total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
+    rows = db.scalars(q.order_by(SyncWecomApproval.apply_time.desc().nullslast(), SyncWecomApproval.id.desc())
+                      .offset((max(page, 1) - 1) * page_size).limit(min(page_size, 100))).all()
+    names = {u.wecom_userid: u.name for u in db.scalars(select(SysUser).where(SysUser.wecom_userid.is_not(None)))}
+    stats = {int(k): int(v) for k, v in db.execute(
+        select(SyncWecomApproval.status, func.count()).group_by(SyncWecomApproval.status)).all()}
+    dispatched = db.scalar(select(func.count()).select_from(SyncWecomApproval)
+                           .where(SyncWecomApproval.dispatch_status == 1)) or 0
+    return ok({"total": total, "page": page, "stats": stats, "dispatched": dispatched,
+               "items": [{"sp_no": r.sp_no, "sp_name": r.sp_name, "template_key": r.template_key,
+                          "applicant": r.applicant_userid, "applicant_name": names.get(r.applicant_userid),
+                          "status": r.status, "status_text": STATUS_TEXT.get(r.status, str(r.status)),
+                          "apply_time": r.apply_time, "dispatch_status": r.dispatch_status,
+                          "dispatch_text": DISPATCH_TEXT.get(r.dispatch_status, str(r.dispatch_status)),
+                          "dispatch_target": r.dispatch_target, "error_msg": r.error_msg,
+                          "received_via": r.received_via} for r in rows]})
+
+
+@router.get("/records/{sp_no}")
+def record_detail(sp_no: str, p: Principal = LedgerMenu, db: Session = Depends(get_db)):
+    from sqlalchemy import select
+
+    from app.core.response import not_found
+    from app.models import SyncWecomApproval, SysUser
+
+    r = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no))
+    if r is None:
+        raise not_found("审批单")
+    u = db.scalar(select(SysUser).where(SysUser.wecom_userid == r.applicant_userid))
+    detail = r.detail or {}
+    return ok({"sp_no": r.sp_no, "sp_name": r.sp_name, "template_id": r.template_id,
+               "template_key": r.template_key, "applicant": r.applicant_userid,
+               "applicant_name": u.name if u else None, "status": r.status,
+               "status_text": STATUS_TEXT.get(r.status, str(r.status)), "apply_time": r.apply_time,
+               "dispatch_status": r.dispatch_status, "dispatch_text": DISPATCH_TEXT.get(r.dispatch_status, ""),
+               "dispatch_target": r.dispatch_target, "error_msg": r.error_msg, "received_via": r.received_via,
+               "fields": detail.get("fields") or {}, "approved_time": detail.get("approved_time")})
