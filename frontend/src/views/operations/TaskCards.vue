@@ -11,8 +11,8 @@
       <span class="latest">{{ task.latest_feedback || task.description || '尚未反馈进展' }}</span>
       <span v-if="task.next_step" class="next">下一步：{{ task.next_step }}</span>
       <template v-if="task.approval_status === 'approved'">
-        <span class="progress-label"><span>任务进度</span><b class="jc-num">{{ task.progress }}%</b></span>
-        <span class="progress-track" aria-hidden="true"><i :style="{ width: `${task.progress}%` }" /></span>
+        <span class="progress-label"><span>任务进度</span><b class="jc-num">{{ taskProgress(task).label }}</b></span>
+        <span v-if="taskProgress(task).percent !== null" class="progress-track" aria-hidden="true"><i :style="{ width: `${task.progress}%` }" /></span>
         <span v-if="task.nodes.length" class="node-caption">
           <span class="nodes" aria-hidden="true"><i v-for="node in task.nodes" :key="node.id" :class="{ complete: node.completed_at, late: node.overdue && !node.completed_at }" /></span>
           节点 {{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }}
@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { statusLabel, taskStatus, tone } from './shared'
+import { statusLabel, taskProgress, taskStatus, tone } from './shared'
 defineProps({ rows: { type: Array, required: true }, showProject: Boolean, single: Boolean })
 defineEmits(['open-task'])
 </script>

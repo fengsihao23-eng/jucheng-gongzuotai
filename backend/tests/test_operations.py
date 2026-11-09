@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.deps import build_principal
 from app.core.response import BizError
-from app.models import SysNotify, SysUser
+from app.models import OpsTask, SysNotify, SysUser
 from tests.conftest import data
 
 BASE = "/api/v1/operations"
@@ -92,7 +92,7 @@ def test_feedback_nodes_completion_history_and_notifications(client, login, db, 
     assert t["needs_update"] and t["progress"] == 0
     assert report(client, login, t, status="done", progress=100).status_code == 400
     first = data(report(client, login, t, completed_node_ids=[t["nodes"][0]["id"]]))
-    assert first["progress"] == 40 and not first["needs_update"]
+    assert first["progress"] == 50 and not first["needs_update"]
     assert first["nodes"][0]["completed_at"] and not first["nodes"][1]["completed_at"]
     final = data(report(client, login, t, status="done", progress=100, content="方案已获确认", completed_node_ids=[t["nodes"][1]["id"]]))
     assert final["progress"] == 100 and final["status"] == "done"
@@ -102,6 +102,35 @@ def test_feedback_nodes_completion_history_and_notifications(client, login, db, 
     assert len(notices) >= 3 and {n.channel for n in notices} == {"inapp"}
     assert any(n.user_id == uid(db, "xiekai") for n in notices)
     assert any(n.user_id == uid(db, "wujun") for n in notices)
+
+
+def test_feedback_advances_node_progress_and_reads_existing_completed_nodes(client, login, db, project):
+    t = task(client, login, db, project, nodes=[{"name": name, "due_date": "2026-10-25"}
+                                              for name in ("确认需求", "核对清单", "提交方案")])
+    headers = login("xiekai")
+    path = f"{BASE}/tasks/{t['id']}"
+    first, second, third = [n["id"] for n in t["nodes"]]
+
+    def submit(content, node_ids, status="doing"):
+        return data(client.post(path + "/feedback", headers=headers, json={
+            "content": content, "status": status, "completed_node_ids": node_ids}))
+
+    result = submit("需求已确认", [first])
+    assert result["progress"] == result["updates"][0]["progress"] == 33
+    assert db.get(OpsTask, t["id"]).progress == 33
+
+    # Simulate an old task saved with a completed node but a stale percentage.
+    db.get(OpsTask, t["id"]).progress = 0
+    db.commit()
+    assert data(client.get(path, headers=headers))["progress"] == 33
+    assert data(client.get(f"{BASE}/{project['id']}", headers=headers))["tasks"][0]["progress"] == 33
+    monthly = data(client.get(f"{BASE}/monthly", headers=headers, params={"project_id": project["id"], "month": "2026-10"}))
+    assert monthly["items"][0]["progress"] == 33 and monthly["stats"]["done"] == 0
+
+    assert submit("清单已核对", [second])["progress"] == 67
+    result = submit("方案节点已提交，等待确认整体结果", [third])
+    assert result["progress"] == 99 and result["status"] == "doing"
+    assert submit("方案已确认", [], "done")["progress"] == 100
 
 
 def test_feedback_rejects_other_members_and_foreign_nodes(client, login, db, project):
@@ -267,4 +296,6 @@ def test_workbuddy_protocol_operations_tools(client, login, db, project):
     assert {"ops.project_status", "ops.task_feedback"} <= names
     assert call(client, token, "ops.project_status", task_id=t["id"])["data"]["id"] == t["id"]
     r = call(client, token, "ops.task_feedback", task_id=t["id"], content="WorkBuddy 协议反馈验证", status="doing", progress=25)
+    assert r["ok"] and r["data"]["progress"] == 25
+    r = call(client, token, "ops.task_feedback", task_id=t["id"], content="已联系校方", status="doing")
     assert r["ok"] and r["data"]["progress"] == 25

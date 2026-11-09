@@ -14,7 +14,7 @@
         <dl class="facts">
           <div><dt>负责人</dt><dd>{{ task.owner_name }}</dd></div><div><dt>截止日期</dt><dd>{{ task.due_date }}</dd></div>
           <div><dt>反馈频率</dt><dd>{{ task.cadence === 'daily' ? '每天反馈' : '按节点反馈' }}</dd></div>
-          <div v-if="task.approval_status === 'approved'"><dt>任务进度</dt><dd><el-progress :percentage="task.progress" :color="task.status === 'blocked' ? 'var(--jc-down)' : task.status === 'done' ? 'var(--jc-up)' : 'var(--jc-brand)'" /></dd></div>
+          <div v-if="task.approval_status === 'approved'"><dt>任务进度</dt><dd aria-live="polite"><el-progress v-if="progress.percent !== null" aria-label="任务进度" :percentage="progress.percent" :color="task.status === 'blocked' ? 'var(--jc-down)' : task.status === 'done' ? 'var(--jc-up)' : 'var(--jc-brand)'" /><span v-else>{{ progress.label }}</span></dd></div>
           <div v-else><dt>任务审核</dt><dd>{{ statusLabel(task) }}</dd></div>
         </dl>
         <el-alert v-if="task.overdue" title="任务或节点已逾期，请反馈进展与下一步安排。" type="warning" :closable="false" class="notice" />
@@ -47,12 +47,15 @@
                   <el-radio-group v-model="outcome" aria-label="完成情况"><el-radio-button value="done">已完成</el-radio-button><el-radio-button value="pending">未完成</el-radio-button></el-radio-group>
                 </el-form-item>
                 <el-form-item :label="outcome === 'done' ? '完成结果' : '目前进度情况'" prop="content" :rules="[{ required: true, whitespace: true, message: '写几句话说明结果或当前进展' }]">
-                  <el-input v-model="form.content" type="textarea" :rows="3" maxlength="6000" placeholder="写几句话即可，例如：已和校方确认需求，明天下午提交方案。" />
+                  <el-input v-model="form.content" type="textarea" :rows="3" maxlength="6000" :validate-event="false" placeholder="写几句话即可，例如：已和校方确认需求，明天下午提交方案。" @input="formRef?.clearValidate('content')" />
                 </el-form-item>
                 <el-button link type="primary" :loading="drafting" :disabled="!form.content.trim() || saving" @click="draft">让 AI 整理文字</el-button>
                 <div v-if="draftText" class="draft-preview"><p class="plain">{{ draftText }}</p><el-button size="small" @click="form.content = draftText; draftText = ''">采用这段文字</el-button><el-button size="small" text @click="draftText = ''">保留原文</el-button></div>
                 <el-form-item v-if="outcome === 'pending'" label="当前情况"><el-checkbox v-model="blocked">遇到阻碍</el-checkbox></el-form-item>
-                <el-form-item v-if="remainingNodes.length" label="本次完成的节点"><el-checkbox-group v-model="form.completed_node_ids"><el-checkbox v-for="node in remainingNodes" :key="node.id" :value="node.id">{{ node.name }}</el-checkbox></el-checkbox-group></el-form-item>
+                <el-form-item v-if="remainingNodes.length" label="本次完成的节点">
+                  <el-checkbox-group v-model="form.completed_node_ids"><el-checkbox v-for="node in remainingNodes" :key="node.id" :value="node.id">{{ node.name }}</el-checkbox></el-checkbox-group>
+                  <span class="node-hint">勾选已完成的节点，提交后自动更新进度。</span>
+                </el-form-item>
                 <el-form-item label="下一步（可选）"><el-input v-model="form.next_step" maxlength="6000" placeholder="下一步要做什么，需要谁协调" /></el-form-item>
                 <el-form-item v-if="outcome === 'pending'" :label="requiresReason ? '未完成原因（必填）' : '未完成原因（可选）'"><el-input v-model="form.incomplete_reason" type="textarea" :rows="2" maxlength="6000" placeholder="例如：等待校方提供资料，预计明天补齐" /></el-form-item>
               </el-form>
@@ -78,7 +81,7 @@ import api from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
-import { TASK_SOURCES, TASK_STATUS, statusLabel, tone, announceChange } from './shared'
+import { TASK_SOURCES, TASK_STATUS, statusLabel, taskProgress, tone, announceChange } from './shared'
 
 const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number })
 const emit = defineEmits(['update:modelValue', 'edit'])
@@ -100,6 +103,7 @@ const outcome = computed({
   },
 })
 const remainingNodes = computed(() => task.value?.nodes.filter(n => !n.completed_at) || [])
+const progress = computed(() => task.value && taskProgress(task.value))
 const requiresReason = computed(() => form.status === 'blocked' || (task.value && (task.value.due_date < task.value.today || remainingNodes.value.some(node => node.overdue && !form.completed_node_ids.includes(node.id)))))
 const draftStale = computed(() => task.value && formRevision.value !== task.value.revision)
 let version = 0, baseline = ''
@@ -108,6 +112,7 @@ function resetForm(row) {
   Object.assign(form, { content: '', next_step: row.next_step || '', status: row.status === 'todo' ? 'doing' : row.status,
     completed_node_ids: [], incomplete_reason: row.incomplete_reason || '' })
   formRevision.value = row.revision; baseline = JSON.stringify(form); draftText.value = ''; reviewComment.value = ''
+  formRef.value?.clearValidate()
 }
 async function load(background = false) {
   if (!visible.value || !props.taskId || (background && saving.value)) return
@@ -129,7 +134,8 @@ watch(() => [visible.value, props.taskId], () => { version++; task.value = null;
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => visible.value })
 
 function updateTitle(update) {
-  return ({ assigned: '任务安排', changed: '调整安排', review: '审核记录' })[update.kind] || `${TASK_STATUS[update.status]} · ${update.progress}%`
+  return ({ assigned: '任务安排', changed: '调整安排', review: '审核记录' })[update.kind] ||
+    TASK_STATUS[update.status] + (update.progress > 0 ? ` · ${update.progress}%` : '')
 }
 function acceptLatest() {
   formRevision.value = task.value.revision
@@ -164,7 +170,7 @@ async function submit() {
   if (!await formRef.value.validate().catch(() => false)) return
   if (form.status === 'done' && remainingNodes.value.some(n => !form.completed_node_ids.includes(n.id))) return ElMessage.warning('请确认所有阶段节点已完成')
   if (form.status !== 'done' && requiresReason.value && !form.incomplete_reason.trim()) return ElMessage.warning('请填写未完成原因')
-  await save('feedback', { ...form, progress: form.status === 'done' ? 100 : task.value.progress }, '进展已反馈')
+  await save('feedback', form, '进展已反馈')
 }
 function review(decision) {
   if (!reviewComment.value.trim()) return ElMessage.warning('请填写审核意见或退回原因')
@@ -191,6 +197,7 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 .nodes { list-style: none; margin: 0; padding: 0; }.nodes li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 6px 0; overflow-wrap: anywhere; }.nodes li + li { border-top: 1px solid var(--jc-line-2); }.nodes li i { background: var(--jc-bg); border: 1px solid var(--jc-line); color: var(--jc-ink-2); border-radius: 50%; display: inline-grid; width: 19px; height: 19px; place-items: center; font-style: normal; font-size: 10px; }.nodes li.complete i { border-color: var(--jc-up); color: var(--jc-up); }.nodes li small { color: var(--jc-ink-3); }.nodes li.complete small { color: var(--jc-up); }.nodes li.overdue small { color: var(--jc-down); }
 .history :deep(.el-timeline) { padding-left: 2px; }.history :deep(.el-timeline-item:last-child) { padding-bottom: 0; }.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
 .result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.result-choice :deep(.el-radio-button__inner) { width: 100%; }
+.node-hint { flex: 0 0 100%; color: var(--jc-ink-3); font-size: 12px; line-height: 1.5; }
 @media (max-width: 740px) { .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }.work { grid-row: 1; }.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { :global(.ops-task-dialog.el-dialog) { width: 100vw; height: 100dvh; border-radius: 0; }:global(.ops-task-dialog > .el-dialog__body) { max-height: none; }.task-page { padding: 14px; }.section { padding: 12px; } }
 </style>

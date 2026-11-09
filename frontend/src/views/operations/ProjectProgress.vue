@@ -22,12 +22,10 @@
     </el-form>
     <template #footer><div class="form-footer"><el-button link type="primary" @click="withXiaoju">用小聚填写</el-button><div class="actions"><el-button @click="formOpen = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目进度</el-button></div></div></template>
   </el-dialog>
-  <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(720px, calc(100vw - 24px))" align-center append-to-body destroy-on-close @closed="historyClosed">
+  <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(1140px, calc(100vw - 24px))" align-center append-to-body destroy-on-close @closed="historyClosed">
     <div v-loading="loading" class="history-list">
-      <article v-for="entry in history" :key="entry.id">
-        <h4>{{ entry.author_name }} <span>{{ datetime(entry.created_at) }}</span></h4>
-        <dl class="entry"><div><dt>进度情况</dt><dd>{{ entry.progress }}</dd></div><div v-if="entry.problems"><dt>遇到的问题</dt><dd>{{ entry.problems }}</dd></div><div v-if="entry.next_plan"><dt>下一步计划</dt><dd>{{ entry.next_plan }}<small>计划完成时间 {{ entry.next_due_date }}</small></dd></div></dl>
-      </article>
+      <div v-if="history.length" class="history-caption"><strong>{{ project.name }}</strong><span>最近填写的记录在前</span></div>
+      <ProgressHistoryTable v-if="history.length" :entries="history" />
       <el-empty v-if="!history.length && !loading" :description="failed ? '暂时无法读取记录' : '暂无进度记录'" :image-size="64" />
     </div>
     <template #footer>
@@ -45,6 +43,7 @@ import api from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { datetime } from '@/utils/format'
 import { announceChange } from './shared'
+import ProgressHistoryTable from './ProgressHistoryTable.vue'
 
 const props = defineProps({ project: { type: Object, required: true }, readOnly: Boolean })
 const emit = defineEmits(['saved'])
@@ -98,6 +97,6 @@ header h3 { margin: 0; color: var(--jc-ink); font-size: 16px; } header p { margi
 .progress-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0 0; }.progress-grid > div { min-width: 0; padding: 9px 11px; border-radius: 7px; border: 1px solid var(--jc-line-2); background: var(--jc-bg-2, #f9f8f5); }
 dt { font-weight: 600; color: var(--jc-ink); font-size: 13px; } dt i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--jc-up); vertical-align: 2px; } dt i.issues { background: var(--jc-warn); } dt i.next { background: var(--jc-brand); }
 dd { margin: 5px 0 0; color: var(--jc-ink-2); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }.progress-grid dd:first-of-type { max-height: 120px; overflow: auto; overscroll-behavior: contain; }.empty dd { color: var(--jc-ink-3); }.plan-date { font-size: 12px; color: var(--jc-brand); }
-:global(.ops-progress-history > .el-dialog__body) { max-height: 66dvh; overflow: auto; }.history-list { min-height: 120px; }.history-list article { padding: 12px; border: 1px solid var(--jc-line); border-radius: 7px; margin-bottom: 8px; }.history-list h4 { margin: 0 0 8px; font-size: 14px; color: var(--jc-ink); }.history-list h4 span { margin-left: 6px; font-weight: 400; font-size: 12px; color: var(--jc-ink-3); }.entry { margin: 0; }.entry > div + div { margin-top: 7px; }.entry small { display: block; color: var(--jc-brand); }
+.history-list { min-height: 120px; }.history-caption { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 10px; }.history-caption strong { color: var(--jc-ink); }.history-caption span { color: var(--jc-ink-3); font-size: 12px; }
 @media (max-width: 620px) { .project-progress { padding: 10px; }.progress-grid:not(.empty) { grid-template-columns: minmax(0, 1fr); }.progress-grid { gap: 5px; }.progress-grid > div { padding: 6px; }.progress-grid.empty dd { display: none; }.progress-grid.empty dt { font-size: 11px; }.progress-grid.empty i { display: none; } }
 </style>

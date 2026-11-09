@@ -129,7 +129,9 @@ class FeedbackIn(Input):
     content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
     next_step: Note = ""
     status: Literal["todo", "doing", "blocked", "done"]
-    progress: Annotated[int, Field(ge=0, le=100)]
+    progress: Annotated[int, Field(ge=0, le=100)] | None = Field(
+        default=None, description="可省略，系统按已完成节点更新进度。仅在用户明确提供时填写百分比。"
+    )
     completed_node_ids: list[Id] = Field(default_factory=list, max_length=30)
     incomplete_reason: Note = ""
     expected_revision: Annotated[int, Field(ge=1)] | None = None

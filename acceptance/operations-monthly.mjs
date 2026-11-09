@@ -50,6 +50,8 @@ try{
   await boss.getByRole('cell',{name:'自主计划完成现场复核',exact:false}).waitFor()
   const overview=boss.getByRole('region',{name:'2026-10 月度汇总'})
   await overview.getByText('50%',{exact:true}).waitFor()
+  assert.equal(await boss.getByRole('combobox',{name:'任务来源',exact:true}).isVisible(),false)
+  await boss.getByRole('button',{name:'筛选',exact:true}).click()
   await boss.getByText('全部任务来源',{exact:true}).click()
   await boss.getByRole('option',{name:'自行安排',exact:true}).click()
   await overview.getByText('100%',{exact:true}).waitFor()

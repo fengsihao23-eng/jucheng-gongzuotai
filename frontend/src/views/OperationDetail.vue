@@ -37,7 +37,7 @@
       <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" />
       <el-dialog v-model="summaryOpen" class="ops-summary-dialog" title="当前进展汇总" width="min(960px, calc(100vw - 24px))" align-center append-to-body>
         <ProjectProgress :project="project" read-only />
-        <TaskOverview :rows="project.tasks" title="项目任务概览" :caption="`${project.name} · 全部计划月份`" />
+        <TaskOverview :rows="project.tasks" title="项目任务概览" />
         <div v-if="project.tasks.length" class="recent">
           <h3>{{ followUps.length ? '优先跟进' : '最新进展' }}</h3>
           <TaskCards :rows="(followUps.length ? followUps : project.tasks).slice(0, 6)" @open-task="t => { summaryOpen = false; openTask(t) }" />

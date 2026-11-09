@@ -362,6 +362,16 @@ def edit_task(db, p, task_id, body):
     return task
 
 
+def effective_task_progress(task, reported=None):
+    if task.status == "done":
+        return 100
+    total = len(task.nodes)
+    completed = sum(node.completed_at is not None for node in task.nodes)
+    node_progress = (100 * completed + total // 2) // total if total else 0
+    # Node completions raise the floor; 100% remains reserved for confirmed completion.
+    return min(99, max(task.progress if reported is None else reported, node_progress))
+
+
 def feedback(db, p, task_id, body):
     task = get_task(db, p, task_id, lock=True)
     project = get_project(db, p, task.project_id, lock=True)
@@ -390,7 +400,7 @@ def feedback(db, p, task_id, body):
             nodes[node_id].completed_at = now()
             completed.append(nodes[node_id].name)
     task.status = body.status
-    task.progress = 100 if body.status == "done" else body.progress
+    task.progress = effective_task_progress(task, body.progress)
     task.next_step = body.next_step
     task.last_feedback_at = now()
     task.completed_at = now() if body.status == "done" else None
@@ -423,6 +433,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None):
     my_role = viewer_role or role(db, p, project)
     stage = plans.review_stage(db, p, project, task)
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
+            "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
             "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale,
             "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role in {"member", "reviewer"} and task.owner_id == p.id)),

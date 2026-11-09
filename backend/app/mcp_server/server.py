@@ -440,7 +440,7 @@ def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = Non
     return {"data": result, "summary": f"可访问 {len(result['items'])} 个运营项目，当前待办 {len(result['todos'])} 项。"}
 
 
-def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int,
+def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int | None = None,
                    next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = ""):
     from app.schemas.operations import FeedbackIn
     from app.services import operations_service as ops
@@ -493,9 +493,9 @@ def _register():
         """不传 ID 时列出项目与待办；project_id 汇总项目；task_id 读取任务记录；month=YYYY-MM 读取月度任务，可按owner_id筛选。先查询取得 ID，不能猜测。"""
         return await anyio.to_thread.run_sync(lambda: _run("ops.project_status", ctx, {"project_id": project_id, "task_id": task_id, "month": month, "owner_id": owner_id}, t_ops_status))
 
-    async def ops_task_feedback(ctx: Context, task_id: int, content: str, status: str, progress: int,
+    async def ops_task_feedback(ctx: Context, task_id: int, content: str, status: str, progress: int | None = None,
                                 next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = "") -> str:
-        """仅在用户要求汇报时提交。先查询任务确认 ID、审核状态和节点；status: todo/doing/blocked/done；progress: 0~100。受阻或逾期未完成须提供incomplete_reason。不得推断完成节点。"""
+        """仅在用户要求汇报时提交。先查询任务确认 ID、审核状态和节点；status: todo/doing/blocked/done。progress 可省略，按已完成节点更新。受阻或逾期未完成须提供 incomplete_reason。不得推断完成节点。"""
         return await anyio.to_thread.run_sync(lambda: _run("ops.task_feedback", ctx, {"task_id": task_id, "content": content,
             "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids, "incomplete_reason": incomplete_reason}, t_ops_feedback))
 

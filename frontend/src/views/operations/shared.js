@@ -11,6 +11,14 @@ export const tone = (status) => ({ done: 'up', blocked: 'down', doing: 'brand', 
 export const taskStatus = (task) => task.approval_status === 'approved' ? task.status : task.approval_status === 'rejected' ? 'rejected' : 'review'
 export const statusLabel = (task) => task.approval_status === 'approved' ? TASK_STATUS[task.status] : APPROVAL_STATUS[task.approval_status]
 
+export function taskProgress(task) {
+  if (task.status !== 'done' && task.nodes.length && task.nodes.every(node => node.completed_at)) {
+    return { label: '节点已齐，待确认', percent: null }
+  }
+  if (task.progress > 0) return { label: `${task.progress}%`, percent: task.progress }
+  return { label: task.last_feedback_at ? '已反馈' : '待反馈', percent: null }
+}
+
 export function taskSummary(rows) {
   const counts = { todo: 0, doing: 0, blocked: 0, done: 0, review: 0, rejected: 0, company: 0, self: 0, overdue: 0, needsUpdate: 0, carryover: 0 }
   for (const task of rows) {
