@@ -149,7 +149,7 @@ class OaSubmission(TimestampMixin, Base):
     report_type: Mapped[str] = mapped_column(String(8))  # daily|weekly|monthly
     period: Mapped[str] = mapped_column(String(16), index=True)  # 2026-10-20 / 2026-W43 / 2026-10
     submit_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    wecom_report_id: Mapped[str | None] = mapped_column(String(64))
+    wecom_report_id: Mapped[str | None] = mapped_column(String(128))  # 企微 journaluuid 为 65 位
     content: Mapped[dict | None] = mapped_column(JSON)
     stat_status: Mapped[int] = mapped_column(Integer, default=1)  # 1 已提交 2 迟交
 

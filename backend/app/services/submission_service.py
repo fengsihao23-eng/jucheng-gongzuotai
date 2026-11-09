@@ -261,28 +261,45 @@ def sync_journals(db: Session, start: datetime, end: datetime) -> dict:
     from app.integration.wecom import get_wecom
     records = get_wecom().get_journal_records(start, end)
     users = {u.wecom_userid: u for u in db.scalars(select(SysUser))}
-    inserted = updated = skipped = 0
+    inserted = updated = skipped = failed = 0
     for j in records:
-        t = template_type(j.template_name)
-        u = users.get(j.userid)
-        if not t or not u:
+        try:
+            with db.begin_nested():  # 单条异常（脏数据、超长字段）不拖垮整批
+                state = _upsert_journal(db, j, users)
+        except Exception:  # noqa: BLE001
+            failed += 1
+            continue
+        if state == "inserted":
+            inserted += 1
+        elif state == "updated":
+            updated += 1
+        else:
             skipped += 1
-            continue
-        period = period_of(t, j.report_time)
-        late = 2 if j.report_time > deadline_of(t, period) else 1
-        row = db.scalar(select(OaSubmission).where(OaSubmission.user_id == u.id, OaSubmission.report_type == t,
-                                                   OaSubmission.period == period))
-        if row:
-            if row.wecom_report_id != j.report_id or row.submit_time is None:
-                if row.submit_time is None or j.report_time < row.submit_time:
-                    row.submit_time, row.stat_status = j.report_time, late
-                row.wecom_report_id = row.wecom_report_id or j.report_id
-                updated += 1
-            continue
-        db.add(OaSubmission(user_id=u.id, report_type=t, period=period, submit_time=j.report_time,
-                            wecom_report_id=j.report_id, content=j.content, stat_status=late))
-        db.flush()
-        inserted += 1
     db.commit()
+    message = f"拉取 {len(records)} 条，新增 {inserted}，更新 {updated}，跳过 {skipped}"
+    if failed:
+        message += f"，失败 {failed}"
     return {"rows": inserted + updated, "inserted": inserted, "updated": updated, "skipped": skipped,
-            "fetched": len(records), "message": f"拉取 {len(records)} 条，新增 {inserted}，更新 {updated}，跳过 {skipped}"}
+            "failed": failed, "fetched": len(records), "message": message}
+
+
+def _upsert_journal(db: Session, j, users: dict) -> str:
+    t = template_type(j.template_name)
+    u = users.get(j.userid)
+    if not t or not u:
+        return "skipped"
+    period = period_of(t, j.report_time)
+    late = 2 if j.report_time > deadline_of(t, period) else 1
+    row = db.scalar(select(OaSubmission).where(OaSubmission.user_id == u.id, OaSubmission.report_type == t,
+                                               OaSubmission.period == period))
+    if row:
+        if row.wecom_report_id != j.report_id or row.submit_time is None:
+            if row.submit_time is None or j.report_time < row.submit_time:
+                row.submit_time, row.stat_status = j.report_time, late
+            row.wecom_report_id = row.wecom_report_id or j.report_id
+            return "updated"
+        return "skipped"
+    db.add(OaSubmission(user_id=u.id, report_type=t, period=period, submit_time=j.report_time,
+                        wecom_report_id=j.report_id, content=j.content, stat_status=late))
+    db.flush()
+    return "inserted"
