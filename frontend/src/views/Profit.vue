@@ -15,7 +15,7 @@
       <Kpi label="毛利率" :value="k.gross_margin === null || k.gross_margin === undefined ? '—' : (Number(k.gross_margin) * 100).toFixed(1)" unit="%"
         :hint="`低于 ${percent(res?.alert_margin, 0)} 的项目 ${k.low_margin_count || 0} 个`" />
       <Kpi label="本周费用" :value="wanNum(k.period_expense, 2)" unit="万元" hint="本周归集到项目的报销" />
-      <Kpi label="公共费用" :value="wanNum(k.public_expense, 2)" unit="万元" hint="管理费用-公共，不摊入项目" />
+      <Kpi label="项目利润" :value="wanNum(profitNet, 2)" unit="万元" :hint="`已扣除公共费用 ${wan(k.public_expense)}`" />
     </div>
 
     <Panel class="mt-16" :padding="false" :loading="loading">
@@ -61,22 +61,45 @@
       </el-tabs>
     </Panel>
 
-    <el-drawer v-model="drawer" :title="current?.name || '项目明细'" size="66%" destroy-on-close>
-      <div v-loading="detailLoading" class="jc-stack drawer-body">
-        <template v-if="current">
-          <div class="jc-row between wrap">
-            <div>
-              <div class="jc-small jc-muted jc-mono">{{ current.project_code }} · {{ current.line_name }} · {{ current.status_name }}</div>
-              <div v-if="current.group_note" class="jc-small jc-muted">{{ current.group_note }}</div>
-            </div>
-            <router-link v-if="auth.hasMenu('projects')" :to="`/projects/${current.project_code}`" @click="drawer = false">查看项目流程 →</router-link>
+    <el-dialog v-model="drawer" width="1040px" top="7vh" class="profit-detail" destroy-on-close append-to-body
+      :title="current?.name || '项目明细'">
+      <div v-loading="detailLoading" class="dd">
+        <div class="dd-sub">
+          <span class="jc-small jc-muted jc-mono">{{ current?.project_code }} · {{ current?.line_name }} · {{ current?.status_name }}</span>
+          <router-link v-if="auth.hasMenu('projects')" :to="`/projects/${current?.project_code}`" @click="drawer = false">查看项目流程 →</router-link>
+        </div>
+        <div class="dstats">
+          <div><span class="jc-muted jc-small">累计收入</span><b class="jc-num">{{ money(current?.income, 0) }}</b></div>
+          <div><span class="jc-muted jc-small">累计成本</span><b class="jc-num">{{ money(current?.cost, 0) }}</b><em class="jc-small jc-muted">含待支付 {{ money(current?.cost_payable, 0) }}</em></div>
+          <div><span class="jc-muted jc-small">毛利</span><b class="jc-num" :class="{ 'jc-down': Number(current?.gross_profit) < 0 }">{{ money(current?.gross_profit, 0) }}</b></div>
+          <div><span class="jc-muted jc-small">毛利率</span><b class="jc-num" :class="{ 'jc-down': current?.low_margin }">{{ percent(current?.gross_margin) }}</b></div>
+        </div>
+        <div class="dcols">
+          <div class="dleft">
+            <section class="dbox">
+              <h4>项目概况</h4>
+              <ul class="dinfo">
+                <li><span>客户</span><b>{{ projectDetail?.customer_name || current?.customer_name || '—' }}</b></li>
+                <li><span>负责人</span><b>{{ projectDetail?.owner_name || '—' }}</b></li>
+                <li><span>合同额</span><b class="jc-num">{{ money(projectDetail?.money?.contract_total, 0) }}</b></li>
+                <li><span>已回款</span><b class="jc-num">{{ money(projectDetail?.money?.received, 0) }}</b></li>
+                <li><span>计划期</span><b>{{ projectDetail?.start_date ? date(projectDetail.start_date) : '—' }} ~ {{ projectDetail?.plan_end_date ? date(projectDetail.plan_end_date) : '—' }}</b></li>
+              </ul>
+            </section>
+            <section v-if="projectDetail?.milestones?.length" class="dbox">
+              <h4>流程节点 <em class="jc-muted jc-small">{{ projectDetail.done_nodes }}/{{ projectDetail.total_nodes }}</em></h4>
+              <ul class="dnodes">
+                <li v-for="m in projectDetail.milestones" :key="m.id" :class="{ done: m.status === 3, late: m.is_delayed }">
+                  <i />
+                  <div>
+                    <b>{{ m.node_name }}</b>
+                    <span class="jc-small jc-muted">{{ m.status_text }}{{ m.finish_date ? ` · ${date(m.finish_date)}` : m.plan_date ? ` · 计划 ${date(m.plan_date)}` : '' }}</span>
+                  </div>
+                </li>
+              </ul>
+            </section>
           </div>
-          <div class="dstats">
-            <div><span class="jc-muted jc-small">累计收入</span><b class="jc-num">{{ money(current.income, 0) }}</b></div>
-            <div><span class="jc-muted jc-small">累计成本</span><b class="jc-num">{{ money(current.cost, 0) }}</b><em class="jc-small jc-muted">含待支付 {{ money(current.cost_payable, 0) }}</em></div>
-            <div><span class="jc-muted jc-small">毛利</span><b class="jc-num" :class="{ 'jc-down': Number(current.gross_profit) < 0 }">{{ money(current.gross_profit, 0) }}</b></div>
-            <div><span class="jc-muted jc-small">毛利率</span><b class="jc-num" :class="{ 'jc-down': current.low_margin }">{{ percent(current.gross_margin) }}</b></div>
-          </div>
+          <div class="dright">
           <el-tabs v-if="detailData" v-model="drawerTab">
             <el-tab-pane :label="`归集报销 ${detailData.expenses.length}`" name="exp">
               <el-table :data="detailData.expenses" max-height="460" :row-class-name="periodRow">
@@ -118,9 +141,10 @@
               </el-table>
             </el-tab-pane>
           </el-tabs>
-        </template>
+          </div>
+        </div>
       </div>
-    </el-drawer>
+    </el-dialog>
 
     <div class="jc-grid c3 mt-16">
       <Panel class="jc-span-2" title="近 12 周毛利趋势" sub="柱：本周收入 / 本周成本；线：累计毛利率" :loading="trendLoading">
@@ -176,6 +200,7 @@ const tableTab = ref('profit')
 const drawer = ref(false)
 const current = ref(null)
 const detailData = ref(null)
+const projectDetail = ref(null)
 const detailLoading = ref(false)
 const drawerTab = ref('exp')
 const future = (d) => d.getTime() > Date.now()
@@ -183,6 +208,7 @@ const future = (d) => d.getTime() > Date.now()
 const isoWeekOf = (d) => `${dayjs(d).isoWeekYear()}-W${String(dayjs(d).isoWeek()).padStart(2, '0')}`
 const week = computed(() => (weekDate.value ? isoWeekOf(weekDate.value) : undefined))
 const k = computed(() => res.value?.kpi || {})
+const profitNet = computed(() => Number(k.value.gross_profit || 0) - Number(k.value.public_expense || 0))
 const hasLemon = computed(() => (res.value?.caliber?.cost_sources || []).includes('lemon_aux'))
 const rows = computed(() => (res.value?.rows || []).filter((r) => (!lineFilter.value || r.business_line === lineFilter.value) && (!onlyLow.value || r.low_margin)))
 const periodRow = ({ row }) => (row.in_period ? 'in-period' : '')
@@ -235,6 +261,7 @@ function reload() {
   drawer.value = false
   current.value = null
   detailData.value = null
+  projectDetail.value = null
   load()
   loadTrend()
 }
@@ -242,11 +269,17 @@ useBusinessRefresh(reload)
 async function openDetail(row) {
   current.value = row
   detailData.value = null
+  projectDetail.value = null
   drawerTab.value = 'exp'
   drawer.value = true
   detailLoading.value = true
   try {
-    detailData.value = (await api.get(`/reports/profit/${row.project_code}`, { week: week.value })).detail
+    const [profit, project] = await Promise.all([
+      api.get(`/reports/profit/${row.project_code}`, { week: week.value }),
+      api.get(`/projects/${row.project_code}`, null, { silent: true }).catch(() => null),
+    ])
+    detailData.value = profit.detail
+    projectDetail.value = project
   } finally {
     detailLoading.value = false
   }
@@ -274,8 +307,23 @@ onMounted(async () => {
 .profit-tabs :deep(.el-tabs__item) { height: 46px; font-size: 14px; }
 .pane-tools { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--jc-line-2); flex-wrap: wrap; }
 .pn { font-weight: 600; color: var(--jc-ink); display: flex; align-items: center; gap: 6px; }
-.drawer-body { min-height: 200px; }
-.dstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px 16px; background: var(--jc-surface-2); border-radius: var(--jc-radius-sm); }
+.dd-sub { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dcols { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; align-items: start; }
+.dleft { display: flex; flex-direction: column; gap: 12px; }
+.dbox { border: 1px solid var(--jc-line); border-radius: var(--jc-radius-sm); padding: 12px 14px; min-width: 0; }
+.dbox h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display: flex; align-items: baseline; gap: 6px; }
+.dinfo { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; }
+.dinfo li { display: flex; gap: 8px; }
+.dinfo span { color: var(--jc-ink-3); width: 52px; flex: none; }
+.dinfo b { font-weight: 500; color: var(--jc-ink); overflow-wrap: anywhere; }
+.dnodes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; }
+.dnodes li { display: flex; gap: 8px; }
+.dnodes i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--jc-ink-4); margin-top: 5px; flex: none; }
+.dnodes li.done i { background: var(--jc-up); border-color: var(--jc-up); }
+.dnodes li.late i { background: var(--jc-down); border-color: var(--jc-down); }
+.dnodes div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.profit-detail :deep(.el-dialog__body) { padding-top: 6px; }
+.dstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px 16px; margin: 12px 0 14px; background: var(--jc-surface-2); border-radius: var(--jc-radius-sm); }
 .dstats > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .dstats b { font-size: 20px; font-weight: 600; color: var(--jc-ink); }
 :deep(.in-period td.el-table__cell) { background: var(--jc-brand-50); }
