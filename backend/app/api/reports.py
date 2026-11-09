@@ -228,6 +228,7 @@ def profit(week: str | None = None, start: date | None = None, end: date | None 
            "public_detail": rs.public_expense_detail(db, s, e),
            "kpi": {"income": t["income"], "cost": t["cost"], "gross_profit": t["gross_profit"],
                    "gross_margin": t["gross_margin"], "period_cost": t["period_cost"],
+                   "cost_payable": t.get("cost_payable", 0),
                    "period_income": t["period_income"],
                    "period_expense": sum((r["period_expense"] for r in rows), rs.ZERO),
                    "public_expense": pr["public_expense"], "low_margin_count": sum(1 for r in rows if r["low_margin"])},

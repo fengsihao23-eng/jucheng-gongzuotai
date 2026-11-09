@@ -1,7 +1,7 @@
 <!-- 项目利润（FR-04-02 / 3.3 / 7.1）：共享利润口径 profit_service 实时计算，与周利润表、看板、WorkBuddy 一致 -->
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="财务" title="项目利润" :desc="`项目收入 − 归集成本 = 毛利；公共费用不摊入项目，单列为管理费用-公共。统计周 ${res?.period || ''}（${date(res?.start)} ~ ${date(res?.end)}）`">
+    <PageHeader eyebrow="财务" title="项目利润" :desc="`项目收入 − 归集成本 = 毛利（成本含报表待支付应付）；公共费用不摊入项目，单列为管理费用-公共。统计周 ${res?.period || ''}（${date(res?.start)} ~ ${date(res?.end)}）`">
       <el-date-picker v-model="weekDate" type="week" format="gggg 第 ww 周" value-format="YYYY-MM-DD" :clearable="false"
         :disabled-date="future" style="width: 170px" @change="reload" />
       <FileLink v-if="res?.report?.files?.[0]" :file="res.report.files[0]" label="下载周利润表" />
@@ -10,7 +10,7 @@
 
     <div class="jc-grid c6" v-loading="loading">
       <Kpi label="累计收入" :value="wanNum(k.income)" unit="万元" :hint="`本周新增 ${wan(k.period_income)}`" />
-      <Kpi label="累计成本" :value="wanNum(k.cost)" unit="万元" :hint="`本周发生 ${wan(k.period_cost)}`" />
+      <Kpi label="累计成本" :value="wanNum(k.cost)" unit="万元" :hint="`本周发生 ${wan(k.period_cost)} · 含待支付 ${wanNum(k.cost_payable)} 万元`" />
       <Kpi label="毛利" :value="wanNum(k.gross_profit)" unit="万元" :hint="`${res?.rows?.length || 0} 个项目`" />
       <Kpi label="毛利率" :value="k.gross_margin === null || k.gross_margin === undefined ? '—' : (Number(k.gross_margin) * 100).toFixed(1)" unit="%"
         :hint="`低于 ${percent(res?.alert_margin, 0)} 的项目 ${k.low_margin_count || 0} 个`" />
@@ -86,6 +86,9 @@
         <el-table-column label="累计收入" min-width="120" align="right" prop="income"><template #default="{ row }"><span class="jc-num">{{ money(row.income, 0) }}</span></template></el-table-column>
         <el-table-column label="报销费用" min-width="110" align="right" prop="cost_expense"><template #default="{ row }"><span class="jc-num">{{ money(row.cost_expense, 0) }}</span></template></el-table-column>
         <el-table-column label="采购成本" min-width="120" align="right" prop="cost_project"><template #default="{ row }"><span class="jc-num">{{ money(row.cost_project, 0) }}</span></template></el-table-column>
+        <el-table-column label="待支付" min-width="110" align="right" prop="cost_payable">
+          <template #default="{ row }"><span class="jc-num" :class="{ 'jc-warn': Number(row.cost_payable) }">{{ money(row.cost_payable, 0) }}</span></template>
+        </el-table-column>
         <el-table-column v-if="hasLemon" label="柠檬云核算" min-width="110" align="right" prop="cost_lemon"><template #default="{ row }"><span class="jc-num">{{ money(row.cost_lemon, 0) }}</span></template></el-table-column>
         <el-table-column label="累计成本" min-width="120" align="right" prop="cost"><template #default="{ row }"><span class="jc-num">{{ money(row.cost, 0) }}</span></template></el-table-column>
         <el-table-column label="毛利" min-width="120" align="right" prop="gross_profit"><template #default="{ row }"><span class="jc-num" :class="{ 'jc-down': Number(row.gross_profit) < 0 }">{{ money(row.gross_profit, 0) }}</span></template></el-table-column>
@@ -138,7 +141,7 @@ import { baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
 
 dayjs.extend(isoWeek)
 const INCOME = { contract: '已签合同额', payment: '已到账回款' }
-const SOURCES = { expense: '归集报销', project_cost: '采购成本', lemon_aux: '柠檬云辅助核算' }
+const SOURCES = { expense: '归集报销', project_cost: '采购成本', report_payable: '报表待支付', lemon_aux: '柠檬云辅助核算' }
 const auth = useAuth()
 const loading = ref(false)
 const trendLoading = ref(false)
@@ -159,7 +162,7 @@ const hasLemon = computed(() => (res.value?.caliber?.cost_sources || []).include
 const rows = computed(() => (res.value?.rows || []).filter((r) => (!lineFilter.value || r.business_line === lineFilter.value) && (!onlyLow.value || r.low_margin)))
 const periodRow = ({ row }) => (row.in_period ? 'in-period' : '')
 
-const SUM_KEYS = ['income', 'cost_expense', 'cost_project', 'cost_lemon', 'cost', 'gross_profit', 'period_income', 'period_cost', 'period_expense']
+const SUM_KEYS = ['income', 'cost_expense', 'cost_project', 'cost_payable', 'cost_lemon', 'cost', 'gross_profit', 'period_income', 'period_cost', 'period_expense']
 function summary({ columns, data }) {
   return columns.map((c, i) => {
     if (i === 1) return `合计（${data.length}）`

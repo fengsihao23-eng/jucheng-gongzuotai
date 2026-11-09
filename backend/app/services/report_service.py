@@ -74,8 +74,11 @@ REPORT_TYPES: dict[str, dict] = {
             "取数：统一调用共享利润口径 profit_service.project_profit，与经营看板、WorkBuddy fin.project_profit 数字一致。",
             "收入口径（sys_dict caliber.profit.income_basis）：contract=截至期末已签合同额；payment=截至期末已到账回款。",
             "成本口径（cost_sources）：expense=已归集到项目的报销（按费用发生日）；project_cost=人工标记的采购/分包成本；"
+            "report_payable=项目报表截止日的待支付应付快照（计入累计成本，不计本期发生）；"
             "lemon_aux=柠檬云项目辅助核算成本类科目（5 开头借方）。",
-            "历史项目报表按凭证记账日计入采购、施工及报销，保留负数冲销；待核对凭证、待支付快照和税费测算不计入。多合同同一项目按来源报表合并核算，不向各合同猜测分摊。",
+            "历史项目报表按凭证记账日计入采购、施工及报销，保留负数冲销；待核对凭证和税费测算不计入。"
+            "待支付按同一项目最新一期报表的应付余额计入累计成本，多期报表只取最新一期，避免跨期重复。"
+            "多合同同一项目按来源报表合并核算，不向各合同猜测分摊。",
             "累计 = 截至周末；本周发生 = 周一至周日区间内发生额。毛利 = 收入 − 成本；毛利率 = 毛利 ÷ 收入。",
             "公共费用（未归集到项目的已归集报销）不摊入项目毛利，单列为「管理费用-公共」。",
             "毛利率低于预警线（sys_dict report_rule.profit_alert_margin，默认 20%）的项目标红。",
@@ -439,7 +442,8 @@ def render_weekly_profit(db, m: dict, ctx: dict, lines: list[str]) -> list[tuple
     cols = [("project_code", "项目编码", "text"), ("name", "项目名称", "text"), ("line_name", "业务线", "text"),
             ("status_name", "状态", "text"), ("customer_name", "客户", "text"),
             ("income", "累计收入", "money"), ("cost_expense", "累计报销费用", "money"),
-            ("cost_project", "累计采购成本", "money"), ("cost_lemon", "柠檬云辅助核算", "money"),
+            ("cost_project", "累计采购成本", "money"), ("cost_payable", "待支付应付", "money"),
+            ("cost_lemon", "柠檬云辅助核算", "money"),
             ("cost", "累计成本", "money"), ("gross_profit", "累计毛利", "money"), ("gross_margin", "毛利率", "pct"),
             ("period_income", "本周收入", "money"), ("period_expense", "本周报销费用", "money"),
             ("period_project_cost", "本周采购成本", "money"), ("period_cost", "本周成本", "money"),
@@ -448,6 +452,7 @@ def render_weekly_profit(db, m: dict, ctx: dict, lines: list[str]) -> list[tuple
              "gross_margin": t["gross_margin"], "period_income": t["period_income"], "period_cost": t["period_cost"],
              "cost_expense": sum((r["cost_expense"] for r in m["rows"]), ZERO),
              "cost_project": sum((r["cost_project"] for r in m["rows"]), ZERO),
+             "cost_payable": sum((r["cost_payable"] for r in m["rows"]), ZERO),
              "cost_lemon": sum((r["cost_lemon"] for r in m["rows"]), ZERO),
              "period_expense": m["period_expense"],
              "period_project_cost": sum((r["period_project_cost"] for r in m["rows"]), ZERO),
@@ -456,6 +461,7 @@ def render_weekly_profit(db, m: dict, ctx: dict, lines: list[str]) -> list[tuple
             note=f"标红：毛利率低于 {pct(m['alert_margin'])}。公共费用不摊入项目，见「公共费用」sheet。")
     b.kv_sheet("汇总", [("统计周", ctx["label"], "text"), ("项目数", m["project_count"], "int"),
                        ("累计收入", t["income"], "money"), ("累计成本", t["cost"], "money"),
+                       ("其中：待支付应付", t.get("cost_payable", ZERO), "money"),
                        ("累计毛利", t["gross_profit"], "money"), ("毛利率", t["gross_margin"], "pct"),
                        ("本周收入", t["period_income"], "money"), ("本周成本", t["period_cost"], "money"),
                        ("本周归集报销费用", m["period_expense"], "money"),

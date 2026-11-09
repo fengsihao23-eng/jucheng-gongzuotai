@@ -6,6 +6,7 @@
 成本 cost_sources（可多选）：
   expense      — 已归集到项目的报销（status=4，按费用发生日）
   project_cost — 人工标记的采购/分包成本（按成本日期）
+  report_payable — 项目报表截止日的「待支付」应付快照（权责发生制，计入累计成本、不算期间流量）
   lemon_aux    — 柠檬云凭证项目辅助核算的成本类科目（5 开头借方）；与前两项可能重复，默认不启用
 公共费用（project_code 为空）不摊入项目，单列为「管理费用-公共」。
 
@@ -17,11 +18,13 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import BizContract, BizExpenseReport, BizPayment, BizProject, BizProjectCost, FinVoucher
+from app.models import (BizContract, BizExpenseReport, BizPayment, BizProject, BizProjectCost, FinProjectReport,
+                        FinProjectReportEntry, FinVoucher)
 from app.services import dict_service
 
 ZERO = Decimal("0")
-DEFAULT_CALIBER = {"income_basis": "contract", "public_expense": "exclude", "cost_sources": ["expense", "project_cost"]}
+DEFAULT_CALIBER = {"income_basis": "contract", "public_expense": "exclude",
+                   "cost_sources": ["expense", "project_cost", "report_payable"]}
 
 
 def caliber(db: Session) -> dict:
@@ -61,7 +64,7 @@ def scoped_project_codes(db, code, scope=None):
 
 
 def _combine_rows(db, rows, selected_codes):
-    numeric = ("income", "cost", "cost_expense", "cost_project", "cost_lemon", "gross_profit",
+    numeric = ("income", "cost", "cost_expense", "cost_project", "cost_lemon", "cost_payable", "gross_profit",
                "period_income", "period_cost", "period_expense", "period_project_cost")
     for primary, members in accounting_groups(db):
         grouped = [r for r in rows if r["project_code"] in members]
@@ -119,6 +122,38 @@ def _costs(db: Session, sources: list[str], start: date | None, end: date) -> di
     return out
 
 
+def _report_payables(db: Session, end: date) -> dict[str, Decimal]:
+    """各项目截至期末最新一份项目报表的「待支付」应付快照，按项目归集。
+
+    同一项目有多期报表时只取最新一期，避免跨期重复累计；快照是报表截止日的应付余额，
+    不是期间发生的付款，因此只进累计成本，不进「本期发生」。同一份报表内已作为成本/报销
+    入账的行本就不在待支付清单里，两者按源表口径天然互斥。
+    """
+    latest: dict[str, int] = {}
+    for code, ident, _period in db.execute(
+            select(FinProjectReport.primary_project_code, FinProjectReport.id, FinProjectReport.period)
+            .where(FinProjectReport.period <= end.strftime("%Y-%m"))
+            .order_by(FinProjectReport.primary_project_code, FinProjectReport.period, FinProjectReport.id)).all():
+        latest[code] = ident
+    if not latest:
+        return {}
+    report_of = {ident: code for code, ident in latest.items()}
+    out: dict[str, Decimal] = {}
+    for report_id, data in db.execute(
+            select(FinProjectReportEntry.report_id, FinProjectReportEntry.data)
+            .where(FinProjectReportEntry.report_id.in_(list(latest.values())),
+                   FinProjectReportEntry.kind == "payable")).all():
+        if not isinstance(data, dict):
+            continue
+        amount = Decimal(str(data.get("amount") or "0"))
+        if amount == 0:
+            continue
+        code = report_of.get(report_id)
+        if code:
+            out[code] = out.get(code, ZERO) + amount
+    return out
+
+
 def project_profit(db: Session, start: date, end: date, project_codes: list[str] | None = None,
                    include_closed: bool = True) -> dict:
     """返回 {caliber, rows:[...], totals, public_expense}。rows 每项含累计与本期。"""
@@ -131,11 +166,13 @@ def project_profit(db: Session, start: date, end: date, project_codes: list[str]
     projects = db.scalars(q.order_by(BizProject.project_code)).all()
     inc_all, inc_per = _income(db, cal["income_basis"], None, end), _income(db, cal["income_basis"], start, end)
     cost_all, cost_per = _costs(db, cal["cost_sources"], None, end), _costs(db, cal["cost_sources"], start, end)
+    payables = _report_payables(db, end) if "report_payable" in cal["cost_sources"] else {}
     rows = []
     for p in projects:
         ca = cost_all.get(p.project_code, {})
         cp = cost_per.get(p.project_code, {})
-        income, cost = inc_all.get(p.project_code, ZERO), sum(ca.values(), ZERO)
+        payable = payables.get(p.project_code, ZERO)
+        income, cost = inc_all.get(p.project_code, ZERO), sum(ca.values(), ZERO) + payable
         if income == 0 and cost == 0:
             continue
         gp = income - cost
@@ -144,6 +181,7 @@ def project_profit(db: Session, start: date, end: date, project_codes: list[str]
             "customer_name": p.customer_name, "is_key": p.is_key,
             "income": income, "cost": cost, "cost_expense": ca.get("expense", ZERO),
             "cost_project": ca.get("project_cost", ZERO), "cost_lemon": ca.get("lemon_aux", ZERO),
+            "cost_payable": payable,
             "gross_profit": gp, "gross_margin": (gp / income).quantize(Decimal("0.0001")) if income else None,
             "period_income": inc_per.get(p.project_code, ZERO), "period_cost": sum(cp.values(), ZERO),
             "period_expense": cp.get("expense", ZERO), "period_project_cost": cp.get("project_cost", ZERO),
@@ -158,6 +196,7 @@ def project_profit(db: Session, start: date, end: date, project_codes: list[str]
         "caliber": cal, "start": start, "end": end, "rows": rows,
         "totals": {"income": t_inc, "cost": t_cost, "gross_profit": t_inc - t_cost,
                    "gross_margin": ((t_inc - t_cost) / t_inc).quantize(Decimal("0.0001")) if t_inc else None,
+                   "cost_payable": sum((r["cost_payable"] for r in rows), ZERO),
                    "period_income": sum((r["period_income"] for r in rows), ZERO),
                    "period_cost": sum((r["period_cost"] for r in rows), ZERO)},
         "public_expense": Decimal(db.scalar(pub_q)),

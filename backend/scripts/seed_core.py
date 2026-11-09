@@ -179,8 +179,8 @@ def seed(db: Session) -> Ctx:
         put("approval_template", tid, tpl, f"企微审批模板映射：{tpl['name']}")
     put("expense_category", "list", list(EXPENSE_CATS))
     put("caliber", "profit", {"income_basis": "contract", "public_expense": "exclude",
-                              "cost_sources": ["expense", "project_cost", "lemon_aux"]},
-        "项目毛利口径（待财务评审）：收入=合同额；公共费用不摊入项目")
+                              "cost_sources": ["expense", "project_cost", "report_payable", "lemon_aux"]},
+        "项目毛利口径（待财务评审）：收入=合同额；成本含报表待支付应付；公共费用不摊入项目")
     put("caliber", "payment", {"date_basis": "bank_trade_date"}, "回款以银行流水到账日为准")
     put("report_rule", "submit", {"weekly": {"exclude_depts": ["ADMIN"], "exclude_roles": ["EMP"]},
                                   "monthly": {"exclude_depts": ["ADMIN"], "exclude_roles": ["EMP"]},

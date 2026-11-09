@@ -194,13 +194,14 @@ def test_combined_contract_report_is_linked_once_and_scope_is_complete(client, l
     codes = [c.project_code for c in contracts]
     grouped = profit_service.project_profit(db, date(2026, 1, 1), date(2026, 9, 30), codes)
     assert len(grouped['rows']) == 1
-    assert grouped['rows'][0]['income'] == Decimal(1000) and grouped['rows'][0]['cost'] == Decimal(115)
+    assert grouped['rows'][0]['income'] == Decimal(1000) and grouped['rows'][0]['cost'] == Decimal(165)
+    assert grouped['rows'][0]['cost_payable'] == Decimal(50)
     assert set(grouped['rows'][0]['group_codes']) == set(codes)
     assert profit_service.scoped_project_codes(db, codes[0], [codes[0]]) == [codes[0]]
     from app.services import report_service
     ctx = report_service.normalize_period('project_operation', '2026-W39', codes)
     operation = report_service.collect_project_operation(db, ctx)
-    assert sum((r['cost'] or Decimal(0) for r in operation['rows']), Decimal(0)) == Decimal(115)
+    assert sum((r['cost'] or Decimal(0) for r in operation['rows']), Decimal(0)) == Decimal(165)
     secondary = next(r for r in operation['rows'] if r['project_code'] == codes[1])
     assert secondary['cost'] is None and '合并' in secondary['finance_note']
     drill = data(client.get(f'/api/v1/reports/profit/{codes[1]}', headers=login('admin'),
@@ -259,7 +260,7 @@ def test_profit_drilldown_and_source_api_agree_and_cost_immutable(client, login,
     code = contracts[0].project_code
     profit = profit_service.project_profit(db, date(2026, 1, 1), date(2026, 9, 30), [code])['rows'][0]
     assert profit['cost_expense'] == Decimal(15) and profit['cost_project'] == Decimal(100)
-    assert profit['cost'] == Decimal(115)
+    assert profit['cost_payable'] == Decimal(50) and profit['cost'] == Decimal(165)
     detail = data(client.get(f'/api/v1/reports/profit/{code}', params={'start': '2026-01-01', 'end': '2026-09-30'}, headers=login('admin')))['detail']
     assert sum(Decimal(e['amount']) for e in detail['expenses']) == Decimal(15)
     assert sum(Decimal(e['amount']) for e in detail['costs']) == Decimal(100)
