@@ -3,7 +3,7 @@
     <header>
       <div><h3>项目进度</h3><p v-if="latest">{{ latest.author_name }} · {{ datetime(latest.created_at) }}</p><p v-else>尚未填写项目进度</p></div>
       <div v-if="!readOnly" class="actions">
-        <el-button v-if="latest" size="small" @click="historyOpen = true">进度记录</el-button>
+        <el-button v-if="latest || $slots['history-actions']" size="small" @click="historyOpen = true">进度记录</el-button>
         <el-button v-if="project.can_manage" type="primary" size="small" @click="start">填写项目进度</el-button>
       </div>
     </header>
@@ -22,7 +22,7 @@
     </el-form>
     <template #footer><div class="form-footer"><el-button link type="primary" @click="withXiaoju">用小聚填写</el-button><div class="actions"><el-button @click="formOpen = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目进度</el-button></div></div></template>
   </el-dialog>
-  <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(720px, calc(100vw - 24px))" align-center append-to-body destroy-on-close>
+  <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(720px, calc(100vw - 24px))" align-center append-to-body destroy-on-close @closed="historyClosed">
     <div v-loading="loading" class="history-list">
       <article v-for="entry in history" :key="entry.id">
         <h4>{{ entry.author_name }} <span>{{ datetime(entry.created_at) }}</span></h4>
@@ -30,7 +30,11 @@
       </article>
       <el-empty v-if="!history.length && !loading" :description="failed ? '暂时无法读取记录' : '暂无进度记录'" :image-size="64" />
     </div>
-    <template #footer><el-button v-if="failed || nextBefore" :loading="loading" @click="loadHistory(nextBefore)">{{ failed ? '重试' : '查看更多' }}</el-button><el-button @click="historyOpen = false">关闭</el-button></template>
+    <template #footer>
+      <slot name="history-actions" :close="closeHistory" />
+      <el-button v-if="failed || nextBefore" :loading="loading" @click="loadHistory(nextBefore)">{{ failed ? '重试' : '查看更多' }}</el-button>
+      <el-button @click="closeHistory()">关闭</el-button>
+    </template>
   </el-dialog>
 </template>
 
@@ -48,8 +52,10 @@ const assistant = useAssistant(), latest = computed(() => props.project.latest_p
 const formOpen = ref(false), historyOpen = ref(false), saving = ref(false), loading = ref(false), failed = ref(false)
 const history = ref([]), nextBefore = ref(null)
 const form = reactive({ progress: '', problems: '', next_plan: '', next_due_date: null })
-let historyVersion = 0
+let historyVersion = 0, afterHistoryClose
 
+function closeHistory(after) { afterHistoryClose = after; historyOpen.value = false }
+function historyClosed() { const after = afterHistoryClose; afterHistoryClose = undefined; after?.() }
 function start() {
   Object.assign(form, { progress: '', problems: '', next_plan: '', next_due_date: null })
   formOpen.value = true

@@ -6,6 +6,7 @@
       <el-select v-model="source" placeholder="全部任务来源" clearable style="width: 160px"><el-option v-for="(v,k) in TASK_SOURCES" :key="k" :label="v" :value="k" /></el-select>
       <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="reviewMine">待我审核</el-checkbox>
       <el-button :loading="loading" @click="load()">刷新</el-button><el-button @click="summarize">让小聚汇总本月</el-button>
+      <slot name="actions" />
     </div>
     <TaskOverview :rows="rows" :title="`${month} 月度汇总`" :caption="fetchError ? '暂时无法同步，可点击刷新重试。' : '按当前筛选汇总，显示任务最新状态。'" :updated-at="updatedAt" monthly />
     <div class="list-heading"><h3>任务明细 <span>{{ rows.length }} 项</span></h3><span class="jc-small jc-muted">{{ data.note }}</span></div>

@@ -51,10 +51,7 @@
                 </el-form-item>
                 <el-button link type="primary" :loading="drafting" :disabled="!form.content.trim() || saving" @click="draft">让 AI 整理文字</el-button>
                 <div v-if="draftText" class="draft-preview"><p class="plain">{{ draftText }}</p><el-button size="small" @click="form.content = draftText; draftText = ''">采用这段文字</el-button><el-button size="small" text @click="draftText = ''">保留原文</el-button></div>
-                <div v-if="outcome === 'pending'" class="two">
-                  <el-form-item label="完成进度（%）"><el-input-number v-model="form.progress" :min="0" :max="99" :step="10" /></el-form-item>
-                  <el-form-item label="当前情况"><el-checkbox v-model="blocked">遇到阻碍</el-checkbox></el-form-item>
-                </div>
+                <el-form-item v-if="outcome === 'pending'" label="当前情况"><el-checkbox v-model="blocked">遇到阻碍</el-checkbox></el-form-item>
                 <el-form-item v-if="remainingNodes.length" label="本次完成的节点"><el-checkbox-group v-model="form.completed_node_ids"><el-checkbox v-for="node in remainingNodes" :key="node.id" :value="node.id">{{ node.name }}</el-checkbox></el-checkbox-group></el-form-item>
                 <el-form-item label="下一步（可选）"><el-input v-model="form.next_step" maxlength="6000" placeholder="下一步要做什么，需要谁协调" /></el-form-item>
                 <el-form-item v-if="outcome === 'pending'" :label="requiresReason ? '未完成原因（必填）' : '未完成原因（可选）'"><el-input v-model="form.incomplete_reason" type="textarea" :rows="2" maxlength="6000" placeholder="例如：等待校方提供资料，预计明天补齐" /></el-form-item>
@@ -88,17 +85,17 @@ const emit = defineEmits(['update:modelValue', 'edit'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assistant = useAssistant(), task = ref(null), loading = ref(false), unavailable = ref(false), saving = ref(false)
 const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
-const form = reactive({ content: '', next_step: '', status: 'doing', progress: 0, completed_node_ids: [], incomplete_reason: '' })
+const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '' })
 const blocked = computed({ get: () => form.status === 'blocked', set: value => { form.status = value ? 'blocked' : 'doing' } })
-let beforeComplete = { status: 'doing', progress: 0 }
+let beforeComplete = 'doing'
 const outcome = computed({
   get: () => form.status === 'done' ? 'done' : 'pending',
   set: value => {
     if (value === 'done' && form.status !== 'done') {
-      beforeComplete = { status: form.status, progress: form.progress }
-      form.status = 'done'; form.progress = 100
+      beforeComplete = form.status
+      form.status = 'done'
     } else if (value === 'pending' && form.status === 'done') {
-      form.status = beforeComplete.status; form.progress = Math.min(99, beforeComplete.progress || 0)
+      form.status = beforeComplete
     }
   },
 })
@@ -109,7 +106,7 @@ let version = 0, baseline = ''
 
 function resetForm(row) {
   Object.assign(form, { content: '', next_step: row.next_step || '', status: row.status === 'todo' ? 'doing' : row.status,
-    progress: row.progress, completed_node_ids: [], incomplete_reason: row.incomplete_reason || '' })
+    completed_node_ids: [], incomplete_reason: row.incomplete_reason || '' })
   formRevision.value = row.revision; baseline = JSON.stringify(form); draftText.value = ''; reviewComment.value = ''
 }
 async function load(background = false) {
@@ -167,7 +164,7 @@ async function submit() {
   if (!await formRef.value.validate().catch(() => false)) return
   if (form.status === 'done' && remainingNodes.value.some(n => !form.completed_node_ids.includes(n.id))) return ElMessage.warning('请确认所有阶段节点已完成')
   if (form.status !== 'done' && requiresReason.value && !form.incomplete_reason.trim()) return ElMessage.warning('请填写未完成原因')
-  await save('feedback', { ...form, progress: Number.isInteger(form.progress) ? form.progress : task.value.progress }, '进展已反馈')
+  await save('feedback', { ...form, progress: form.status === 'done' ? 100 : task.value.progress }, '进展已反馈')
 }
 function review(decision) {
   if (!reviewComment.value.trim()) return ElMessage.warning('请填写审核意见或退回原因')
@@ -192,7 +189,7 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 .notice { margin-bottom: 12px; }.body-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1fr); gap: 20px; align-items: start; }.body-grid.one-column { grid-template-columns: minmax(0, 1fr); }.details, .work { min-width: 0; }
 .section { border: 1px solid var(--jc-line); border-radius: 8px; padding: 14px; }.section + .section { margin-top: 10px; }.section h3 { font-size: 15px; margin: 0 0 10px; color: var(--jc-ink); }.section h3 small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }.section p { margin: 0; }.plain { white-space: pre-wrap; line-height: 1.7; overflow-wrap: anywhere; }
 .nodes { list-style: none; margin: 0; padding: 0; }.nodes li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 6px 0; overflow-wrap: anywhere; }.nodes li + li { border-top: 1px solid var(--jc-line-2); }.nodes li i { background: var(--jc-bg); border: 1px solid var(--jc-line); color: var(--jc-ink-2); border-radius: 50%; display: inline-grid; width: 19px; height: 19px; place-items: center; font-style: normal; font-size: 10px; }.nodes li.complete i { border-color: var(--jc-up); color: var(--jc-up); }.nodes li small { color: var(--jc-ink-3); }.nodes li.complete small { color: var(--jc-up); }.nodes li.overdue small { color: var(--jc-down); }
-.history :deep(.el-timeline) { padding-left: 2px; }.history :deep(.el-timeline-item:last-child) { padding-bottom: 0; }.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 12px; }.two :deep(.el-input-number) { width: 100%; }.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
+.history :deep(.el-timeline) { padding-left: 2px; }.history :deep(.el-timeline-item:last-child) { padding-bottom: 0; }.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
 .result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.result-choice :deep(.el-radio-button__inner) { width: 100%; }
 @media (max-width: 740px) { .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }.work { grid-row: 1; }.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { :global(.ops-task-dialog.el-dialog) { width: 100vw; height: 100dvh; border-radius: 0; }:global(.ops-task-dialog > .el-dialog__body) { max-height: none; }.task-page { padding: 14px; }.section { padding: 12px; } }

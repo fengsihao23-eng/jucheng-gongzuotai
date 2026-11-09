@@ -1,6 +1,9 @@
 <template>
   <div>
-    <p class="jc-muted">按项目组成跨部门团队。执行成员可提交自行安排、反馈本人任务；部门审核人可审核分配给自己的计划；项目管理员维护任务和资料。公司审核由具备公司审核权限的人员处理。</p>
+    <div class="team-intro">
+      <p class="jc-muted">按项目组成跨部门团队。执行成员可提交自行安排、反馈本人任务；部门审核人可审核分配给自己的计划；项目管理员维护任务和资料。公司审核由具备公司审核权限的人员处理。</p>
+      <el-button v-if="project.can_manage" link type="primary" @click="emit('settings')">项目设置</el-button>
+    </div>
     <div v-if="project.can_manage" class="add-row">
       <el-select v-model="userId" filterable placeholder="选择团队成员" style="width: 240px"><el-option v-for="u in users" :key="u.id" :value="u.id" :label="`${u.name} · ${u.dept || '跨部门'}`" /></el-select>
       <el-select v-model="memberRole" style="width: 160px"><el-option v-for="(v, k) in ROLES" :key="k" :value="k" :label="v" /></el-select>
@@ -19,7 +22,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { ROLES, announceChange } from './shared'
-const props = defineProps({ project: Object }), emit = defineEmits(['saved'])
+const props = defineProps({ project: Object }), emit = defineEmits(['saved', 'settings'])
 const users = ref([]), userId = ref(null), memberRole = ref('member'), saving = ref(false)
 onMounted(async () => { if (props.project.can_manage) { try { users.value = (await api.get('/operations/options', { project_id: props.project.id })).users.filter(u => u.id !== props.project.owner_id) } catch {} } })
 async function save() {
@@ -32,4 +35,7 @@ async function remove(row) {
   try { await api.del(`/operations/${props.project.id}/members/${row.user_id}`); emit('saved'); announceChange(); ElMessage.success('成员已移除') } catch {} finally { saving.value = false }
 }
 </script>
-<style scoped>.add-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 24px 0; }</style>
+<style scoped>
+.team-intro { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 14px; margin-bottom: 12px; }
+.team-intro p { flex: 1 1 480px; margin: 0; }.add-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 24px 0; }
+</style>

@@ -17,7 +17,7 @@ try{
   staff=await loginPage(browser,'xiekai')
   staff.on('pageerror',e=>errors.push(e.message))
   await staff.goto(`${WEB}/operations/${project.id}`)
-  await staff.getByRole('button',{name:'自行安排',exact:true}).click()
+  await staff.getByRole('tabpanel',{name:'月度任务',exact:true}).getByRole('button',{name:'自行安排',exact:true}).click()
   const form=staff.getByRole('dialog',{name:'提交自行安排任务',exact:true})
   await form.getByLabel('要完成什么',{exact:true}).fill('自主计划完成现场复核')
   await form.getByLabel('完成要求',{exact:true}).fill('获得学校需求确认清单')
