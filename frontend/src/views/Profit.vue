@@ -18,15 +18,17 @@
       <Kpi label="公共费用" :value="wanNum(k.public_expense, 2)" unit="万元" hint="管理费用-公共，不摊入项目" />
     </div>
 
-    <ProjectReportSources />
-
-    <Panel class="mt-16" title="项目利润表" :sub="`点击项目展开下钻：归集报销、采购成本、合同${hasLemon ? '、柠檬云辅助核算' : ''}`" :padding="false" :loading="loading">
-      <template #extra>
-        <el-select v-model="lineFilter" placeholder="业务线" clearable size="small" style="width: 130px">
-          <el-option v-for="(n, k2) in BUSINESS_LINES" :key="k2" :label="n" :value="k2" />
-        </el-select>
-        <el-checkbox v-model="onlyLow" size="small">只看低毛利</el-checkbox>
-      </template>
+    <Panel class="mt-16" :padding="false" :loading="loading">
+      <el-tabs v-model="tableTab" class="profit-tabs">
+        <el-tab-pane name="profit" :label="rows.length ? `项目利润表 · ${rows.length} 个项目` : '项目利润表'">
+          <div class="pane-tools">
+            <span class="jc-muted jc-small">点击项目展开下钻：归集报销、采购成本、合同{{ hasLemon ? '、柠檬云辅助核算' : '' }}</span>
+            <span class="jc-spacer" />
+            <el-select v-model="lineFilter" placeholder="业务线" clearable size="small" style="width: 130px">
+              <el-option v-for="(n, k2) in BUSINESS_LINES" :key="k2" :label="n" :value="k2" />
+            </el-select>
+            <el-checkbox v-model="onlyLow" size="small">只看低毛利</el-checkbox>
+          </div>
       <el-table :data="rows" row-key="project_code" :row-class-name="({ row }) => (row.low_margin ? 'is-alert' : '')"
         :expand-row-keys="expanded" show-summary :summary-method="summary" @expand-change="onExpand" @row-click="toggle">
         <el-table-column type="expand" width="36">
@@ -99,6 +101,11 @@
         <el-table-column label="本周成本" min-width="110" align="right" prop="period_cost"><template #default="{ row }"><span class="jc-num">{{ money(row.period_cost, 0) }}</span></template></el-table-column>
         <el-table-column label="本周费用" min-width="100" align="right" prop="period_expense"><template #default="{ row }"><span class="jc-num">{{ money(row.period_expense, 0) }}</span></template></el-table-column>
       </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="历史项目报表" name="sources">
+          <ProjectReportSources bare />
+        </el-tab-pane>
+      </el-tabs>
     </Panel>
 
     <div class="jc-grid c3 mt-16">
@@ -151,6 +158,7 @@ const trend = ref([])
 const weekDate = ref('')
 const lineFilter = ref('')
 const onlyLow = ref(false)
+const tableTab = ref('profit')
 const expanded = ref([])
 const detail = reactive({})
 const future = (d) => d.getTime() > Date.now()
@@ -248,6 +256,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.profit-tabs :deep(.el-tabs__header) { margin: 0; padding: 0 18px; }
+.profit-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: var(--jc-line-2); }
+.profit-tabs :deep(.el-tabs__item) { height: 46px; font-size: 14px; }
+.pane-tools { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--jc-line-2); flex-wrap: wrap; }
 .pn { font-weight: 600; color: var(--jc-ink); display: flex; align-items: center; gap: 6px; }
 .drill { padding: 4px 20px 12px 48px; min-height: 60px; }
 .drill :deep(.in-period td.el-table__cell) { background: var(--jc-brand-50); }

@@ -1039,7 +1039,7 @@ def _next_contract_no(db: Session, year: int, reserved: set[str]) -> str:
 
 
 def _insert(db: Session, job: CleanJob, r: dict, user_id: int, reserved: set[str]) -> str:
-    from app.services import codes, payment_service
+    from app.services import codes, payment_service, project_service
     t = job.target
     note = f"Excel 清洗导入（任务 #{job.id}，{job.filename} 第 {r['_row']} 行）"
     if t == "contract":
@@ -1081,6 +1081,7 @@ def _insert(db: Session, job: CleanJob, r: dict, user_id: int, reserved: set[str
                    remark="；".join(x for x in [r.get("remark"), note] if x))
     db.add(p)
     db.flush()
+    project_service.ensure_nodes(db, p, _dt(r.get("start_date")))
     return code
 
 

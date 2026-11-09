@@ -1,6 +1,8 @@
 <template>
-  <Panel v-if="allowed && (loading || total || (!projectCode && !contractId))" class="mt-16" title="历史项目报表" :padding="false"
-    sub="凭证成本进入统一利润统计；待付款、税费测算和开票汇总保留独立口径，可逐行核对原件。" :loading="loading">
+  <component :is="bare ? 'div' : 'Panel'" v-if="allowed && (loading || total || (!projectCode && !contractId))"
+    class="report-sources" :class="{ 'mt-16': !bare }"
+    v-bind="bare ? {} : { title: '历史项目报表', padding: false, loading,
+      sub: '凭证成本进入统一利润统计；待付款、税费测算和开票汇总保留独立口径，可逐行核对原件。' }">
     <el-table :data="items" empty-text="暂无已导入的项目报表">
       <el-table-column label="截止月份" prop="period" width="100" />
       <el-table-column label="关联项目与合同" min-width="240">
@@ -17,7 +19,7 @@
       <el-table-column label="" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="open(row.id)">查看明细</el-button></template></el-table-column>
     </el-table>
     <el-pagination v-if="total > 30" class="source-pages" v-model:current-page="page" :page-size="30" :total="total" layout="prev, pager, next" @current-change="load" />
-  </Panel>
+  </component>
 
   <el-drawer v-model="opened" title="项目报表来源与核对" size="88%" destroy-on-close>
     <div v-loading="detailLoading" class="jc-stack">
@@ -123,7 +125,7 @@ import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { money } from '@/utils/format'
 
-const props = defineProps({ projectCode: String, contractId: Number })
+const props = defineProps({ projectCode: String, contractId: Number, bare: Boolean })
 const auth = useAuth()
 const allowed = computed(() => auth.hasMenu('profit') || auth.hasMenu('board'))
 const items = ref([]), total = ref(0), page = ref(1), loading = ref(false)

@@ -230,6 +230,40 @@ def build_nodes(tpl: list[dict], start: date | None, owner_id: int | None) -> li
     return out
 
 
+def ensure_nodes(db: Session, project: BizProject, start: date | None = None) -> list[BizProjectMilestone]:
+    """给没有流程节点的项目补标准节点：合同导入建档的项目默认没有节点，卡片会显示 0/0。
+
+    已验收 / 运维 / 结项的项目按全部完成补齐；在建项目从今天（或之后的开工日）开始排期，
+    不用历史开工日反推，避免一上线就整片标红延期。
+    """
+    if list(project.milestones):
+        return []
+    key = project.milestone_template or ("software" if project.business_line == "KP" else "standard")
+    tpl = dict_service.get(db, "milestone_template", key)
+    if not tpl:
+        return []
+    finished = project.status in (3, 4, 5)
+    if finished:
+        base = None
+    else:
+        base = max(start or today(), today())
+    nodes = build_nodes(tpl, base, project.owner_id)
+    if finished:
+        end = project.plan_end_date or project.start_date or today()
+        span = sum(int(n.get("days") or 0) for n in tpl) or len(tpl)
+        cursor = end - timedelta(days=span)
+        for raw, node in zip(tpl, nodes):
+            cursor = cursor + timedelta(days=int(raw.get("days") or 0))
+            node.plan_date = cursor
+            node.finish_date = cursor
+            node.status = 3
+    project.milestones = nodes
+    if nodes and nodes[-1].plan_date and not project.plan_end_date:
+        project.plan_end_date = nodes[-1].plan_date
+    db.flush()
+    return nodes
+
+
 def create_project(db: Session, data: dict, operator_id: int | None, source: str = "web") -> BizProject:
     line = data.get("business_line")
     if line not in ("XY", "AF", "KP", "YW"):
