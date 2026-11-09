@@ -15,7 +15,7 @@
       <Kpi label="毛利率" :value="k.gross_margin === null || k.gross_margin === undefined ? '—' : (Number(k.gross_margin) * 100).toFixed(1)" unit="%"
         :hint="`低于 ${percent(res?.alert_margin, 0)} 的项目 ${k.low_margin_count || 0} 个`" />
       <Kpi label="本周费用" :value="wanNum(k.period_expense, 2)" unit="万元" hint="本周归集到项目的报销" />
-      <Kpi label="项目利润" :value="wanNum(profitNet, 2)" unit="万元" :hint="`已扣除公共费用 ${wan(k.public_expense)}`" />
+      <Kpi label="项目利润" :value="wanNum(profitNet)" unit="万元" :hint="`已扣除公共费用 ${wan(k.public_expense)}`" />
     </div>
 
     <Panel class="mt-16" :padding="false" :loading="loading">
@@ -61,7 +61,7 @@
       </el-tabs>
     </Panel>
 
-    <el-dialog v-model="drawer" width="1040px" top="7vh" class="profit-detail" destroy-on-close append-to-body
+    <el-dialog v-model="drawer" width="1080px" top="6vh" class="profit-detail" destroy-on-close append-to-body
       :title="current?.name || '项目明细'">
       <div v-loading="detailLoading" class="dd">
         <div class="dd-sub">
@@ -102,37 +102,37 @@
           <div class="dright">
           <el-tabs v-if="detailData" v-model="drawerTab">
             <el-tab-pane :label="`归集报销 ${detailData.expenses.length}`" name="exp">
-              <el-table :data="detailData.expenses" max-height="460" :row-class-name="periodRow">
-                <el-table-column label="审批单号" width="160" prop="approval_no" />
-                <el-table-column label="费用日" width="110"><template #default="{ row: e }">{{ date(e.expense_date) }}</template></el-table-column>
-                <el-table-column label="申请人" width="90" prop="applicant" />
-                <el-table-column label="类别" width="100" prop="category" />
-                <el-table-column label="事由" min-width="200" prop="reason" />
-                <el-table-column label="金额" width="130" align="right"><template #default="{ row: e }"><span class="jc-num">{{ money(e.amount) }}</span></template></el-table-column>
-                <el-table-column label="" width="64"><template #default="{ row: e }"><StatusPill v-if="e.in_period" text="本周" tone="brand" /></template></el-table-column>
+              <el-table :data="detailData.expenses" max-height="360" :row-class-name="periodRow">
+                <el-table-column label="审批单号" width="130" prop="approval_no" />
+                <el-table-column label="费用日" width="100"><template #default="{ row: e }">{{ date(e.expense_date) }}</template></el-table-column>
+                <el-table-column label="申请人" width="80" prop="applicant" />
+                <el-table-column label="类别" width="90" prop="category" />
+                <el-table-column label="事由" min-width="160" prop="reason" show-overflow-tooltip />
+                <el-table-column label="金额" width="120" align="right"><template #default="{ row: e }"><span class="jc-num">{{ money(e.amount) }}</span></template></el-table-column>
+                <el-table-column label="" width="56"><template #default="{ row: e }"><StatusPill v-if="e.in_period" text="本周" tone="brand" /></template></el-table-column>
               </el-table>
             </el-tab-pane>
             <el-tab-pane :label="`采购成本 ${detailData.costs.length}`" name="cost">
-              <el-table :data="detailData.costs" max-height="460" :row-class-name="periodRow">
+              <el-table :data="detailData.costs" max-height="360" :row-class-name="periodRow">
                 <el-table-column label="日期" width="110"><template #default="{ row: c }">{{ date(c.cost_date) }}</template></el-table-column>
-                <el-table-column label="类型" width="90" prop="cost_type" />
-                <el-table-column label="摘要" min-width="260" prop="summary" />
+                <el-table-column label="类型" width="80" prop="cost_type" />
+                <el-table-column label="摘要" min-width="200" prop="summary" show-overflow-tooltip />
                 <el-table-column label="金额" width="130" align="right"><template #default="{ row: c }"><span class="jc-num">{{ money(c.amount) }}</span></template></el-table-column>
-                <el-table-column label="" width="64"><template #default="{ row: c }"><StatusPill v-if="c.in_period" text="本周" tone="brand" /></template></el-table-column>
+                <el-table-column label="" width="56"><template #default="{ row: c }"><StatusPill v-if="c.in_period" text="本周" tone="brand" /></template></el-table-column>
               </el-table>
             </el-tab-pane>
             <el-tab-pane :label="`合同 ${detailData.contracts.length}`" name="con">
               <el-table :data="detailData.contracts">
-                <el-table-column label="合同编号" width="140" prop="contract_no" />
-                <el-table-column label="合同名称" min-width="240" prop="name" />
-                <el-table-column label="签订日" width="110"><template #default="{ row: c }">{{ date(c.sign_date) }}</template></el-table-column>
-                <el-table-column label="合同额" width="130" align="right"><template #default="{ row: c }"><span class="jc-num">{{ money(c.amount) }}</span></template></el-table-column>
-                <el-table-column label="已回款" width="130" align="right"><template #default="{ row: c }"><span class="jc-num">{{ money(c.received) }}</span></template></el-table-column>
+                <el-table-column label="合同编号" width="130" prop="contract_no" />
+                <el-table-column label="合同名称" min-width="200" prop="name" show-overflow-tooltip />
+                <el-table-column label="签订日" width="100"><template #default="{ row: c }">{{ date(c.sign_date) }}</template></el-table-column>
+                <el-table-column label="合同额" width="120" align="right"><template #default="{ row: c }"><span class="jc-num">{{ money(c.amount) }}</span></template></el-table-column>
+                <el-table-column label="已回款" width="120" align="right"><template #default="{ row: c }"><span class="jc-num">{{ money(c.received) }}</span></template></el-table-column>
                 <el-table-column label="计入收入" width="96"><template #default="{ row: c }"><StatusPill :text="c.counted ? '是' : '已终止'" :tone="c.counted ? 'up' : 'down'" /></template></el-table-column>
               </el-table>
             </el-tab-pane>
             <el-tab-pane v-if="hasLemon" :label="`柠檬云辅助核算 ${detailData.lemon.length}`" name="lemon">
-              <el-table :data="detailData.lemon" max-height="460">
+              <el-table :data="detailData.lemon" max-height="360">
                 <el-table-column label="凭证号" width="110" prop="voucher_no" />
                 <el-table-column label="日期" width="110"><template #default="{ row: v }">{{ date(v.voucher_date) }}</template></el-table-column>
                 <el-table-column label="科目" width="180" prop="subject" />
@@ -322,7 +322,7 @@ onMounted(async () => {
 .dnodes li.done i { background: var(--jc-up); border-color: var(--jc-up); }
 .dnodes li.late i { background: var(--jc-down); border-color: var(--jc-down); }
 .dnodes div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.profit-detail :deep(.el-dialog__body) { padding-top: 6px; }
+.profit-detail :deep(.el-dialog__body) { padding-top: 6px; max-height: 70vh; overflow-y: auto; }
 .dstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px 16px; margin: 12px 0 14px; background: var(--jc-surface-2); border-radius: var(--jc-radius-sm); }
 .dstats > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .dstats b { font-size: 20px; font-weight: 600; color: var(--jc-ink); }
