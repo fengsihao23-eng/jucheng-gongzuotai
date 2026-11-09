@@ -74,7 +74,7 @@ const popupPaused = ref(false)
 const statuses = { ongoing: '进行中', done: '已完成' }
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
-const needsAttention = t => t.overdue || t.needs_update || ['blocked', 'review', 'rejected'].includes(taskStatus(t))
+const needsAttention = t => t.overdue || t.needs_update || t.deadline_status === 'overdue' || t.delay_status === 'pending' || ['blocked', 'review', 'rejected'].includes(taskStatus(t))
 const matches = computed(() => (project.value?.tasks || []).filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
   (!keyOnly.value || t.priority === 'key') && (!attention.value || needsAttention(t)) &&
   `${t.title} ${t.owner_name} ${t.school_name}`.toLowerCase().includes(query.value.trim().toLowerCase())))

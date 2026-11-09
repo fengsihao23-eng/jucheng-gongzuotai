@@ -161,7 +161,7 @@ try {
   await admin.screenshot({ path: path.join(OUT, 'screens', 'operations-board.png'), fullPage: true })
   await admin.getByRole('tab', { name: '月度任务', exact: true }).click()
   await monthSummary.getByText('100%', { exact: true }).waitFor()
-  await admin.getByRole('row', { name: /完成试点学校需求确认/ }).getByText('已完成', { exact: true }).waitFor()
+  await admin.getByRole('row', { name: /完成试点学校需求确认/ }).getByText('按时完成', { exact: true }).waitFor()
   await progressRegion.getByRole('button', { name: '进度记录', exact: true }).click()
   await admin.getByRole('dialog', { name: '项目进度记录', exact: true }).getByRole('button', { name: '进展汇总', exact: true }).click()
   await admin.getByRole('dialog', { name: '当前进展汇总', exact: true }).getByRole('region', { name: '项目任务概览' }).getByText('100%', { exact: true }).waitFor()

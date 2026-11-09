@@ -326,15 +326,22 @@ def _concrete_targets(op, request, user_id):
             project = ops.get_project(db, p, request["path"]["project_id"])
             ops.manage(db, p, project)
             return request, {"运营项目": project.name, "记录类型": "新增一条项目进度"}
-    if op.id in {"operations.operation_feedback", "operations.review_operation_task"}:
+    task_actions = {"operations.operation_feedback": "can_feedback", "operations.review_operation_task": "can_review",
+                    "operations.submit_operation_delay_reason": "can_explain_delay", "operations.review_operation_delay": "can_review_delay"}
+    if op.id in task_actions:
         data, _ = invoke(current_operation("operations.operation_task", user_id),
                          {"path": request["path"], "query": {}, "body": None, "files": {}}, user_id)
-        flag = "can_review" if op.id.endswith("review_operation_task") else "can_feedback"
+        flag = task_actions[op.id]
         if not data.get(flag): raise forbidden("当前账号不能执行这项任务的该操作")
         body = request["body"]
         if body.get("expected_revision") is None: body["expected_revision"] = data["revision"]
         if body["expected_revision"] != data["revision"]: raise conflict("任务已变化，请读取最新记录再办理")
-        return request, {"项目": data["project_name"], "任务": data["title"], "负责人": data["owner_name"], "当前进度": data["progress"]}
+        target = {"项目": data["project_name"], "任务": data["title"], "负责人": data["owner_name"], "当前进度": data["progress"]}
+        if flag == "can_review_delay":
+            reason = (data.get("delay_history") or [{}])[0]
+            if body["reason_id"] != reason.get("id"): raise conflict("延期原因已变化，请读取最新记录再办理")
+            target.update({"延期原因": reason["reason"], "复核结果": "认可" if body["decision"] == "accepted" else "不认可"})
+        return request, target
     if op.id == "wecom_console.call":
         item = _wecom_console_item(request["body"])
         return request, {"接口": item["name"], "方法": item["method"], "接口地址": item["path"],

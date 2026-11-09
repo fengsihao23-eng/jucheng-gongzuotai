@@ -40,6 +40,7 @@ def test_company_task_automatically_in_month_and_group(client, login, db, projec
 def test_two_stage_review_then_feedback_is_single_task(client, login, db, project):
     t=data(propose(client,login,db,project))
     assert t["approval_status"]=="department_pending" and not t["can_feedback"]
+    assert t["original_due_date"] is None and t["deadline_status"] is None
     assert report(client,login,t).status_code==403
     assert review(client,login,t,"zhangzhenhua").status_code==403
     assert review(client,login,t,"xiekai").status_code==403
@@ -51,6 +52,7 @@ def test_two_stage_review_then_feedback_is_single_task(client, login, db, projec
     assert review(client,login,t,"wujun").status_code==409
     final=data(review(client,login,first,"zhangzhenhua"))
     assert final["approval_status"]=="approved" and len(final["reviews"])==2
+    assert final["original_due_date"]=="2026-10-25"
     d=data(report(client,login,t,status="done",progress=100,content="现场需求清单已确认"))
     assert d["completed_at"] and d["id"]==t["id"]
     m=monthly(client,login,project)
@@ -96,10 +98,13 @@ def test_explicit_team_reviewer_and_revocation(client,login,db,project):
 def test_unfinished_reason_and_cross_month_visibility(client,login,db,project):
     t=task(client,login,db,project,due_date="2026-09-30")
     assert report(client,login,t,incomplete_reason="").status_code==400
-    data(report(client,login,t,status="blocked",incomplete_reason="等待校方签字"))
+    blocked=data(report(client,login,t,status="blocked",incomplete_reason="等待校方签字"))
+    assert blocked["delay_status"]=="pending"
     m=monthly(client,login,project)
     assert m["carryover_count"]==1 and m["items"][0]["reason"]=="等待校方签字"
-    data(report(client,login,t,status="done",progress=100))
+    finished=data(report(client,login,t,status="done",progress=100))
+    assert finished["deadline_status"]=="late_done"
+    assert [entry["reason"] for entry in finished["delay_history"]]==["等待校方签字"]
     assert len(monthly(client,login,project)["items"])==1
     assert monthly(client,login,project,month="2026-11")["items"]==[]
 
@@ -108,6 +113,7 @@ def test_extension_keeps_original_plan_month(client,login,db,project):
     t=task(client,login,db,project,due_date="2026-10-25")
     updated=data(client.put(f"{BASE}/tasks/{t['id']}",headers=login("wujun"),json={"due_date":"2026-11-10"}))
     assert updated["plan_month"]=="2026-10"
+    assert updated["original_due_date"]=="2026-10-25"
     assert len(monthly(client,login,project)["items"])==1
     assert monthly(client,login,project,month="2026-11")["carryover_count"]==1
 

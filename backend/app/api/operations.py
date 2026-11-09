@@ -8,8 +8,9 @@ from app.core.db import get_db
 from app.core.deps import Principal, require_menu
 from app.core.response import ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
-from app.schemas.operations import (DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
+from app.schemas.operations import (DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
                                     ProjectIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch)
+from app.services import operations_deadlines as deadlines
 from app.services import operations_service as ops
 from app.services import operations_plans as plans
 
@@ -39,9 +40,9 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
 @router.get("/monthly")
 def monthly_plan(month: Month | None = None, owner_id: int | None = None, project_id: int | None = None,
                  mine: bool = False, source: Literal["company", "self"] | None = None,
-                 review_mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
-    """按计划月份、负责人、项目、任务来源及待本人审核筛选真实任务；图表和明细使用相同范围。"""
-    return ok(plans.monthly(db, p, month, owner_id, project_id, mine, source, review_mine))
+                 review_mine: bool = False, delay_review_mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    """按月份、负责人、项目、来源或待本人处理筛选；stats 和 owner_stats 含按时、逾期完成和未完成数。"""
+    return ok(plans.monthly(db, p, month, owner_id, project_id, mine, source, review_mine, delay_review_mine))
 
 
 @router.get("/products")
@@ -93,6 +94,22 @@ def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: 
 def review_operation_task(task_id: int, body: ReviewIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """指定审核人对最新任务版本完成当前级别审核；部门通过后才能进入公司审核。"""
     plans.review_task(db, p, task_id, body)
+    db.commit()
+    return ok(ops.task_detail(db, p, task_id))
+
+
+@router.post("/tasks/{task_id}/delay-reason")
+def submit_operation_delay_reason(task_id: int, body: DelayReasonIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    """在原任务补充或更正延期原因。提交新版本时保留已有说明和复核记录。"""
+    deadlines.submit_reason(db, p, task_id, body)
+    db.commit()
+    return ok(ops.task_detail(db, p, task_id))
+
+
+@router.post("/tasks/{task_id}/delay-review")
+def review_operation_delay(task_id: int, body: DelayReviewIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    """有公司审核权限的人认可或不认可指定版本的延期原因；决定不改变任务完成日期和原定期限。"""
+    deadlines.review_reason(db, p, task_id, body)
     db.commit()
     return ok(ops.task_detail(db, p, task_id))
 

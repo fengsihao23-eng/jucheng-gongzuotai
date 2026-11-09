@@ -2,9 +2,9 @@
   <div class="cards" :class="{ single }">
     <button v-for="task in rows" :key="task.id" type="button" class="task-card" :data-status="taskStatus(task)" @click="$emit('open-task', task)">
       <div class="card-top">
-        <StatusPill :text="statusLabel(task)" :tone="task.approval_status === 'approved' ? tone(task.status) : task.approval_status === 'rejected' ? 'down' : 'warn'" dot />
+        <StatusPill :text="task.status === 'done' ? completionLabel(task) : statusLabel(task)" :tone="task.status === 'done' ? deadlineTone(task) : task.approval_status === 'approved' ? tone(task.status) : task.approval_status === 'rejected' ? 'down' : 'warn'" dot />
         <span v-if="task.priority === 'key'" class="key">重点</span>
-        <span v-if="task.overdue" class="jc-down flag">已逾期</span><span v-else-if="task.needs_update" class="flag">今日待反馈</span>
+        <span v-if="task.overdue" class="jc-down flag">已逾期</span><span v-else-if="task.deadline_status === 'overdue'" class="jc-down flag">原定期限已过</span><span v-else-if="task.needs_update" class="flag">今日待反馈</span>
       </div>
       <strong class="title">{{ task.title }}</strong>
       <span v-if="showProject || task.school_name" class="context">{{ [showProject ? task.project_name : '', task.school_name].filter(Boolean).join(' · ') }}</span>
@@ -19,13 +19,13 @@
         </span>
       </template>
       <span v-if="task.carryover" class="carryover">从 {{ task.plan_month }} 延续</span>
-      <div class="card-foot"><span class="owner">{{ task.owner_name }}<small>截止 {{ task.due_date }}</small></span><span class="action">{{ task.can_review ? '处理审核' : task.can_feedback ? '反馈进展' : '查看详情' }} <span aria-hidden="true">→</span></span></div>
+      <div class="card-foot"><span class="owner">{{ task.owner_name }}<small>截止 {{ task.due_date }}</small><small v-if="task.completed_on">完成 {{ task.completed_on }}</small></span><span class="action">{{ task.can_review_delay ? '复核延期' : task.can_review ? '处理审核' : task.can_feedback ? '反馈进展' : '查看详情' }} <span aria-hidden="true">→</span></span></div>
     </button>
   </div>
 </template>
 
 <script setup>
-import { statusLabel, taskProgress, taskStatus, tone } from './shared'
+import { completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'
 defineProps({ rows: { type: Array, required: true }, showProject: Boolean, single: Boolean })
 defineEmits(['open-task'])
 </script>

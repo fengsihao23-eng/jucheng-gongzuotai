@@ -41,7 +41,9 @@ try {
   await chat.getByRole('menuitem', { name: /快速/ }).click()
   await input.fill(`为运营项目「${project.name}」中的任务编号 ${task.id}「${task.title}」提交进展反馈：校方已确认设备清单，任务已完成，进度100%。`)
   await chat.getByRole('button', { name: '发送需求' }).click()
-  const action = chat.getByLabel('业务操作确认单').filter({ hasText: '提交任务进展反馈' }).first()
+  // The provisional streaming card remounts when the reply settles.
+  const reply = chat.getByRole('article', { name: '小聚的回复', exact: true })
+  const action = reply.getByLabel('业务操作确认单').filter({ hasText: '提交任务进展反馈' }).first()
   const toggle = action.getByRole('button', { name: /提交任务进展反馈/ })
   const confirm = action.getByRole('button', { name: '确认执行', exact: true })
   await toggle.waitFor({ timeout: 100000 })

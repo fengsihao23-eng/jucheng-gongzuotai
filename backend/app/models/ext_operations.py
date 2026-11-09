@@ -114,6 +114,7 @@ class OpsTask(TimestampMixin, Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
     creator_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
     due_date: Mapped[date] = mapped_column(Date, index=True)
+    original_due_date: Mapped[date | None] = mapped_column(Date)
     priority: Mapped[str] = mapped_column(String(16), default="key")
     cadence: Mapped[str] = mapped_column(String(16), default="daily")
     plan_month: Mapped[str] = mapped_column(String(7), index=True)

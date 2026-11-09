@@ -141,7 +141,11 @@ def test_actual_query_and_mcp_use_original_permissions(db, client, login):
     assert approvals["ok"] and approvals["data"]["summary"] and "data" in approvals["data"]
     own = executor(db, "xuhao").execute("projects.list_projects")
     assert own["data"]["items"]
-    foreign = db.scalar(select(BizProject).where(BizProject.owner_id != uid(db, "xuhao"), BizProject.is_deleted.is_(False)))
+    # A project with a different overall owner can still be visible via an assigned milestone.
+    foreign = BizProject(project_code="XJ-ACL-" + uuid.uuid4().hex[:12], name="未参与的项目", business_line="XY",
+                         customer_name="权限测试客户", owner_id=uid(db, "wujun"))
+    db.add(foreign)
+    db.commit()
     with pytest.raises(BizError):
         executor(db, "xuhao").execute("projects.detail", {"path": {"code": foreign.project_code}})
 

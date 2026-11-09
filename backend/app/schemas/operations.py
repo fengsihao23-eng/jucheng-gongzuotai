@@ -143,5 +143,23 @@ class ReviewIn(Input):
     expected_revision: Annotated[int, Field(ge=1)]
 
 
+class DelayReasonIn(Input):
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
+    expected_revision: Annotated[int, Field(ge=1)]
+
+
+class DelayReviewIn(Input):
+    reason_id: Id
+    decision: Literal["accepted", "rejected"]
+    comment: Note = ""
+    expected_revision: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def rejection_comment(self):
+        if self.decision == "rejected" and not self.comment:
+            raise ValueError("不认可时请填写意见")
+        return self
+
+
 class DraftIn(Input):
     text: Annotated[str, StringConstraints(min_length=1, max_length=6000)]

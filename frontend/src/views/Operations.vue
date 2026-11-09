@@ -14,7 +14,7 @@
               <span class="attention-copy"><span class="attention-project">{{ attention.task.project_name }} · </span><strong>{{ attention.task.title }}</strong></span>
               <span class="attention-arrow" aria-hidden="true">›</span>
             </button>
-            <el-button link type="primary" @click="showTodos">查看待办</el-button>
+            <el-button link type="primary" @click="showTodos(attention.filter)">查看待办</el-button>
           </section>
           <div class="filters">
             <el-input v-model="query.keyword" placeholder="搜索项目或目标" clearable style="width: 240px" @change="load" />
@@ -37,16 +37,16 @@
         </el-tab-pane>
         <el-tab-pane label="当前需要做什么" name="todos">
           <div class="filters">
-            <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button></el-radio-group>
-            <el-checkbox v-model="mine">只看我负责的</el-checkbox>
+            <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button><el-radio-button v-if="data.delay_review_inbox.length || todoFilter === 'delay_review'" value="delay_review">待我复核延期</el-radio-button></el-radio-group>
+            <el-checkbox v-if="todoFilter !== 'delay_review'" v-model="mine">只看我负责的</el-checkbox>
           </div>
           <el-table :data="todos" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-click="openTask">
             <el-table-column label="任务 / 项目" min-width="260"><template #default="{ row }"><b>{{ row.title }}</b><div class="jc-small jc-muted">{{ row.project_name }}{{ row.school_name ? ` · ${row.school_name}` : '' }}</div></template></el-table-column>
             <el-table-column prop="owner_name" label="负责人" width="110" />
             <el-table-column prop="due_date" label="截止日期" width="120" />
-            <el-table-column label="状态" width="110"><template #default="{ row }"><StatusPill :text="TASK_STATUS[row.status]" :tone="tone(row.status)" /></template></el-table-column>
+            <el-table-column label="状态" width="110"><template #default="{ row }"><StatusPill :text="row.status === 'done' ? completionLabel(row) : TASK_STATUS[row.status]" :tone="row.status === 'done' ? deadlineTone(row) : tone(row.status)" /></template></el-table-column>
             <el-table-column prop="next_step" label="下一步" min-width="190" show-overflow-tooltip />
-            <el-table-column width="110"><template #default="{ row }"><el-button link type="primary" @click.stop="openTask(row)">{{ row.can_feedback ? '反馈进展' : '查看详情' }}</el-button></template></el-table-column>
+            <el-table-column width="110"><template #default="{ row }"><el-button link type="primary" @click.stop="openTask(row)">{{ row.can_review_delay ? '复核延期' : row.can_feedback ? '反馈进展' : '查看详情' }}</el-button></template></el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -67,16 +67,21 @@ import ProjectForm from './operations/ProjectForm.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskForm from './operations/TaskForm.vue'
-import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
+import { PROJECT_STATUS, TASK_STATUS, completionLabel, deadlineTone, tone } from './operations/shared'
 const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
-const data = reactive({ items: [], todos: [], can_create: false })
+const data = reactive({ items: [], todos: [], delay_review_inbox: [], can_create: false })
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
 const todoFilter = ref('all'), mine = ref(false)
-const todos = computed(() => data.todos.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
-  (todoFilter.value === 'all' || (todoFilter.value === 'blocked' ? t.status === 'blocked' : t[todoFilter.value]))))
+const todos = computed(() => {
+  const filter = todoFilter.value
+  if (filter === 'delay_review') return data.delay_review_inbox
+  const tasks = filter === 'all' ? [...new Map([...data.todos, ...data.delay_review_inbox].map(task => [task.id, task])).values()] : data.todos
+  return tasks.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
+    (filter === 'all' || (filter === 'blocked' ? t.status === 'blocked' : t[filter])))
+})
 const attention = computed(() => {
   const projectIds = new Set(data.items.map(project => project.id))
   const tasks = data.todos.filter(task => projectIds.has(task.project_id))
@@ -84,6 +89,8 @@ const attention = computed(() => {
   if (overdue) return { task: overdue, label: '已逾期', tone: 'down' }
   const blocked = tasks.find(task => task.status === 'blocked')
   if (blocked) return { task: blocked, label: '受阻', tone: 'down' }
+  const delay = data.delay_review_inbox.find(task => projectIds.has(task.project_id))
+  if (delay) return { task: delay, label: '延期待认可', tone: 'warn', filter: 'delay_review' }
   const needsUpdate = tasks.find(task => task.needs_update)
   return needsUpdate ? { task: needsUpdate, label: '今日待反馈', tone: 'warn' } : null
 })
@@ -95,7 +102,7 @@ async function load(background = false) {
   catch {} finally { if (current === version) loading.value = false }
 }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
-function showTodos() { todoFilter.value = 'all'; mine.value = false; tab.value = 'todos' }
+function showTodos(filter = 'all') { todoFilter.value = filter; mine.value = false; tab.value = 'todos' }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 async function editTask(task) {
   try {

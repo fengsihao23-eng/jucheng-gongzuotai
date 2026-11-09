@@ -81,6 +81,8 @@ def review_task(db, p, task_id, body):
         title = "任务等待公司审核"
     else:
         task.approval_status = "approved"
+        if task.original_due_date is None:
+            task.original_due_date = task.due_date
         recipients = [task.owner_id]
         title = "自行安排任务审核通过"
     task.revision += 1
@@ -91,7 +93,7 @@ def review_task(db, p, task_id, body):
     return task
 
 
-def monthly(db, p, month=None, owner_id=None, project_id=None, mine=False, source=None, review_mine=False):
+def monthly(db, p, month=None, owner_id=None, project_id=None, mine=False, source=None, review_mine=False, delay_review_mine=False):
     from app.services import operations_service as ops
     month = month or today().strftime("%Y-%m")
     if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", month):
@@ -105,6 +107,8 @@ def monthly(db, p, month=None, owner_id=None, project_id=None, mine=False, sourc
         rows = [r for r in rows if r["source"] == source]
     if review_mine:
         rows = [r for r in rows if r["can_review"]]
+    if delay_review_mine:
+        rows = [r for r in rows if r["can_review_delay"]]
     start, _ = month_range(month)
     selected = []
     for row in rows:
@@ -118,11 +122,13 @@ def monthly(db, p, month=None, owner_id=None, project_id=None, mine=False, sourc
     for row in selected:
         groups[(row["owner_id"], row["owner_name"])].append(row)
     approved = [r for r in selected if r["approval_status"] == "approved"]
+    owner_stats = [{"owner_id": key[0], "owner_name": key[1], **ops.task_stats(values)}
+                   for key, values in groups.items() if any(row["approval_status"] == "approved" for row in values)]
     return {"month": month, "items": selected, "groups": [{"owner_id": key[0], "owner_name": key[1],
         "self_tasks": [t for t in values if t["source"] == "self"], "company_tasks": [t for t in values if t["source"] == "company"]}
-        for key, values in groups.items()], "stats": ops.task_stats(selected),
+        for key, values in groups.items()], "stats": ops.task_stats(selected), "owner_stats": owner_stats,
         "review_inbox": [t for t in selected if t["can_review"]],
         "source_counts": {"self": sum(t["source"] == "self" for t in approved), "company": sum(t["source"] == "company" for t in approved)},
         "carryover_count": sum(t["carryover"] for t in selected), "today": today(),
         "available_months": sorted({r["plan_month"] for r in rows}),
-        "note": "按计划月份归集，显示任务当前状态；往期未完成或在本月以后完成的任务保留为跨月事项，不复制任务。"}
+        "note": "只统计已生效任务，含跨月事项，显示当前状态。准时按首次生效的截止日与实际完成日期比较（北京时间）；改期或认可延期原因不会改写准时结果。"}

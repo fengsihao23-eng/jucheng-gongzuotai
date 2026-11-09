@@ -429,7 +429,8 @@ def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = Non
     if month:
         from app.services.operations_plans import monthly
         result = monthly(db, p, month, owner_id, project_id)
-        return {"data": result, "summary": f"{month} 月度任务：已通过 {result['stats']['total']} 项，待审核 {result['stats']['awaiting_approval']} 项，未完成 {result['stats']['pending']} 项。"}
+        stats = result["stats"]
+        return {"data": result, "summary": f"{month} 月度任务：已生效 {stats['total']} 项，已完成 {stats['done']} 项（按时 {stats['on_time']}，逾期完成 {stats['late_done']}），未完成 {stats['pending']} 项。"}
     if task_id:
         result = ops.task_detail(db, p, task_id)
         return {"data": result, "summary": f"{result['title']}：{result['owner_name']}，{ops.STATUS_LABELS[result['status']]} {result['progress']}%"}
