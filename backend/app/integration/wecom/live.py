@@ -3,7 +3,7 @@ import json
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -137,6 +137,16 @@ class LiveWeCom:
         return SendResult(True, r.get("msgid"), invalid)
 
     def get_journal_records(self, start: datetime, end: datetime) -> list[JournalDto]:
+        """企微汇报单次查询跨度不能超过一个月，按 30 天切窗后逐页拉取。"""
+        out: list[JournalDto] = []
+        cursor_time = start
+        while cursor_time < end:
+            window_end = min(cursor_time + timedelta(days=30), end)
+            out.extend(self._journal_window(cursor_time, window_end))
+            cursor_time = window_end
+        return out
+
+    def _journal_window(self, start: datetime, end: datetime) -> list[JournalDto]:
         out, cursor = [], 0
         while True:
             r = self._call("POST", "/cgi-bin/oa/journal/get_record_list", json={

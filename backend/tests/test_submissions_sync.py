@@ -41,3 +41,27 @@ def test_job_records_unavailable_permission_without_failing(db, monkeypatch):
     entry = run_job("wecom_submission_sync", {"days": 3}, db=db)
     assert entry.status == "success" and entry.message.startswith("未同步")
     assert "48002" in entry.message
+
+
+def test_journal_query_is_split_into_month_windows(monkeypatch):
+    """企微汇报单次查询不能超过一个月，62 天要切成 3 段。"""
+    from datetime import timedelta
+
+    from app.integration.wecom.live import LiveWeCom
+
+    calls = []
+
+    def fake_call(self, method, path, **kwargs):
+        if path.endswith("get_record_list"):
+            calls.append((kwargs["json"]["starttime"], kwargs["json"]["endtime"]))
+            return {"journaluuid_list": [], "endflag": 1}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(LiveWeCom, "_call", fake_call)
+    end = datetime.fromisoformat("2026-11-09T12:00:00+08:00")
+    client = object.__new__(LiveWeCom)  # 跳过凭证校验，只验证切窗逻辑
+    assert client.get_journal_records(end - timedelta(days=62), end) == []
+    assert len(calls) == 3
+    assert calls[0][0] < calls[0][1] <= calls[1][0]
+    assert max(e - s for s, e in calls) <= 30 * 86400
+    assert calls[-1][1] == int(end.timestamp())
