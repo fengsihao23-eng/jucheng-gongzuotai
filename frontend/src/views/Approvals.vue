@@ -81,7 +81,24 @@ const drawer = ref(false)
 const detail = ref(null)
 const detailLoading = ref(false)
 const total = computed(() => res.value?.total || 0)
-const fieldRows = computed(() => Object.entries(detail.value?.fields || {}).map(([label, value]) => ({ label, value })))
+const fieldRows = computed(() => Object.entries(detail.value?.fields || {}).map(([label, value]) => ({ label, value: fmtValue(value) })))
+function fmtValue(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v !== 'object') return String(v)
+  const texts = []
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (node && typeof node === 'object') {
+      if (typeof node.text === 'string') texts.push(node.text)
+      Object.values(node).forEach(walk)
+    }
+  }
+  walk(v)
+  const plain = [...new Set(texts)].join(' ').trim()
+  if (plain) return plain.slice(0, 400)
+  const json = JSON.stringify(v)
+  return json.length > 300 ? json.slice(0, 300) + '…' : json
+}
 
 async function load() {
   loading.value = true
