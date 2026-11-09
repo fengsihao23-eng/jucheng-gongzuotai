@@ -50,6 +50,26 @@ def test_membership_is_independent_of_department_data_scope(client, login, db, p
     assert "operations" in data(client.get("/api/v1/auth/me", headers=login("xiekai")))["menus"]
 
 
+def test_project_progress_keeps_plan_date_history_and_task_state(client, login, db, project):
+    item = task(client, login, db, project)
+    base = f"{BASE}/{project['id']}"
+    payload = {"progress": "已联系校方", "problems": "等清单", "next_plan": "复核设备"}
+    assert client.get(base + "/progress", headers=login("chenjing")).status_code == 404
+    assert client.post(base + "/progress", headers=login("xiekai"), json=payload | {"next_due_date": "2026-10-22"}).status_code == 403
+    assert client.post(base + "/progress", headers=login("wujun"), json=payload).status_code == 400
+    first = data(client.post(base + "/progress", headers=login("wujun"), json=payload | {"next_due_date": "2026-10-22"}))
+    second = data(client.post(base + "/progress", headers=login("wujun"), json=payload | {
+        "progress": "设备清单已收到", "problems": "", "next_due_date": "2026-10-23"}))
+    viewer = login("xiekai")
+    history = data(client.get(base + "/progress", headers=viewer))["items"]
+    assert [record["id"] for record in history] == [second["id"], first["id"]]
+    assert history[1]["problems"] == "等清单" and history[1]["next_due_date"] == "2026-10-22"
+    result = data(client.get(base, headers=viewer))
+    assert result["latest_progress"]["next_due_date"] == "2026-10-23"
+    assert (result["tasks"][0]["id"], result["tasks"][0]["status"]) == (item["id"], "todo")
+    assert "复核设备（计划完成：2026-10-23）" in data(client.get(base + "/brief", headers=viewer))["text"]
+
+
 @pytest.mark.parametrize("name, allowed", [("zhangzhenhua", True), ("wujun", True), ("xuhao", False), ("chenjing", False)])
 def test_project_creation_authority(client, login, db, name, allowed):
     r = client.post(BASE, headers=login(name), json={"name": "新运营项目", "owner_id": uid(db, name)})

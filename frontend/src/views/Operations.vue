@@ -10,9 +10,9 @@
       <Kpi label="遇到阻碍" :value="data.stats.blocked || 0" unit="项" hint="需要协调推进" />
       <Kpi label="今日待反馈" :value="data.stats.needs_update || 0" unit="项" hint="按日反馈且今天尚未更新" />
     </div>
-    <Panel class="mt-16" :loading="loading">
+    <Panel class="mt-16" :loading="loading && !data.today">
       <el-tabs v-model="tab">
-        <el-tab-pane label="月度任务总表" name="monthly"><MonthlyPlan :today="data.today" @open-task="openTask" /></el-tab-pane>
+        <el-tab-pane label="月度任务总表" name="monthly" lazy><MonthlyPlan :today="data.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
         <el-tab-pane label="项目总览" name="projects">
           <div class="filters">
             <el-input v-model="query.keyword" placeholder="搜索项目或目标" clearable style="width: 240px" @change="load" />
@@ -50,38 +50,52 @@
       </el-tabs>
     </Panel>
     <ProjectForm v-model="createOpen" @saved="p => router.push(`/operations/${p.id}`)" />
+    <TaskDialog v-model="taskOpen" :task-id="selectedTask" @edit="editTask" />
+    <TaskForm v-if="editProject" v-model="editOpen" :project="editProject" :initial="editingTask" @closed="popupPaused = false" />
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
+import TaskDialog from './operations/TaskDialog.vue'
+import TaskForm from './operations/TaskForm.vue'
 import { PROJECT_STATUS, TASK_STATUS, tone } from './operations/shared'
-const router = useRouter(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
+const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
 const data = reactive({ items: [], todos: [], stats: {}, can_create: false })
+const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
+const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
+const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
 const todoFilter = ref('all'), mine = ref(false)
 const todos = computed(() => data.todos.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
   (todoFilter.value === 'all' || (todoFilter.value === 'blocked' ? t.status === 'blocked' : t[todoFilter.value]))))
-let loadingNow = false, timer
-async function load() {
-  if (loadingNow) return
-  loadingNow = true; loading.value = true
-  try { Object.assign(data, await api.get('/operations', query)) } catch {} finally { loading.value = false; loadingNow = false }
+let version = 0
+async function load(background = false) {
+  const current = ++version
+  if (background !== true) loading.value = true
+  try { const result = await api.get('/operations', query, { silent: background === true }); if (current === version) Object.assign(data, result) }
+  catch {} finally { if (current === version) loading.value = false }
 }
-function openTask(t) { router.push({ path: `/operations/${t.project_id}`, query: { task: t.id } }) }
-useBusinessRefresh(load)
+function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
+function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
+async function editTask(task) {
+  try {
+    const project = await api.get(`/operations/${task.project_id}`)
+    if (selectedTask.value !== task.id) return
+    editingTask.value = task; editProject.value = project; popupPaused.value = true; editOpen.value = true
+  } catch {}
+}
+useBusinessRefresh(() => load(true), { interval: 12000 })
 onMounted(async () => {
   await load()
   try { categories.value = (await api.get('/operations/options')).categories } catch {}
-  timer = setInterval(() => { if (!document.hidden) load() }, 30000)
 })
-onBeforeUnmount(() => clearInterval(timer))
 </script>
 <style scoped>
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 20px; }

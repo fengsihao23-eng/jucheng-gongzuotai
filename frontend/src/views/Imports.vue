@@ -171,12 +171,13 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { openFile } from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
+import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import KbDocForm from '@/components/KbDocForm.vue'
 import WecomImport from '@/components/WecomImport.vue'
 import ImportDecision from '@/components/ImportDecision.vue'
@@ -210,6 +211,13 @@ const selectable = (row) => has(row, 'confirm_kb') && !!row.suggestion.category
 const detailDlg = ref(false)
 const detail = ref(null)
 function openDetails(row) { if (row.agent_plan?.version) return openDecision(row); detail.value = row; detailDlg.value = true }
+watch(() => route.query.batch, async value => {
+  if (!/^[1-9]\d*$/.test(String(value))) return
+  try {
+    const row = await api.get(`/imports/${value}`)
+    if (route.query.batch === value) openDetails(row)
+  } catch {}
+}, { immediate: true })
 const textDlg = ref(false)
 const textData = ref(null)
 const textLoading = ref(false)
@@ -275,11 +283,10 @@ async function load() {
     for (const b of r.items) {
       if (b.agent_plan?.state === 'completed' && !completedSeen.has(b.id)) {
         completedSeen.add(b.id)
-        localStorage.setItem('jc-business-revision', `${Date.now()}:${b.id}`)
-        window.dispatchEvent(new CustomEvent('business-data-changed'))
+        announceBusinessChange()
       }
     }
-    if (tab.value === 'mine' && !decisionOpen.value && r.counts.mine_pending) {
+    if (tab.value === 'mine' && !route.query.batch && !decisionOpen.value && r.counts.mine_pending) {
       let candidates = r.items
       if (!candidates.some(b => b.agent_plan?.state === 'draft' && !autoSeen.has(`${b.id}:${b.agent_plan.version}`))) {
         candidates = (await api.get('/imports', { scope: 'mine', status: 'pending', page_size: 100 })).items

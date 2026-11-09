@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { getToken, setToken } from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { useAuth } from '@/store/auth'
+import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 
 export function useXiaoju() {
   const assistant = useAssistant()
@@ -35,6 +36,15 @@ export function useXiaoju() {
   const TERMINAL = new Set(['succeeded', 'partial', 'awaiting_confirmation', 'waiting_input', 'waiting_admin', 'failed', 'cancelled'])
   let pollTimer
   let pollGeneration = 0
+  const refreshedResults = new Set()
+  function refreshBusiness(results) {
+    let changed = false
+    for (const result of results || []) {
+      if (!result.ok || !result.changed || result.reused || refreshedResults.has(result.result_id)) continue
+      refreshedResults.add(result.result_id); changed = true
+    }
+    if (changed) announceBusinessChange()
+  }
   const busy = computed(() => loading.value || chatting.value || working.value || testing.value || saving.value || executing.value || uploading.value)
   const input = ref('')
   const messages = ref([])
@@ -220,6 +230,7 @@ export function useXiaoju() {
   async function applyTask(task, generation) {
     if (generation !== pollGeneration) return true
     execution.value = task
+    refreshBusiness(task.business_results)
     pollError.value = false
     if (!TERMINAL.has(task.state)) return false
     executing.value = false
@@ -349,11 +360,12 @@ export function useXiaoju() {
     await uploadFiles(files)
   }
   async function handleDecision(decision, approved) {
+    if (decision?.result) refreshBusiness([{ ...decision.result, reused: decision.reused }])
     if (!execution.value?.id) return
     const id = execution.value.id
     try { execution.value = await api.get(`/assistant/tasks/${id}`, null, { silent: true }) }
     catch { ElMessage.warning('暂时无法刷新执行回执，请重新打开小聚查看'); return }
-    if (decision?.result) messages.value.push({ role: 'assistant', text: `${decision.action.title}：已按确认单执行，业务回执已生成。` })
+    if (decision?.result) messages.value.push({ role: 'assistant', text: decision.result.ok ? `${decision.action.title}：已按确认单执行，业务回执已生成。` : `${decision.action.title}：${decision.result.message || '未完成，请查看回执。'}` })
     else if (decision) messages.value.push({ role: 'assistant', text: '已取消这项操作。' })
     if (approved && decision?.result?.ok && messages.value.some((item) => item.role === 'user')) {
       await ask('我已在界面确认执行单，请先核对已执行回执，继续完成刚才任务的剩余步骤；已完成的操作不要重复提交。', true)
@@ -465,6 +477,7 @@ export function useXiaoju() {
         }
       } catch { /* 状态恢复失败不阻止用户发起新任务 */ }
     }
+    if (assistant.initialDraft) { input.value = assistant.initialDraft; assistant.initialDraft = ''; return }
     const initial = assistant.initialMessage || (typeof route.query.q === 'string' ? route.query.q : '')
     if (initial && !loadError.value) {
       assistant.initialMessage = ''

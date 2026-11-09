@@ -114,6 +114,14 @@ def record_invoice(body: f.InvoiceRecord, p: Principal = InvoiceWrite, db: Sessi
     return _save(db, {"id": row.id})
 
 
+@router.get("/invoices/{ident}")
+def invoice_detail(ident: int, p: Principal = Viewer, db: Session = DB):
+    row = svc.get(db, FinSalesInvoice, ident, "发票")
+    allocated = db.scalar(svc._allocated_query().where(FinReceiptAllocation.invoice_id == ident)) or svc.ZERO
+    contract_no = db.scalar(select(BizContract.contract_no).where(BizContract.id == row.contract_id)) if row.contract_id else None
+    return ok(svc.invoice_row(row, allocated, contract_no))
+
+
 @router.post("/invoices/{ident}/issue")
 def issue(ident: int, body: f.Issue, p: Principal = InvoiceWrite, db: Session = DB):
     svc.lock(db)
@@ -134,6 +142,14 @@ def correct(ident: int, body: f.Correction, p: Principal = Correct, db: Session 
 def record_receipt(body: f.Receipt, p: Principal = ReceiptWrite, db: Session = DB):
     row = svc.receipt(db, **body.model_dump(), actor=p.id)
     return _save(db, {"id": row.id, "payment_id": row.payment_id})
+
+
+@router.get("/receipts/{ident}")
+def receipt_detail(ident: int, p: Principal = Viewer, db: Session = DB):
+    row = svc.get(db, FinReceipt, ident, "到账记录")
+    allocated = db.scalar(select(func.sum(FinReceiptAllocation.amount)).where(FinReceiptAllocation.receipt_id == ident)) or svc.ZERO
+    contract_no = db.scalar(select(BizContract.contract_no).where(BizContract.id == row.contract_id)) if row.contract_id else None
+    return ok(svc.receipt_row(row, allocated if row.state == "confirmed" else svc.ZERO, contract_no))
 
 
 @router.post("/receipts/{ident}/assign")
@@ -205,6 +221,13 @@ def source_status(p: Principal = Source, db: Session = DB):
     job = db.scalar(select(SyncJobLog).where(SyncJobLog.job_name == "receivables_source_sync",
                  SyncJobLog.status != "skipped").order_by(SyncJobLog.id.desc()).limit(1))
     return ok({"status": job.status, "run_at": job.run_at, "message": job.message} if job else None)
+
+
+@router.get("/sources/{ident}")
+def source_detail(ident: int, p: Principal = Source, db: Session = DB):
+    row = svc.get(db, FinReceivablesSourceRow, ident, "来源记录")
+    keys = ("id", "source_key", "record_key", "kind", "state", "version", "payload", "error", "target_id", "updated_at")
+    return ok({key: getattr(row, key) for key in keys})
 
 
 class SourceVersion(f.Strict):

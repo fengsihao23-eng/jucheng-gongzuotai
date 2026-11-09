@@ -15,7 +15,7 @@ from app.core.deps import build_principal
 from app.core.response import BizError
 from app.core.security import create_jwt, hash_password, hash_token
 from app.models import BizContract, BizProject, LogOperation, SysNotify, SysUser, SysUserRole
-from app.services import account_link_service as service, user_service, xiaoju_business, xiaoju_sessions
+from app.services import account_link_service as service, user_service, xiaoju_business, xiaoju_personal, xiaoju_sessions
 from tests.conftest import data
 
 PASSWORD = 'Account-link-test-only-83!'
@@ -28,6 +28,7 @@ def linked_setup(monkeypatch, tmp_path, seeded):
     factory = lambda: Session(bind=conn, join_transaction_mode='create_savepoint', expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(dbcore, 'SessionLocal', factory)
     monkeypatch.setattr(xiaoju_business, 'SessionLocal', factory)
+    monkeypatch.setattr(xiaoju_personal, 'SessionLocal', factory)
     from app.mcp_server import server
     monkeypatch.setattr(server, 'SessionLocal', factory)
     monkeypatch.setattr(settings, 'wecom_corp_id', 'ww-account-link-test')

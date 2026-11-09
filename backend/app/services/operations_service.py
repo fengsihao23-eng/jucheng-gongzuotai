@@ -7,11 +7,12 @@ from sqlalchemy import or_, select
 from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
-from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsSchool,
+from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsProjectProgress, OpsSchool,
                         OpsTask, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
+PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date"]
 SCHOOL_FIELDS = ["name", "stage", "potential", "next_action", "next_contact_date", "labor_cost", "other_cost", "note"]
 PRODUCT_FIELDS = ["name", "brand", "model", "unit", "reference_price", "note"]
 TASK_FIELDS = ["title", "description", "owner_id", "school_id", "due_date", "priority", "cadence", "status", "progress", "next_step"]
@@ -108,6 +109,27 @@ def save_project(db, p, body, project_id=None):
         project = OpsProject(created_at=now())
     user(db, body.owner_id)
     return _write(db, p, project, body.model_dump(), PROJECT_FIELDS)
+
+
+def progress_dict(row):
+    return {"id": row.id, "project_id": row.project_id, "author_name": row.author.name, "created_at": row.created_at,
+            **snapshot(row, PROJECT_PROGRESS_FIELDS)}
+
+
+def project_progress(db, p, project_id, before_id=None):
+    get_project(db, p, project_id)
+    query = select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id)
+    if before_id is not None:
+        query = query.where(OpsProjectProgress.id < before_id)
+    rows = db.scalars(query.order_by(OpsProjectProgress.id.desc()).limit(26)).all()
+    return {"items": [progress_dict(row) for row in rows[:25]], "next_before_id": rows[24].id if len(rows) > 25 else None}
+
+
+def record_project_progress(db, p, project_id, body):
+    project = get_project(db, p, project_id, lock=True)
+    manage(db, p, project)
+    row = OpsProjectProgress(project_id=project.id, author_id=p.id, created_at=now())
+    return progress_dict(_write(db, p, row, body.model_dump(), PROJECT_PROGRESS_FIELDS))
 
 
 def members(db, project):
@@ -346,9 +368,12 @@ def feedback(db, p, task_id, body):
     active(project)
     if not can_feedback(db, p, project, task):
         raise forbidden("仅任务负责人或项目管理员可反馈")
+    if body.expected_revision is not None and task.revision != body.expected_revision:
+        raise conflict("任务在反馈期间已更新，请核对最新进展后再提交")
     if task.status == "done":
         raise conflict("任务已完成，历史反馈予以保留；新的工作请另建任务")
-    if body.status != "done" and (body.status == "blocked" or task.due_date < today()) and not body.incomplete_reason:
+    if body.status != "done" and (body.status == "blocked" or task.due_date < today() or
+                                  any(not n.completed_at and n.due_date < today() and n.id not in body.completed_node_ids for n in task.nodes)) and not body.incomplete_reason:
         raise bad_request("受阻或逾期任务请填写未完成原因")
     requested = set(body.completed_node_ids)
     nodes = {n.id: n for n in task.nodes}
@@ -419,7 +444,7 @@ def task_detail(db, p, task_id):
     reviews = [{"id": r.id, "reviewer_name": r.reviewer.name, "created_at": r.created_at,
                 **snapshot(r, ["stage", "decision", "comment", "task_revision"])} for r in db.scalars(
                     select(OpsTaskReview).where(OpsTaskReview.task_id == task_id).order_by(OpsTaskReview.id))]
-    return {**task_dict(db, p, project, task, updates), "reviews": reviews}
+    return {**task_dict(db, p, project, task, updates), "reviews": reviews, "today": today()}
 
 
 def tasks(db, p, project_id=None, mine=False):
@@ -467,6 +492,7 @@ def list_projects(db, p, keyword="", category="", key_only=False):
 
 def project_detail(db, p, project_id):
     project = get_project(db, p, project_id)
+    progress = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.project_id == project.id).order_by(OpsProjectProgress.id.desc()).limit(1))
     rows = tasks(db, p, project_id)
     schools = school_data(db, project)
     products = db.scalars(select(OpsProduct).where(OpsProduct.project_id == project.id).order_by(OpsProduct.id)).all()
@@ -481,7 +507,8 @@ def project_detail(db, p, project_id):
         daily[r["income_date"]] += Decimal(r["amount"])
     batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
         select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))]
-    return {**project_dict(db, p, project), "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
+    return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
+            "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
             "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,
             "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),
@@ -496,8 +523,14 @@ def project_detail(db, p, project_id):
 def brief(db, p, project_id):
     data = project_detail(db, p, project_id)
     pending = [t for t in data["tasks"] if t["status"] != "done" and t["approval_status"] == "approved"]
-    lines = [f"{data['name']}｜{today()} 进展汇总", f"目标：{data['objective'] or '尚未填写'}",
-             f"任务 {data['stats']['total']} 项，已完成 {data['stats']['done']} 项，逾期 {data['stats']['overdue']} 项，受阻 {data['stats']['blocked']} 项。"]
+    lines = [f"{data['name']}｜{today()} 进展汇总", f"目标：{data['objective'] or '尚未填写'}"]
+    progress = data["latest_progress"]
+    if progress:
+        lines += [f"项目进度：{progress['progress']}", f"遇到的问题：{progress['problems'] or '未填写'}",
+                  f"下一步计划：{progress['next_plan']}（计划完成：{progress['next_due_date']}）" if progress['next_plan'] else "下一步计划：未填写"]
+    else:
+        lines.append("项目进度尚未填写。")
+    lines.append(f"任务 {data['stats']['total']} 项，已完成 {data['stats']['done']} 项，逾期 {data['stats']['overdue']} 项，受阻 {data['stats']['blocked']} 项。")
     lines.append(f"另有 {data['stats']['awaiting_approval']} 项等待审核，{data['stats']['rejected']} 项已退回，尚未进入执行。")
     for t in pending:
         flags = "、".join(x for x, yes in [("逾期", t["overdue"]), ("今日待反馈", t["needs_update"])] if yes)

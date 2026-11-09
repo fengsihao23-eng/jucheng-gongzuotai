@@ -7,3 +7,4 @@ from app.models.ext_receivables import (FinReceipt, FinReceiptAllocation, FinRec
                                         FinSalesInvoice)
 from app.models.ext_operations import *  # noqa: F401,F403
 from app.models.ext_project_finance import *  # noqa: F401,F403
+from app.models.ext_operations_progress import OpsProjectProgress  # noqa: F401

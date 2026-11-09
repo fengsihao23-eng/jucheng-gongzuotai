@@ -1,5 +1,6 @@
 """运营项目跟进：任务、学校基础资料、产品库及手工收入。"""
-from fastapi import APIRouter, Depends
+from typing import Literal
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,7 +9,7 @@ from app.core.deps import Principal, require_menu
 from app.core.response import ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
 from app.schemas.operations import (DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
-                                    ProjectIn, ReviewIn, SchoolIn, TaskIn, TaskPatch)
+                                    ProjectIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch)
 from app.services import operations_service as ops
 from app.services import operations_plans as plans
 
@@ -37,9 +38,10 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
 
 @router.get("/monthly")
 def monthly_plan(month: Month | None = None, owner_id: int | None = None, project_id: int | None = None,
-                 mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
-    """读取按负责人及来源归集的月度任务、跨月事项、完成情况和待审核事项。"""
-    return ok(plans.monthly(db, p, month, owner_id, project_id, mine))
+                 mine: bool = False, source: Literal["company", "self"] | None = None,
+                 review_mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    """按计划月份、负责人、项目、任务来源及待本人审核筛选真实任务；图表和明细使用相同范围。"""
+    return ok(plans.monthly(db, p, month, owner_id, project_id, mine, source, review_mine))
 
 
 @router.get("/products")
@@ -126,6 +128,20 @@ def edit_operation(project_id: int, body: ProjectIn, p: Principal = Menu, db: Se
 def operation_brief(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     """生成基于已录入事实的进展摘要，包含任务、节点、投入与收入来源。"""
     return ok(ops.brief(db, p, project_id))
+
+
+@router.get("/{project_id}/progress")
+def project_progress_history(project_id: int, before_id: int | None = Query(None, gt=0), p: Principal = Menu, db: Session = Depends(get_db)):
+    """按最新在前读取项目进度情况、问题、下一步计划及计划完成日期。"""
+    return ok(ops.project_progress(db, p, project_id, before_id))
+
+
+@router.post("/{project_id}/progress")
+def record_project_progress(project_id: int, body: ProjectProgressIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    """以当前账号填写项目进度；由项目负责人或管理员提交。新增一条历史记录，不改动任务状态。"""
+    result = ops.record_project_progress(db, p, project_id, body)
+    db.commit()
+    return ok(result)
 
 
 @router.post("/{project_id}/members")

@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.response import BizError
-from app.models import BizContract, BizProject, CsTicket, SysUser
+from app.models import BizContract, BizProject, CsTicket, FinReceipt, SysUser
 from app.services import xiaoju_business as business
 from app.services import xiaoju_business_catalog as catalog
 from app.services import xiaoju_business_state as state
@@ -43,17 +43,16 @@ def new_contract(db, name="小聚执行测试"):
 def test_catalog_covers_real_business_routes_and_mcp(db):
     from app.main import app
     ops = catalog.operations()
-    routes = {(r.path, method) for r in app.routes if isinstance(r, APIRoute)
-              and r.endpoint.__module__.rsplit(".", 1)[-1] in catalog.MODULES
-              and (not r.path.startswith("/api/v1/receivables/") or
-                   r.path.removeprefix("/api/v1/receivables/") in {"summary", "invoices", "receipts", "receipts/{ident}/allocations"}
-                   and r.methods == {"GET"})
-              and not any(r.path.endswith(suffix) for suffix in ("/token/reveal-config", "/mcp-config/test", "/mcp-config/config"))
+    routes = {(r.path, method) for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/api/v1/")
+              and r.endpoint.__module__.rsplit(".", 1)[-1] not in {"assistant", "files", "dev", "wecom"}
+              and f"{r.endpoint.__module__.rsplit('.', 1)[-1]}.{r.name}" not in catalog.ROUTE_EXCLUSIONS
               for method in r.methods if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}}
     assert routes == {(o.path, o.method) for o in ops.values() if o.source == "api"}
     assert {o.mcp_code for o in ops.values() if o.source == "mcp"} == set(catalog.MCP_IMPLS)
     assert set(catalog.MODULES) - {"wecom_cli"} == {o.module for o in ops.values()}
-    assert not any("/assistant/" in o.path or "/auth/" in o.path or o.path.startswith("/api/v1/files") for o in ops.values())
+    assert not (set(ops) & catalog.ROUTE_EXCLUSIONS)
+    assert {op.id for op in ops.values() if op.module == "auth"} == {"auth.me", "auth.save_preferences"}
+    assert not any("/assistant/" in o.path or o.path.startswith("/api/v1/files") for o in ops.values())
     assert ops["attachments.preview"].effect == "query"
 
 
@@ -68,6 +67,68 @@ def test_catalog_obeys_menu_button_and_mcp_grants(db):
     assert "service.register" not in manager  # 菜单可见但没有工单写按钮
     with pytest.raises(BizError, match="无权"):
         business.BusinessExecutor(uid(db, "zengli")).execute("admin.users")
+
+
+def test_receipt_workflow_discovery_and_confirmed_real_write(db, client, login):
+    runner = executor(db)
+    receipt_ref = "XJ-RC-" + uuid.uuid4().hex[:12].upper()
+    result = data(client.get("/api/v1/assistant/business/capabilities", params={"area": "receivables", "query": "登记到账收款", "limit": 2}, headers=login("admin")))
+    assert result["operations"][0]["operation_id"] == "receivables.record_receipt"
+    body = {"reference": receipt_ref, "received_on": "2026-10-20", "amount": "375.50", "payer": "验收付款方", "account": "验收账户", "kind": "other"}
+    with pytest.raises(BizError, match="无权"):
+        executor(db, "zengli").execute("receivables.record_receipt", {"body": body})
+    pending = runner.execute("receivables.record_receipt", {"body": body})
+    assert pending["requires_confirmation"] and not db.scalar(select(FinReceipt.id).where(FinReceipt.reference == receipt_ref))
+    receipt = business.confirm(pending["action"]["id"], runner.user_id)["result"]
+    assert receipt["ok"] and receipt["changed"]
+    row = db.get(FinReceipt, receipt["data"]["id"])
+    assert row.reference == receipt_ref and str(row.amount) == "375.50"
+    assert business.confirm(pending["action"]["id"], runner.user_id)["reused"]
+    pending = executor(db).execute("receivables.void", {"path": {"ident": row.id}, "body": {"reason": "验收更正"}})
+    assert pending["action"]["before"]["data"]["reference"] == receipt_ref
+
+
+def test_wecom_console_model_cannot_confirm_or_leak_credentials(db, monkeypatch):
+    from app.integration.wecom import catalog as official
+    from app.integration.wecom.credentials import Gateway, WeComApiError
+
+    item = next(row for row in official.items() if row["path"] == "/cgi-bin/user/create")
+    calls = []
+
+    def fake(cls, credential, method, path, **kwargs):
+        calls.append((method, path))
+        raise WeComApiError(60011, "接口未授权", {"nested": {"access_token": "fake-credential"}})
+
+    monkeypatch.setattr(Gateway, "call", classmethod(fake))
+    request = {"id": item["id"], "payload": {"userid": "fixture"}}
+    runner = executor(db)
+    with pytest.raises(BizError, match="参数格式"):
+        runner.execute("wecom_console.call", {"body": {**request, "confirm": True}})
+    pending = runner.execute("wecom_console.call", {"body": request})
+    assert pending["action"]["targets"]["接口地址"] == item["path"] and not calls
+    result = business.confirm(pending["action"]["id"], runner.user_id)["result"]
+    assert calls == [("POST", item["path"])]
+    assert not result["ok"] and not result["changed"] and "接口未授权" in result["message"]
+    assert "fake-credential" not in str(business.read_result(result["result_id"], runner.user_id, full=True))
+
+
+def test_xiaoju_feedback_snapshot_does_not_overwrite_newer_progress(db, client, login):
+    headers = login("admin")
+    post = lambda path, body: data(client.post("/api/v1" + path, headers=headers, json=body))
+    owner = uid(db)
+    project = post("/operations", {"name": "同步验收", "owner_id": owner})
+    task = post(f"/operations/{project['id']}/tasks", {"title": "核对需求", "owner_id": owner, "due_date": "2026-10-31"})
+    path = f"/operations/tasks/{task['id']}/feedback"
+    runner = executor(db)
+    pending = runner.execute("operations.operation_feedback", {"path": {"task_id": task["id"]},
+                             "body": {"content": "小聚草稿", "status": "doing", "progress": 35}})
+    assert pending["action"]["request"]["body"]["expected_revision"] == task["revision"]
+    updated = post(path, {"content": "同事刚更新", "status": "doing", "progress": 60, "expected_revision": task["revision"]})
+    with pytest.raises(BizError, match="已变化"):
+        business.confirm(pending["action"]["id"], owner)
+    assert client.post("/api/v1" + path, headers=headers, json={"content": "旧网页", "status": "doing", "progress": 20,
+                       "expected_revision": task["revision"]}).status_code == 409
+    assert updated["progress"] == data(client.get(f"/api/v1/operations/tasks/{task['id']}", headers=headers))["progress"] == 60
 
 
 def test_actual_query_and_mcp_use_original_permissions(db, client, login):

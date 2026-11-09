@@ -18,6 +18,7 @@ from app.models import McpTool
 
 MODULES = {
     "operations": ("运营项目与重点任务", "/operations"),
+    "auth": ("我的账号与工作台", "/account"),
     "portal": ("个人工作台", "/"), "board": ("经营看板", "/board"),
     "contracts": ("合同与回款", "/contracts"), "submissions": ("汇报与催交", "/submissions"),
     "expenses": ("报销归集", "/expenses"), "flows": ("银行流水核对", "/flows"),
@@ -31,7 +32,21 @@ MODULES = {
     "admin": ("系统管理", "/admin"), "notify": ("我的通知", "/notifications"),
     "mcp_config": ("公司工具接入", "/workbuddy"),
     "wecom_cli": ("企业微信个人连接", "/workbuddy"),
+    "wecom_personal": ("企业微信待办与日程", "/account"),
+    "wecom_approval": ("企业微信审批", "/expenses"),
+    "wecom_external": ("企业微信客户联系", "/opportunities"),
+    "wecom_console": ("企业微信接口中心", "/admin/wecom-api"),
     "imports": ("资料导入与处理进度", "/imports"),
+}
+
+# Identity, credentials and sign-off stay in their dedicated UI. The rest of the
+# registered business routes are covered automatically, using their actual guards.
+ROUTE_EXCLUSIONS = {
+    "auth.login_config", "auth.login", "auth.wecom_authorize_url", "auth.wecom_oauth",
+    "auth.logout", "auth.change_password", "auth.reset_mcp_token",
+    "mcp_config.client_config", "mcp_config.self_test", "mcp_config.config_with_token",
+    "wecom_personal.bind_start", "wecom_personal.bind_status", "wecom_personal.bind_qr", "wecom_personal.bind_cancel",
+    "wecom_console.put_credential",
 }
 LABELS = {
     "monthly_plan": "查询负责人月度任务表和未完成原因", "review_operation_task": "部门或公司审核自行安排的任务",
@@ -39,6 +54,7 @@ LABELS = {
     "edit_operation": "修改运营项目", "operation_tasks": "查询重点任务和我的任务", "operation_task": "读取任务节点和反馈记录",
     "create_operation_task": "布置运营任务", "edit_operation_task": "调整任务安排", "operation_feedback": "提交任务进展反馈",
     "operation_brief": "汇总运营项目进展", "draft_feedback": "整理反馈草稿", "save_operation_member": "设置项目团队权限",
+    "project_progress_history": "查看项目进度记录与计划完成日期", "record_project_progress": "填写项目进度、问题和下一步计划",
     "remove_operation_member": "移除项目成员", "product_library": "查询可用设备产品库", "create_school": "登记项目学校",
     "edit_school": "更新学校跟进和投入", "school_history": "查询学校客户跟进记录", "create_product": "登记设备产品", "edit_product": "更新产品资料",
     "add_school_equipment": "登记学校设备投入", "edit_school_equipment": "修正学校设备投入",
@@ -86,6 +102,42 @@ LABELS = {
     "wecom_preview": "读取企微原件或在线正文生成本人预览", "wecom_source": "查询本人企微读取进度",
     "wecom_confirm": "确认保存企微快照并进入资料审核或台账清洗",
     "invoices": "查询开票和已开票未收款", "receipts": "查询已确认到账及待匹配收款", "allocations": "查询发票核销明细",
+    "record_invoice": "登记实际发票", "issue": "确认实际开票", "correct": "更正或红冲发票", "record_receipt": "登记实际到账收款",
+    "assign": "将待匹配收款关联到合同", "void": "撤销已登记的到账收款", "sources": "查询开票收款来源核对队列",
+    "source_status": "查询开票收款同步状态", "apply": "核对一条开票收款来源并入账", "apply_batch": "批量核对开票收款来源并入账",
+    "me": "查询本人的账号和工作台偏好", "save_preferences": "设置工作台卡片排序和显示",
+    "kinds": "查看可以发起的审批类别", "put_config": "维护审批模板配置", "submit": "发起企业微信报销或合同审批",
+    "customers": "查询企微客户联系人", "get_catalog": "查找企微官方接口", "get_item": "读取企微官方接口说明",
+    "credentials": "检查已配置的企微授权", "test_credential": "测试已有企微授权", "call": "调用指定企业微信官方接口", "calls": "查询企业微信接口调用记录",
+    "sync_status": "查看本人企微待办日程同步状态", "sync_run": "同步本人企微待办和日程", "sync_items": "查询已同步的本人待办和日程", "unbind": "解除本人的企业微信连接",
+    "dicts": "查询系统字典和口径", "datasources": "查询数据源状态", "job_logs": "查询定时任务执行日志",
+    "review_approval": "确认审批登记差异已核对", "wecom_menu_preview": "预览企业微信应用菜单", "wecom_menu_push": "发布企业微信应用菜单",
+    "my_approvals": "查询我的审批", "my_expenses": "查询我的报销", "cards": "读取工作台卡片", "schemes": "查询工作台布局方案",
+    "monthly": "读取月度经营汇总", "templates": "查询导入模板", "accounts": "查询账目账户", "imports": "查询流水导入批次",
+    "import_detail": "查看流水导入批次详情", "list_flows": "查询银行流水", "flow_detail": "查看银行流水详情", "view": "查询出纳日记账",
+    "batch_detail": "查看财务同步批次", "re_reconcile": "重新核对同步凭证", "consistency": "查询财务凭证对账一致性",
+    "vouchers": "查询财务凭证", "supply": "查询凭证同步状态", "balances": "查询科目余额", "tax_list": "查询税务申报记录",
+    "tax_upload": "导入税务申报数据", "costs": "查询项目成本", "cost_create": "登记项目成本", "cost_update": "更正项目成本", "cost_delete": "删除项目成本",
+    "list_reports": "查询已有报表", "project_sources": "查询项目历史财务报表来源", "project_source": "查看项目历史财务报表和核对差异",
+    "logs": "查看项目节点操作记录", "project_weekly": "查询项目周进度", "events": "查询重点项目事件", "add_feedback": "登记重点项目反馈",
+    "list_feedback": "查询重点项目反馈", "generate_report": "生成重点项目报告", "report_detail": "查看报告详情", "report_download": "下载报告",
+    "list_reviews": "查询项目复盘", "list_": "查询业务记录列表", "get_one": "读取商机详情", "board_export": "导出经营业绩明细", "reports": "查询历史报告",
+    "detect_target": "识别表格适用的业务台账", "job": "查看清洗任务明细", "get_rule": "查询考勤规则", "put_rule": "更新考勤核对规则",
+    "put_template": "维护考勤导入模板", "pull_wecom_attendance": "拉取企微打卡记录", "periods": "查询可用考勤月份", "analysis": "查询人力分析",
+    "alerts_rule": "设置人事提醒规则", "doc_types": "查询文书类型", "recruit_funnel": "查询招聘进度漏斗", "qa_suggestions": "查看常见制度问题",
+    "meta": "查询业务选项", "kpi": "查询客服工单指标", "delete_doc": "删除文档", "check": "查看标书合规检查详情",
+    "generations": "查询已有方案", "generation": "读取方案详情", "tree": "查询知识库分类树", "create_category": "新建知识分类",
+    "update_category": "修改知识分类", "delete_category": "删除知识分类", "suggest": "识别文档分类和标签", "new_version": "上传知识文档新版本",
+    "update_doc": "编辑知识文档及可见范围", "review": "审核知识文档", "wecom_sources": "查询企微资料导入历史", "batch_text": "读取资料识别正文",
+    "server": "查看 WorkBuddy 服务状态", "tools": "查询已授权工具目录", "sync_tools": "同步 WorkBuddy 工具目录",
+}
+
+ROUTE_LABELS = {
+    "receivables.allocate": "核销到账与发票", "receivables.template": "下载开票收款导入模板", "receivables.upload": "上传开票收款来源表",
+    "receivables.invoice_detail": "查询单张发票与已核销金额", "receivables.receipt_detail": "查询单笔到账及核销余额", "receivables.source_detail": "查看一条来源记录与版本",
+    "wecom_approval.template": "读取审批模板和必填控件", "wecom_external.overview": "查看企微客户联系授权与客户统计",
+    "wecom_console.overview": "查看接口目录和授权概览", "operations.options": "查询项目团队、可分派人员和审核人",
+    "opportunities.list_": "查询商机与客户", "kb.archive": "下架知识文档", "journal.delete": "删除日记账记录",
 }
 MCP_IMPLS = {
     "fin.daily_expense_report": "t_daily_expense", "fin.project_profit": "t_project_profit",
@@ -94,6 +146,7 @@ MCP_IMPLS = {
     "board.compare": "t_compare", "kb.search": "t_kb_search", "kb.bid_check": "t_bid_check",
     "hr.attendance_summary": "t_attendance", "proj.milestone_update": "t_milestone",
     "cs.ticket_register": "t_ticket", "market.weekly_report": "t_market_weekly",
+    "ops.project_status": "t_ops_status", "ops.task_create": "t_ops_create", "ops.task_feedback": "t_ops_feedback", "ops.task_review": "t_ops_review",
 }
 
 
@@ -163,7 +216,9 @@ def _effect(module, method, path, name):
         return "query" if name == "draft_feedback" else "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"
     if module == 'imports' and name in {'upload', 'analyze'}: return 'execute'
-    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports"}: return "confirm"
+    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports", "receivables", "wecom_approval"}: return "confirm"
+    if module == "wecom_console": return "query" if name == "test_credential" else "confirm"
+    if module == "kb" and name in {"update_doc", "review", "archive", "create_category", "update_category"}: return "confirm"
     if module == "flows": return "confirm"
     if path.endswith("/remind") or (module == "hr" and ("/rule" in path or "/template" in path or "/alerts/scan" in path or "/candidates/" in path and path.endswith("/stage"))): return "confirm"
     if module == "clean" and path.endswith("/import"): return "confirm"
@@ -215,9 +270,7 @@ def operations():
     from app.mcp_server import server
     routes = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/api/v1/")
               and r.endpoint.__module__.rsplit(".", 1)[-1] in MODULES
-              and (r.endpoint.__module__.rsplit(".", 1)[-1] != "receivables" or
-                   r.name in {"summary", "invoices", "receipts", "allocations"})
-              and not any(r.path.endswith(suffix) for suffix in ("/token/reveal-config", "/mcp-config/test", "/mcp-config/config"))]
+              and f"{r.endpoint.__module__.rsplit('.', 1)[-1]}.{r.name}" not in ROUTE_EXCLUSIONS]
     docs = get_openapi(title="小聚业务", version="1", routes=routes)
     components = docs.get("components", {}).get("schemas", {})
     result = {}
@@ -239,15 +292,19 @@ def operations():
             for part in params.values(): part["additionalProperties"] = False
             schema = {**params, "body": resolve(content.get(content_type, {}).get("schema", {}), components),
                       "body_required": data.get("requestBody", {}).get("required", False), "content_type": content_type}
+            if op_id == "wecom_console.call":
+                # The model cannot grant its own approval. The executor injects it after the user's click.
+                schema["body"]["properties"].pop("confirm", None)
+                schema["body"]["additionalProperties"] = False
             groups, buttons = _guards(route.dependant)
-            title = MODULES[module][0] + " · " + LABELS.get(route.name, "查询" if method == "GET" else "执行操作")
+            title = MODULES[module][0] + " · " + (ROUTE_LABELS.get(op_id) or LABELS.get(route.name) or data["summary"])
             page = MODULES[module][1]
             if route.path.startswith("/api/v1/reports/profit"): page = "/profit"
             elif route.path.startswith("/api/v1/market/intel"): page = "/intel"
             elif route.path.startswith("/api/v1/market/reviews"): page = "/reviews"
             result[op_id] = Operation(op_id, module, title, "api", _effect(module, method, route.path, route.name),
                                      route.path, method, page, schema, route, groups, buttons)
-    mcp_modules = {"fin": "reports", "oa": "portal", "crm": "contracts", "board": "board", "kb": "kb", "hr": "hr", "proj": "projects", "cs": "service", "market": "market"}
+    mcp_modules = {"fin": "reports", "oa": "portal", "crm": "contracts", "board": "board", "kb": "kb", "hr": "hr", "proj": "projects", "cs": "service", "market": "market", "ops": "operations"}
     for code, function_name in MCP_IMPLS.items():
         impl = getattr(server, function_name)
         fields = {name: (param.annotation if param.annotation is not inspect.Parameter.empty else Any,
@@ -255,7 +312,7 @@ def operations():
                   for name, param in inspect.signature(impl).parameters.items() if name not in {"db", "p"}}
         params_model = create_model("Xiaoju_" + code.replace(".", "_"), **fields)
         module = mcp_modules[code.split(".")[0]]
-        effect = "confirm" if code in {"fin.bank_flow_sync", "crm.contract_register", "proj.milestone_update"} else "query" if code in {"oa.pending_approvals", "board.compare", "kb.search"} else "execute"
+        effect = "confirm" if code in {"fin.bank_flow_sync", "crm.contract_register", "proj.milestone_update", "ops.task_create", "ops.task_feedback", "ops.task_review"} else "query" if code in {"oa.pending_approvals", "board.compare", "kb.search", "ops.project_status"} else "execute"
         op_id = "mcp." + code
         result[op_id] = Operation(op_id, module, server.TOOL_META[code]["name"], "mcp", effect,
                                   page=MODULES[module][1], schema={"path": {"type": "object", "additionalProperties": False},

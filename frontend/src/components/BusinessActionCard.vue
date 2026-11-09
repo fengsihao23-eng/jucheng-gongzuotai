@@ -5,7 +5,8 @@
     <p v-else-if="action.data_mode === 'local'" class="action-note">工作台资料 · 请核对分类、共享范围与实际处理状态</p>
     <p v-if="action.state === 'pending'" class="action-note">请核对目标记录和执行内容。确认后，小聚将按此单提交。</p>
     <BusinessData v-if="action.request" :value="requestView" />
-    <div v-if="action.targets" class="action-targets"><b>本次实际接收范围</b><BusinessData :value="action.targets" /></div>
+    <div v-if="action.targets" class="action-targets"><b>{{ action.operation_id === 'submissions.remind' ? '本次实际接收范围' : '本次办理内容' }}</b><BusinessData :value="action.targets" /></div>
+    <a v-if="action.operation_id === 'imports.decision' && action.request?.path?.batch_id" :href="`/imports?batch=${Number(action.request.path.batch_id)}`" target="_blank" rel="noopener noreferrer">查看完整导入清单</a>
     <ul v-if="action.attachments?.length" class="action-files"><li v-for="file in action.attachments" :key="file.id">{{ file.filename }} · {{ Math.ceil(file.size / 1024) }} KB</li></ul>
     <details v-if="action.before"><summary>查看变更前的记录</summary><BusinessData :value="action.before.data" /></details>
     <p v-if="action.error || error" class="action-error">{{ error || action.error }}</p>

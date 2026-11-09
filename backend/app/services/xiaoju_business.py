@@ -25,6 +25,15 @@ from app.services import xiaoju_business_catalog as catalog
 from app.services import xiaoju_business_state as state
 from app.services.xiaoju_tools import redact, safe_value
 
+WRITE_TERMS = ("登记", "新增", "创建", "修改", "更新", "提交", "归档", "录入", "导入", "处理", "推进", "标记", "维护", "分配", "归集",
+               "重算", "发送", "通知", "删除", "撤销", "取消", "运行", "执行", "改成", "调整", "安排", "派单", "布置", "发布", "反馈进展",
+               "记一下", "开一张", "确认开票", "开具发票", "核销", "红冲", "更正", "入账", "同步", "拉取", "解除", "通过审核", "退回", "催交",
+               "设为", "改为", "标为", "完成任务", "完成节点", "保存", "回复")
+
+
+def write_requested(text):
+    return any(word in text for word in WRITE_TERMS)
+
 
 def principal(user_id):
     with SessionLocal() as db:
@@ -52,6 +61,10 @@ def actor_signature(user_id):
 def source_signature():
     return digest({"database": settings.database_url, "mode": settings.data_source_mode,
                    "sources": {key: settings.source_mode(key) for key in ("wecom", "lemoncloud")}})
+
+
+def _wecom_identity():
+    return digest((settings.wecom_corp_id, settings.wecom_agent_id, settings.wecom_api_base))
 
 
 def compact(value, depth=0):
@@ -97,6 +110,37 @@ def defaults(value, schema):
     return value
 
 
+_PRIVATE_FIELDS = {"secret", "corpsecret", "appsecret", "accesssecret", "accesstoken", "refreshtoken", "token", "authorization",
+                   "encodingaeskey", "aeskey", "webhookkey", "password", "apikey", "jsapiticket", "permanentcode", "sessionkey"}
+_PRIVATE_WECOM_METHODS = {"gettoken", "get_access_token", "get_provider_token", "get_suite_token", "get_corp_token", "get_permanent_code",
+                         "get_jsapi_ticket", "get_agent_ticket", "ticket/get", "getuserinfo", "getuserdetail", "getuseridentity", "authsucc"}
+
+
+def _private_field(key):
+    return re.sub(r"[^a-z]", "", str(key).lower()) in _PRIVATE_FIELDS
+
+
+def _scrub_private_fields(value):
+    if isinstance(value, dict):
+        return {key: _scrub_private_fields(item) for key, item in value.items() if not _private_field(key)}
+    if isinstance(value, list):
+        return [_scrub_private_fields(item) for item in value]
+    return value
+
+
+def _wecom_console_item(body):
+    from app.integration.wecom import catalog as official
+    item = official.get(body["id"])
+    if item is None: raise bad_request("请先在企业微信官方接口目录中选定具体接口")
+    path = item["path"].lower().rstrip("/")
+    if any(path.endswith("/" + name) for name in _PRIVATE_WECOM_METHODS):
+        raise forbidden("令牌或个人授权接口不能通过对话调用")
+    params, payload = body.get("params", {}), body.get("payload")
+    if "key" in params or _scrub_private_fields(params) != params or _scrub_private_fields(payload) != payload:
+        raise bad_request("使用接口中心已配置的授权，不要在对话中传递密钥或令牌")
+    return item
+
+
 def validate(op, request, user_id):
     if not isinstance(request, dict) or not request.keys() <= {"path", "query", "body", "files"}:
         raise bad_request("业务参数只能包含 path、query、body 和 files")
@@ -129,10 +173,12 @@ def validate(op, request, user_id):
     if op.source == "wecom_cli":
         from app.services.wecom_cli_service import method_schema
         _validate_schema(request["body"], method_schema(user_id, op.cli_method, op.connection_id), "body")
+    if op.id == "wecom_console.call":
+        _wecom_console_item(request["body"])
     return request
 
 
-async def _http(op, request, user_id):
+async def _http(op, request, user_id, *, confirmed=False):
     from app.main import app
     url = op.path
     for key, value in request["path"].items():
@@ -153,6 +199,10 @@ async def _http(op, request, user_id):
         kwargs.update(data=form, files=files)
     elif request["body"] is not None:
         kwargs["json"] = request["body"]
+    if op.id == "wecom_console.call":
+        _wecom_console_item(request["body"])
+        if not confirmed: raise forbidden("请在执行单上确认这次企微接口调用")
+        kwargs["json"] = {**request["body"], "confirm": confirmed}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://xiaoju-internal", timeout=90) as client:
         response = await client.request(op.method, url, **kwargs)
     if response.status_code >= 400:
@@ -167,6 +217,12 @@ async def _http(op, request, user_id):
         if isinstance(body, dict) and "code" in body:
             if body["code"] != 0: raise BizError(body["code"], redact(body.get("message", "执行失败")))
             data, message = body.get("data"), body.get("message")
+            if op.module == "wecom_console": data = _scrub_private_fields(data)
+            if op.id == "imports.decision" and isinstance(data, dict):
+                # ASGI waits for the background job; read its actual final state rather than the initial submission response.
+                target = current_operation("imports.batch", user_id)
+                data, _ = await _http(target, {"path": request["path"], "query": {}, "files": {}, "body": None}, user_id)
+                message = data.get("note") or data.get("readiness_label") or "已处理导入决定，请核对实际入库状态"
             if not message or message == "ok":
                 message = (data.get("summary") if isinstance(data, dict) and isinstance(data.get("summary"), str) else None) or (
                     f"查询完成，共 {data['total']} 条记录" if isinstance(data, dict) and isinstance(data.get("total"), int) else
@@ -184,7 +240,7 @@ async def _http(op, request, user_id):
         return encode(result), "导出文件已生成"
 
 
-def invoke(op, request, user_id):
+def invoke(op, request, user_id, *, confirmed=False):
     current_operation(op.id, user_id)
     if op.source == "wecom_cli":
         from app.services.wecom_cli_service import execute
@@ -198,7 +254,7 @@ def invoke(op, request, user_id):
         body = json.loads(server._run(op.mcp_code, context, args, op.impl))
         if not body.get("ok"): raise bad_request(redact(body.get("message", "业务工具未完成")))
         return body, body.get("summary") or "业务工具执行完成"
-    return asyncio.run(_http(op, request, user_id))
+    return asyncio.run(_http(op, request, user_id, confirmed=confirmed))
 
 
 def preview_file(file_id, user_id):
@@ -242,7 +298,9 @@ def preview_file(file_id, user_id):
 
 
 def _snapshot(op, request, user_id):
-    if op.method not in {"PUT", "PATCH", "DELETE"} or not request["path"]:
+    if not request["path"] or (op.method not in {"PUT", "PATCH", "DELETE"} and not (
+        op.method == "POST" and (op.module in {"receivables", "kb"} or op.id.startswith("operations.") and "task_id" in request["path"])
+    )):
         return None
     candidates = [item for item in catalog.operations().values() if item.source == "api" and item.method == "GET"
                   and (item.path == op.path or op.path.startswith(item.path + "/"))
@@ -261,6 +319,34 @@ def _snapshot(op, request, user_id):
 
 def _concrete_targets(op, request, user_id):
     """Freeze outbound recipients so later joiners are never added after approval."""
+    if op.id == "operations.record_project_progress":
+        from app.services import operations_service as ops
+        p = principal(user_id)
+        with SessionLocal() as db:
+            project = ops.get_project(db, p, request["path"]["project_id"])
+            ops.manage(db, p, project)
+            return request, {"运营项目": project.name, "记录类型": "新增一条项目进度"}
+    if op.id in {"operations.operation_feedback", "operations.review_operation_task"}:
+        data, _ = invoke(current_operation("operations.operation_task", user_id),
+                         {"path": request["path"], "query": {}, "body": None, "files": {}}, user_id)
+        flag = "can_review" if op.id.endswith("review_operation_task") else "can_feedback"
+        if not data.get(flag): raise forbidden("当前账号不能执行这项任务的该操作")
+        body = request["body"]
+        if body.get("expected_revision") is None: body["expected_revision"] = data["revision"]
+        if body["expected_revision"] != data["revision"]: raise conflict("任务已变化，请读取最新记录再办理")
+        return request, {"项目": data["project_name"], "任务": data["title"], "负责人": data["owner_name"], "当前进度": data["progress"]}
+    if op.id == "wecom_console.call":
+        item = _wecom_console_item(request["body"])
+        return request, {"接口": item["name"], "方法": item["method"], "接口地址": item["path"],
+                         "凭证类别": request["body"].get("credential") or item["credential"]}
+    if op.id == "imports.decision":
+        data, _ = invoke(current_operation("imports.batch", user_id),
+                         {"path": request["path"], "query": {}, "body": None, "files": {}}, user_id)
+        plan = data.get("agent_plan") or {}
+        if plan.get("version") != request["body"]["version"] or plan.get("state") not in {"draft", "attention"}:
+            raise conflict("导入清单已变化，请读取最新清单后再办理")
+        return request, {"文件": data["filename"], "决定": "按清单导入" if request["body"]["approve"] else "拒绝剩余导入",
+                         "摘要": plan.get("summary"), "统计": plan.get("totals"), "去向": [step["title"] for step in plan.get("steps", [])]}
     if op.id == "admin.addressbook_sync" and (request.get("body") or {}).get("preview_id"):
         from app.services.company_directory_service import inspect_preview
         preview = inspect_preview(request["body"]["preview_id"], user_id)
@@ -292,7 +378,8 @@ def result_view(record):
             "data_truncated": preview != data,
             "data_notice": "当前为摘要，不能据此当作全部记录。请分页查询原接口或使用完整导出/汇总接口核验。" if preview != data else "",
             "files": files_in(data), "links": _wecom_links(data) if record.get("data_source") == "wecom_cli" else [],
-            "data_mode": record["data_mode"], "data_source": record.get("data_source"), "reused": record.get("reused", False)}
+            "data_mode": record["data_mode"], "data_source": record.get("data_source"), "reused": record.get("reused", False),
+            "changed": record.get("changed", False)}
 
 
 def _wecom_links(data):
@@ -315,20 +402,30 @@ def _wecom_links(data):
 
 
 def operation_data_mode(op):
-    if op.source == "wecom_cli":
+    if op.source == "wecom_cli" or op.module in {"wecom_console", "wecom_approval", "wecom_external"}:
         return "live"
-    if op.module in {"imports", "kb"}:
+    if op.module in {"imports", "kb", "operations", "receivables", "auth", "wecom_personal"}:
         return "local"  # 上传资料不是模拟连接；每份资料仍以其来源、审核状态为准。
     if op.id in {"admin.preview_addressbook", "admin.addressbook_sync"}:
         return settings.source_mode("wecom")
     return settings.data_source_mode
 
 
-def save_result(op, user_id, task_id, workflow_id, data, message, result_id=None):
-    failed = isinstance(data, dict) and isinstance(data.get("status"), str) and data["status"] in {"failed", "error"} and bool(data.get("error"))
+def save_result(op, user_id, task_id, workflow_id, data, message, result_id=None, *, changed=None):
+    failed = isinstance(data, dict) and (data.get("ok") is False or (data.get("status") in ("failed", "error") and bool(data.get("error"))))
+    error = (data.get("error") or data.get("errmsg") or data.get("message") or "业务操作未完成") if failed else None
+    page = op.page
+    if op.module == "operations" and isinstance(data, dict):
+        task = data.get("data") if op.source == "mcp" else data
+        if isinstance(task, dict) and isinstance(task.get("project_id"), int) and isinstance(task.get("id"), int) and "plan_month" in task:
+            page = f"/operations/{task['project_id']}?task={task['id']}"
+        elif op.id == "operations.record_project_progress" and isinstance(data.get("project_id"), int):
+            page = f"/operations/{data['project_id']}"
+    if op.id == "imports.decision" and isinstance(data, dict) and isinstance(data.get("id"), int): page = f"/imports?batch={data['id']}"
     record = {"id": result_id or uuid.uuid4().hex, "user_id": user_id, "task_id": task_id, "workflow_id": workflow_id,
-              "operation_id": op.id, "title": op.title, "page": op.page, "ok": not failed,
-              "status": "failed" if failed else "succeeded", "message": redact(str(data.get("error"))) if failed else redact(str(message))[:4000],
+              "operation_id": op.id, "title": op.title, "page": page, "ok": not failed,
+              "changed": not failed and (op.effect != "query" if changed is None else changed),
+              "status": "failed" if failed else "succeeded", "message": redact(str(error if failed else message))[:4000],
               "data": encode(safe_value(data)), "actor_signature": actor_signature(user_id),
               "data_mode": operation_data_mode(op),
               "data_source": op.source, "created_at": time.time()}
@@ -398,6 +495,9 @@ def confirm(action_id, user_id, approve=True):
         if record.get("connection_id") and record["connection_id"] != op.connection_id:
             record["state"] = "stale"; state.write("actions", record)
             raise conflict("企业微信个人连接已变化，请重新准备执行单")
+        if record.get("wecom_identity") and record["wecom_identity"] != _wecom_identity():
+            record["state"] = "stale"; state.write("actions", record)
+            raise conflict("企业微信应用已变化，请重新准备执行单")
         request = validate(op, record["request"], user_id)
         if record.get("before"):
             previous = record["before"]
@@ -408,7 +508,7 @@ def confirm(action_id, user_id, approve=True):
                 raise conflict("记录在预览后已变化，请重新读取并确认，避免覆盖他人的修改")
         record["state"] = "executing"; state.write("actions", record)
         try:
-            data, message = invoke(op, request, user_id)
+            data, message = invoke(op, request, user_id, confirmed=True) if op.id == "wecom_console.call" else invoke(op, request, user_id)
             receipt = save_result(op, user_id, record["task_id"], record["workflow_id"], data, message)
             record.update(state="executed" if receipt["ok"] else "failed", result_id=receipt["id"])
             state.write("actions", record)
@@ -437,13 +537,16 @@ class BusinessExecutor:
         self.results, self.actions = [], []
         self.confirmation_pending = False
 
-    def discover(self, query="", area=""):
+    def discover(self, query="", area="", *, limit=70, offset=0, browse=False):
         p = principal(self.user_id)
         with SessionLocal() as db: ops = catalog.available(p, db)
         counts = Counter(op.module for op in ops.values())
-        text = (query + " " + area).lower()
-        aliases = {"财务": ["expenses", "flows", "journal", "finance_data", "reports"], "利润": ["reports"], "流水": ["flows", "journal"],
+        query = query.strip().lower()
+        area = area.strip().lower()
+        text = (query + " " + area).strip()
+        aliases = {"财务": ["expenses", "flows", "journal", "finance_data", "reports", "receivables"], "利润": ["reports"], "流水": ["flows", "journal"],
                    "合同": ["contracts"], "报销": ["expenses"], "报表": ["reports", "performance", "market"], "商机": ["opportunities"],
+                   "发票": ["receivables"], "开票": ["receivables"], "收款": ["receivables"], "到账": ["receivables"], "核销": ["receivables"], "红冲": ["receivables"],
                    "业绩": ["performance"], "项目": ["projects", "market", "reports", "operations"], "市场": ["market"], "复盘": ["market"], "竞品": ["market"],
                    "运营": ["operations", "performance"], "智慧校园": ["operations"], "重点任务": ["operations"], "产品库": ["operations"],
                    "任务": ["operations"], "月度": ["operations"], "月计划": ["operations"], "自行安排": ["operations"],
@@ -451,24 +554,41 @@ class BusinessExecutor:
                    "人事": ["hr"], "考勤": ["hr"], "员工": ["hr"], "招聘": ["hr"], "入职": ["hr"], "工单": ["service"], "客服": ["service"],
                    "标书": ["tender"], "投标": ["tender"], "方案": ["tender"], "知识": ["kb"], "制度": ["kb", "hr"], "清洗": ["clean"],
                    "附件": ["portal"], "上传文件预览": ["portal"], "attachments": ["portal"],
-                   "企业微信": ["wecom_cli"], "企微": ["wecom_cli"], "wecom": ["wecom_cli"], "cli": ["wecom_cli"],
+                   "企业微信": ["wecom_cli", "wecom_personal", "wecom_external", "wecom_approval", "wecom_console"],
+                   "企微": ["wecom_cli", "wecom_personal", "wecom_external", "wecom_approval", "wecom_console"], "cli": ["wecom_cli"],
+                   "客户联系": ["wecom_external", "opportunities"], "发起审批": ["wecom_approval"], "接口中心": ["wecom_console"],
+                   "知识库审核": ["kb"], "审批": ["wecom_approval", "notify", "portal", "admin"],
                    "通讯录": ["admin", "wecom_cli"], "公司人员": ["admin"], "员工账号": ["admin"], "组织架构": ["admin"], "人员导入": ["admin"],
                    "日程": ["wecom_cli"], "微盘": ["wecom_cli"], "待办": ["wecom_cli", "operations"], "群聊": ["wecom_cli"],
                    "文档": ["wecom_cli", "kb", "tender"], "表格": ["wecom_cli"], "邮件": ["wecom_cli"], "会议": ["wecom_cli"],
-                   "资料": ["imports", "kb"], "导入": ["imports", "clean", "flows", "hr", "finance_data"], "汇报": ["submissions", "market"], "审批": ["portal", "admin"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
-        selected = {module for word, modules in aliases.items() if word in text for module in modules}
-        selected.update(module for module in counts if module in text or catalog.MODULES[module][0] in text)
-        listed = [op for op in ops.values() if not selected or op.module in selected]
+                   "资料": ["imports", "kb"], "导入": ["imports", "clean", "flows", "hr", "finance_data", "receivables"],
+                   "汇报": ["submissions", "market"], "系统": ["admin"], "权限": ["admin", "mcp_config"]}
+        exact_area = next((key for key, (label, _) in catalog.MODULES.items() if area in {key, label.lower()}), None)
+        selected = {exact_area} if exact_area else {module for word, modules in aliases.items() if word in text for module in modules}
+        if not exact_area:
+            selected.update(module for module in counts if re.search(r"(?<![a-z_])" + module + r"(?![a-z_])", text) or catalog.MODULES[module][0].lower() in text)
+        listed = [op for op in ops.values() if (not selected or op.module in selected)]
         cli_services = {service for word, services in {"文档": ["doc", "smartpage"], "智能表格": ["smartsheet"],
             "表格": ["sheet", "smartsheet"], "日程": ["calendar"], "日历": ["calendar"], "会议": ["meeting"],
             "微盘": ["disk"], "待办": ["todo"], "邮件": ["mail"], "通讯录": ["contact"], "聊天": ["chat"], "消息": ["message"], "PPT": ["slide"]}.items()
             if word.lower() in text for service in services}
         if cli_services: listed = [op for op in listed if op.source != "wecom_cli" or op.cli_method.split(".")[0] in cli_services]
+        fragments = set(re.findall(r"[a-z0-9_.]+", query))
+        for words in re.findall(r"[\u4e00-\u9fff]+", query):
+            fragments.update(words[i:i+n] for n in (2, 3, 4) for i in range(len(words)-n+1))
         def score(op):
-            return sum(word in op.title for word in re.findall(r"[\u4e00-\u9fff]{2,}|[a-z_]+", text)) + int(op.id.lower() in text) * 10
+            title = op.title.lower()
+            action = title.split(" · ", 1)[-1]
+            return (80 * bool(query and query in title) + 55 * bool(action and action in query) + 100 * (op.id.lower() in query)
+                    + sum(len(word) ** 2 for word in fragments if word in action or word in op.id.lower())
+                    + sum(1 for word in fragments if word in title and word not in action))
+        if browse and query:
+            alias_areas = {module for word, modules in aliases.items() if word == query for module in modules}
+            listed = [op for op in listed if score(op) or op.module in alias_areas]
         listed.sort(key=lambda op: (-score(op), op.module, op.id))
-        return {"ok": True, "total_operations": len(ops), "areas": [{"area": catalog.MODULES[k][0], "key": k, "operations": n} for k, n in counts.items()],
-                "operations": [op.brief() for op in listed[:70]], "more": len(listed) > 70,
+        return {"ok": True, "total_operations": len(ops), "total_matches": len(listed),
+                "areas": [{"area": catalog.MODULES[k][0], "key": k, "page": catalog.MODULES[k][1], "operations": n} for k, n in counts.items()],
+                "operations": [op.brief() for op in listed[offset:offset+limit]], "more": len(listed) > offset + limit,
                 "instruction": "先 describe_business_operation 读取字段，再执行。没有出现在目录中的权限不可绕过；可缩小 area 或 query 查询其他功能。"}
 
     def describe(self, operation_id):
@@ -485,8 +605,7 @@ class BusinessExecutor:
         request = validate(op, request or {}, self.user_id)
         effect = "query" if op.mcp_code == "proj.milestone_update" and (request["body"] or {}).get("action", "query") == "query" else op.effect
         if self.read_only and effect != "query": raise forbidden("本次任务只允许查询，不能修改记录或重新生成业务数据")
-        mutation_words = ("登记", "新增", "创建", "修改", "更新", "提交", "归档", "录入", "导入", "处理", "推进", "标记", "维护", "分配", "归集", "重算", "发送", "通知", "删除", "撤销", "取消", "运行", "执行", "完成", "改成")
-        if effect == "execute" and not _draft(op) and not any(word in self.intent for word in mutation_words):
+        if effect == "execute" and not _draft(op) and not write_requested(self.intent):
             raise forbidden("用户尚未要求这项记录变更，请先说明目标和拟修改内容")
         request, targets = _concrete_targets(op, request, self.user_id) if effect == "confirm" else (request, None)
         fingerprint = digest({"user": self.user_id, "workflow": self.workflow_id, "operation": op.id, "request": request})[:32]
@@ -512,6 +631,7 @@ class BusinessExecutor:
                           "before": _snapshot(op, request, self.user_id), "actor_signature": actor_signature(self.user_id),
                           "source_signature": source_signature(), "data_mode": operation_data_mode(op),
                           "connection_id": op.connection_id,
+                          "wecom_identity": _wecom_identity() if op.module in {"wecom_console", "wecom_approval"} else None,
                           "targets": targets,
                           "state": "pending", "created_at": time.time(), "expires_at": time.time() + 1800}
                 state.write("actions", record)
@@ -527,7 +647,7 @@ class BusinessExecutor:
             except BizError:
                 if reserved_id: state.path("receipts", fingerprint).unlink(missing_ok=True)
                 raise
-            receipt = save_result(op, self.user_id, self.task_id, self.workflow_id, data, message, reserved_id)
+            receipt = save_result(op, self.user_id, self.task_id, self.workflow_id, data, message, reserved_id, changed=effect != "query")
             if effect != "query": state.write("receipts", {"id": fingerprint, "user_id": self.user_id, "result_id": receipt["id"]})
             result = result_view(receipt)
             self.results.append(result)

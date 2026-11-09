@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" :title="initial?.id ? '调整任务安排' : form.source === 'self' ? '提交自行安排任务' : '布置重点任务'" width="min(680px, 94vw)" destroy-on-close>
+  <el-dialog v-model="visible" :title="initial?.id ? '调整任务安排' : form.source === 'self' ? '提交自行安排任务' : '布置重点任务'" width="min(680px, 94vw)" align-center append-to-body destroy-on-close @closed="emit('closed')">
     <el-form ref="formRef" :model="form" label-position="top">
       <div class="two">
         <el-form-item label="任务来源"><el-radio-group v-model="form.source" :disabled="!!initial?.id" @change="sourceChanged"><el-radio-button value="company" :disabled="!project.can_manage">公司安排</el-radio-button><el-radio-button value="self">自行安排</el-radio-button></el-radio-group></el-form-item>
@@ -45,7 +45,7 @@ import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { announceChange } from './shared'
 const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, mode: {type:String,default:'company'} })
-const emit = defineEmits(['update:modelValue', 'saved'])
+const emit = defineEmits(['update:modelValue', 'saved', 'closed'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assignable = computed(() => props.project.members.filter(m => m.role !== 'viewer' && m.active))
 const form = reactive({ nodes: [] }), formRef = ref(), saving = ref(false), auth = useAuth(), monthChanged=ref(false), options=ref({})
@@ -60,7 +60,7 @@ watch(visible, async v => {
     plan_month:props.initial?.plan_month || props.project.today.slice(0,7), department_reviewer_id:props.initial?.department_reviewer_id || null,
     company_reviewer_id:props.initial?.company_reviewer_id || null })
   if(v) { try {options.value=await api.get('/operations/options',{project_id:props.project.id})} catch {} }
-})
+}, { immediate: true })
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
   if (form.nodes.some(n => !n.name.trim() || !n.due_date || n.due_date > form.due_date)) return ElMessage.warning('请填写节点名称和日期，节点日期应不晚于任务截止日期')

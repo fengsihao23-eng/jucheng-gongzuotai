@@ -61,6 +61,7 @@
         </button>
         <span class="title">{{ currentTitle }}</span>
         <span v-if="catalog.runtime?.available" class="ready" title="执行引擎已就绪"><i />按你的账号权限办事</span>
+        <el-button v-if="automaticMode" size="small" plain :disabled="composerBusy" @click="businessMenu = true">能办什么</el-button>
         <button v-if="messages.length" type="button" class="icon" title="新对话" aria-label="新对话" :disabled="busy" @click="startNew">
           <svg viewBox="0 0 20 20" width="17" height="17"><path d="M11.5 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h8a1.5 1.5 0 0 0 1.5-1.5V8.5M9 11l6.5-6.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
         </button>
@@ -185,12 +186,13 @@
             :attachments="attachments" :models="catalog.runtime?.models || []" :disabled="composerBusy" :executing="executing"
             :uploading="uploading" :can-attach="!!automaticMode && !busy" @send="send" @stop="cancelExecution" @attach="businessInput?.click()"
             @files="uploadFiles" @remove="removeAttachment" @options="saveConversationOptions" />
-          <p class="foot">小聚可能出错，重要数据请以业务页面为准。写入操作需你确认后才会提交。</p>
+          <p class="foot">小聚按你的账号权限办事。重要操作会先请你确认。</p>
         </div>
       </footer>
     </main>
     <input ref="credentialInput" type="file" accept=".env,.json,.txt" hidden @change="importCredentialFile" />
     <input ref="businessInput" type="file" accept=".xlsx,.xls,.csv,.tsv,.docx,.pptx,.pdf,.txt,.md,.png,.jpg,.jpeg" multiple hidden @change="uploadBusinessFiles" />
+    <BusinessMenu v-model="businessMenu" :from="backTo" @pick="fillBusinessPrompt" />
   
     <el-dialog v-model="bindVisible" title="绑定企业微信个人连接" width="min(400px, 92vw)" :close-on-click-modal="false" @closed="closeBind">
       <div class="bind-body">
@@ -223,6 +225,7 @@ import ProcessBlock from './xiaoju/ProcessBlock.vue'
 import TaskExtras from './xiaoju/TaskExtras.vue'
 import XiaojuMark from './xiaoju/XiaojuMark.vue'
 import ReplyContent from './xiaoju/ReplyContent.vue'
+import BusinessMenu from './xiaoju/BusinessMenu.vue'
 
 const ICON = (d) => `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
 const SUGGESTIONS = [
@@ -250,6 +253,7 @@ const { startBind, closeBind, unbindCli, scrollDown, connectorName, loadCatalog,
   copyCallback, configure, init, dispose, loadTask, refreshConversations } = x
 
 const composer = ref()
+const businessMenu = ref(false)
 const keyword = ref('')
 const sideOpen = ref(false)  // 手机：抽屉式侧栏
 const sideCollapsed = ref(localStorage.getItem('xj_side') === '0')
@@ -287,6 +291,10 @@ const liveTurn = computed(() => (chatting.value || executing.value || execution.
   messages.value[messages.value.length - 1]?.role === 'user')
 
 function send() { ask(); nextTick(() => composer.value?.focus()) }
+function fillBusinessPrompt(prompt) {
+  input.value = input.value.trim() ? `${input.value.trim()}\n${prompt}` : prompt
+  nextTick(() => composer.value?.focus())
+}
 async function copyReply(text, index) {
   try {
     await navigator.clipboard.writeText(text)

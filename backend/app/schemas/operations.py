@@ -27,6 +27,19 @@ class ProjectIn(Input):
     is_key: bool = True
 
 
+class ProjectProgressIn(Input):
+    progress: Annotated[str, StringConstraints(min_length=1, max_length=6000)] = Field(description="填写项目实际进度情况")
+    problems: Note = Field(default="", description="遇到的问题；没有问题时可留空")
+    next_plan: Note = Field(default="", description="下一步计划；填写时需同时提供计划完成日期")
+    next_due_date: date | None = Field(default=None, description="下一步计划完成日期 YYYY-MM-DD，不是项目整体目标日期")
+
+    @model_validator(mode="after")
+    def plan_and_date(self):
+        if bool(self.next_plan) != bool(self.next_due_date):
+            raise ValueError("下一步计划和计划完成日期须一起填写")
+        return self
+
+
 class MemberIn(Input):
     user_id: Id
     role: Literal["manager", "member", "reviewer", "viewer"] = "member"
@@ -119,6 +132,7 @@ class FeedbackIn(Input):
     progress: Annotated[int, Field(ge=0, le=100)]
     completed_node_ids: list[Id] = Field(default_factory=list, max_length=30)
     incomplete_reason: Note = ""
+    expected_revision: Annotated[int, Field(ge=1)] | None = None
 
 
 class ReviewIn(Input):

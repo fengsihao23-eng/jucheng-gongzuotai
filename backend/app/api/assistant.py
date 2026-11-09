@@ -1,7 +1,7 @@
 """小聚：业务执行、文件与回执、重要操作确认，以及公司系统接入。"""
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel, Field, SecretStr
 from sqlalchemy.orm import Session
 
@@ -164,9 +164,11 @@ def steer_task(task_id: str, body: SteerBody, p: Principal = Depends(get_princip
 
 
 @router.get("/business/capabilities")
-def business_capabilities(query: str = "", area: str = "", p: Principal = Depends(get_principal)):
+def business_capabilities(query: str = Query("", max_length=200), area: str = Query("", max_length=64),
+                          offset: int = Query(0, ge=0), limit: int = Query(70, ge=1, le=100),
+                          p: Principal = Depends(get_principal)):
     from app.services.xiaoju_business import BusinessExecutor
-    return ok(BusinessExecutor(p.id).discover(query, area))
+    return ok(BusinessExecutor(p.id).discover(query, area, offset=offset, limit=limit, browse=True))
 
 
 @router.post("/business/files")
