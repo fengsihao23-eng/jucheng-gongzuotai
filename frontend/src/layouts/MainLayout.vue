@@ -159,7 +159,9 @@ nav { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .top {
-  height: var(--jc-header-h); display: flex; align-items: center; gap: 16px; padding: 0 28px;
+  height: var(--jc-header-h); display: flex; align-items: center; gap: 16px;
+  /* 左右内边距跟随 .jc-page 内容列：宽屏时内容居中于 1600px，顶栏同步内缩，面包屑与页面标题左边缘保持对齐 */
+  padding: 0 max(var(--jc-page-pad), calc((100% - var(--jc-page-max)) / 2 + var(--jc-page-pad)));
   background: rgba(246, 244, 239, 0.92); backdrop-filter: saturate(1.2) blur(6px);
   border-bottom: 1px solid var(--jc-line); position: sticky; top: 0; z-index: 20;
 }
@@ -174,6 +176,8 @@ nav { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
 .me-t b { font-size: 13px; font-weight: 500; }
 .me-t small { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .content { flex: 1; min-width: 0; }
+/* 运营项目页内容列更窄（1320px），顶栏跟随同一列，保持面包屑与标题对齐 */
+.operations-layout .top { --jc-page-max: 1320px; }
 
 .np-hd { padding-bottom: 8px; border-bottom: 1px solid var(--jc-line-2); }
 .np-empty { padding: 24px 0; text-align: center; }

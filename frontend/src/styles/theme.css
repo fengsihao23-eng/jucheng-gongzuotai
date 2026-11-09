@@ -48,6 +48,9 @@
 
   --jc-sidebar-w: 224px;
   --jc-header-h: 56px;
+  /* 页面内容列：顶栏与页面容器共用，保证面包屑与标题左边缘始终对齐 */
+  --jc-page-max: 1600px;
+  --jc-page-pad: 28px;
 
   /* Element Plus 变量映射 */
   --el-color-primary: var(--jc-brand);
@@ -109,7 +112,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .jc-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- 布局 ---------- */
-.jc-page { padding: 24px 28px 40px; max-width: 1600px; margin: 0 auto; }
+.jc-page { padding: 24px var(--jc-page-pad) 40px; max-width: var(--jc-page-max); margin: 0 auto; }
 .jc-grid { display: grid; gap: 16px; }
 .jc-grid.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .jc-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -132,7 +135,8 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 900px) {
   .jc-grid.c2, .jc-grid.c3, .jc-grid.c4, .jc-grid.c5, .jc-grid.c6 { grid-template-columns: 1fr; }
   .jc-span-2, .jc-span-3 { grid-column: auto; }
-  .jc-page { padding: 16px; }
+  :root { --jc-page-pad: 16px; }
+  .jc-page { padding: 16px var(--jc-page-pad); }
 }
 
 /* ---------- 卡片 ---------- */
