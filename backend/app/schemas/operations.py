@@ -48,7 +48,7 @@ class ProjectProgressEntriesIn(Input):
 
 class MemberIn(Input):
     user_id: Id
-    role: Literal["manager", "member", "reviewer", "viewer"] = "member"
+    role: Literal["manager", "co_owner", "member", "reviewer", "viewer"] = "member"
 
 
 class SchoolIn(Input):

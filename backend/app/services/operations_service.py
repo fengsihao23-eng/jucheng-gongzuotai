@@ -49,7 +49,8 @@ def get_project(db, p, project_id, *, lock=False):
 def role(db, p, project):
     if can_create(p) or project.owner_id == p.id:
         return "manager"
-    return db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
+    raw = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
+    return "manager" if raw == "co_owner" else raw  # 联合负责人与项目管理员同权
 
 
 def manage(db, p, project):
@@ -174,7 +175,7 @@ def set_member(db, p, project_id, body):
     if body.role == "viewer" and db.scalar(select(OpsTask.id).where(
             OpsTask.project_id == project.id, OpsTask.owner_id == body.user_id, OpsTask.status != "done").limit(1)):
         raise conflict("该成员仍有未完成任务，请先转交任务再改为只读")
-    if body.role not in {"manager", "reviewer"} and db.scalar(select(OpsTask.id).where(
+    if body.role not in {"manager", "co_owner", "reviewer"} and db.scalar(select(OpsTask.id).where(
             OpsTask.project_id == project.id, OpsTask.department_reviewer_id == body.user_id,
             OpsTask.approval_status.in_(["department_pending", "company_pending"])).limit(1)):
         raise conflict("该成员仍是待审核任务的部门审核人，请先调整任务审核人")

@@ -48,3 +48,15 @@ def test_remove_member_requires_transfer_then_moves_tasks(db):
     assert task.owner_id == owner.id
     assert db.scalar(select(OpsMember).where(OpsMember.project_id == project.id,
                                             OpsMember.user_id == member.id)) is None
+
+
+def test_co_owner_gets_manager_rights(db):
+    from app.models import OpsMember
+
+    owner, member, project, task = _setup(db, "CO")
+    row = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == member.id))
+    row.role = "co_owner"
+    db.flush()
+    p = build_principal(member)
+    assert ops.role(db, p, project) == "manager"          # 权限等同项目管理员
+    assert any(m["user_id"] == member.id and m["role"] == "co_owner" for m in ops.members(db, project))
