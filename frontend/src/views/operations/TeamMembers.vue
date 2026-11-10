@@ -32,7 +32,22 @@ async function save() {
 async function remove(row) {
   try { await ElMessageBox.confirm(`将${row.name}移出「${props.project.name}」？移出后将失去本项目访问权限。`, '移除成员', { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' }) } catch { return }
   saving.value = true
-  try { await api.del(`/operations/${props.project.id}/members/${row.user_id}`); emit('saved'); announceChange(); ElMessage.success('成员已移除') } catch {} finally { saving.value = false }
+  try {
+    await api.del(`/operations/${props.project.id}/members/${row.user_id}`)
+    done(row, false)
+  } catch (err) {
+    if (err.code !== 40901) return
+    try {
+      await ElMessageBox.confirm(`${err.message}。转交后该成员不再负责这些任务，确认继续？`, '成员还有未完成任务',
+        { type: 'warning', confirmButtonText: '转交并移除', cancelButtonText: '取消' })
+    } catch { return }
+    await api.del(`/operations/${props.project.id}/members/${row.user_id}`, { transfer: true })
+    done(row, true)
+  } finally { saving.value = false }
+}
+function done(row, transferred) {
+  emit('saved'); announceChange()
+  ElMessage.success(transferred ? `${row.name}已移出团队，任务已转交项目负责人` : `${row.name}已移出团队`)
 }
 </script>
 <style scoped>

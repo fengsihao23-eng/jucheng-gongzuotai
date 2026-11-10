@@ -1,6 +1,6 @@
 <template>
   <div class="cards" :class="{ single }">
-    <button v-for="task in rows" :key="task.id" type="button" class="task-card" :data-status="taskStatus(task)" @click="$emit('open-task', task)">
+    <button v-for="task in rows" :key="task.id" type="button" class="task-card" :data-status="taskStatus(task)" @click="$emit('open-task', task)" @contextmenu.prevent.stop="$emit('menu', task, $event)">
       <div class="card-top">
         <StatusPill :text="task.status === 'done' ? completionLabel(task) : statusLabel(task)" :tone="task.status === 'done' ? deadlineTone(task) : task.approval_status === 'approved' ? tone(task.status) : task.approval_status === 'rejected' ? 'down' : 'warn'" dot />
         <span v-if="task.priority === 'key'" class="key">重点</span>
@@ -27,7 +27,7 @@
 <script setup>
 import { TASK_SOURCES, completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'
 defineProps({ rows: { type: Array, required: true }, showProject: Boolean, single: Boolean })
-defineEmits(['open-task'])
+defineEmits(['open-task', 'menu'])
 </script>
 
 <style scoped>

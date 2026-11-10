@@ -81,6 +81,13 @@ def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: 
     return ok(ops.task_detail(db, p, task_id))
 
 
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    ops.delete_task(db, p, task_id)
+    db.commit()
+    return ok()
+
+
 @router.post("/tasks/{task_id}/feedback")
 def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """提交本人负责的任务反馈，保留节点完成记录、结果和下一步安排。"""
@@ -176,8 +183,10 @@ def save_operation_member(project_id: int, body: MemberIn, p: Principal = Menu, 
 
 
 @router.delete("/{project_id}/members/{user_id}")
-def remove_operation_member(project_id: int, user_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
-    ops.remove_member(db, p, project_id, user_id)
+def remove_operation_member(project_id: int, user_id: int, transfer: bool = False, p: Principal = Menu,
+                            db: Session = Depends(get_db)):
+    """移除团队成员；transfer=true 时把其未完成任务/待审任务转交给项目负责人。"""
+    ops.remove_member(db, p, project_id, user_id, transfer=transfer)
     db.commit()
     return ok()
 

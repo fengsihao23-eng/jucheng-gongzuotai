@@ -8,28 +8,23 @@
       </PageHeader>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
-          <el-tab-pane label="项目进度" name="progress">
-            <ProjectProgress :key="project.id" :project="project" @saved="progressSaved" @open-task="openTask">
-              <template #actions><el-button v-if="delayRows.length" size="small" @click="delayOpen = true">待处理延期（{{ delayRows.length }}）</el-button></template>
-              <template #history-actions="{ close }"><el-button link type="primary" @click="close(summary)">进展汇总</el-button></template>
-            </ProjectProgress>
-            <ProjectTrackingTable :rows="projectPlans" plans @open-task="openTask" />
-            <ProjectTrackingTable :rows="companyTasks" @open-task="openTask" />
-          </el-tab-pane>
-          <el-tab-pane label="月度任务" name="monthly">
-            <MonthlyPlan :key="project.id" :project-id="project.id" :today="project.today" :active="tab === 'monthly'" @open-task="openTask">
-              <template #actions><el-button v-if="project.can_propose && project.status === 'active'" link type="primary" @click="newSelfTask">自行安排</el-button></template>
-            </MonthlyPlan>
-          </el-tab-pane>
           <el-tab-pane label="任务情况" name="tasks">
             <div class="filters">
               <el-input v-model="query" placeholder="搜索任务 / 学校 / 负责人" clearable style="width: 240px" />
               <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="keyOnly">仅重点</el-checkbox><el-checkbox v-model="attention">需要关注</el-checkbox>
+              <span class="jc-spacer" />
+              <el-button v-if="delayRows.length" size="small" @click="delayOpen = true">待处理延期（{{ delayRows.length }}）</el-button>
+              <el-button v-if="project.can_propose && project.status === 'active'" link type="primary" @click="newSelfTask">自行安排</el-button>
+              <el-button link @click="summary">进展汇总</el-button>
             </div>
             <div class="board-status" role="group" aria-label="按任务状态筛选">
               <button v-for="(label, value) in statuses" :key="value" type="button" :aria-pressed="status === value" :data-status="value" :title="value === 'ongoing' ? '包含待开始、受阻、待审核和已退回的任务' : undefined" @click="status = value"><i /><span>{{ label }}</span><b class="jc-num">{{ taskGroups[value].length }}</b></button>
             </div>
-            <TaskCards v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" />
+            <TaskCards v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" @menu="openMenu" />
+            <ul v-if="menu.open" class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+              <li class="jc-down" @click="removeTask">删除任务</li>
+            </ul>
+            <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false" />
             <el-empty v-else :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
           </el-tab-pane>
           <el-tab-pane label="学校与经营资料" name="schools"><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
@@ -65,14 +60,13 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
 import ProjectProgress from './operations/ProjectProgress.vue'
-import ProjectTrackingTable from './operations/ProjectTrackingTable.vue'
 import TaskForm from './operations/TaskForm.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskCards from './operations/TaskCards.vue'
@@ -80,13 +74,13 @@ import TaskOverview from './operations/TaskOverview.vue'
 import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
-import MonthlyPlan from './operations/MonthlyPlan.vue'
 import { PROJECT_STATUS, TASK_SOURCES, taskStatus } from './operations/shared'
 const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = useAssistant()
-const project = ref(null), loading = ref(false), tab = ref('progress'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
+const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
 const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
 const popupPaused = ref(false)
 const delayOpen = ref(false), pendingDelay = ref(null)
+const menu = ref({ open: false, x: 0, y: 0, task: null })
 const statuses = { ongoing: '进行中', done: '已完成' }
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
@@ -118,6 +112,22 @@ function newSelfTask() {taskMode.value='self';editingTask.value=null;taskForm.va
 function editTask(task) { editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
+function openMenu(task, event) {
+  if (!project.value?.can_manage) return
+  menu.value = { open: true, x: event.clientX, y: event.clientY, task }
+}
+async function removeTask() {
+  const task = menu.value.task
+  menu.value.open = false
+  if (!task) return
+  try {
+    await ElMessageBox.confirm(`删除任务「${task.title}」？节点、反馈与进展记录会一并删除，不可恢复。`, '删除任务',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
+  await api.del(`/operations/tasks/${task.id}`)
+  ElMessage.success('任务已删除')
+  load(true)
+}
 function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
 function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }
 function taskFormClosed() { popupPaused.value = false; if (pendingTask.value) { openTask(pendingTask.value); pendingTask.value = null } }
@@ -128,11 +138,15 @@ async function copySummary() {
   catch { ElMessage.info('暂时无法复制汇总，请重试') }
 }
 function ask() { assistant.open(`请查询运营项目「${project.value.name}」（运营项目 ID：${project.value.id}）的实际记录，分负责人计划和公司安排，说明当前进展、逾期受阻事项和下一步；如有自行安排另列。请标明尚未反馈或缺少信息的部分。`) }
-watch(() => route.params.id, id => { if (id) { project.value = null; tab.value = 'progress'; status.value = 'ongoing'; taskForm.value = false; pendingTask.value = null; popupPaused.value = false; summaryOpen.value = false; delayOpen.value = false; pendingDelay.value = null; load() } }, { immediate: true })
+watch(() => route.params.id, id => { if (id) { project.value = null; tab.value = 'tasks'; status.value = 'ongoing'; taskForm.value = false; pendingTask.value = null; popupPaused.value = false; summaryOpen.value = false; delayOpen.value = false; pendingDelay.value = null; load() } }, { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => Boolean(route.params.id) })
 onBeforeUnmount(() => { version++ })
 </script>
 <style scoped>
+.ctx-mask { position: fixed; inset: 0; z-index: 2000; }
+.ctx-menu { position: fixed; z-index: 2001; min-width: 132px; margin: 0; padding: 4px; list-style: none; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: var(--jc-shadow-pop); }
+.ctx-menu li { padding: 7px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; }
+.ctx-menu li:hover { background: var(--jc-bg-2, #f9f8f5); }
 .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
 .board-status { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 15px; }
 .board-status button { --tone: var(--jc-brand); display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--jc-line); border-radius: 7px; padding: 7px 10px; font: inherit; font-size: 12px; color: var(--jc-ink-2); background: var(--jc-bg-2, #f9f8f5); cursor: pointer; }

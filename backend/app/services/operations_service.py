@@ -2,13 +2,13 @@
 from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select, update
 
 from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsProjectProgress, OpsSchool,
-                        OpsTask, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
+                        OpsTask, OpsTaskDelay, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service, operations_deadlines as deadlines
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
@@ -181,7 +181,22 @@ def set_member(db, p, project_id, body):
     return _write(db, p, row or OpsMember(project_id=project.id), body.model_dump(), ["user_id", "role"])
 
 
-def remove_member(db, p, project_id, user_id):
+def delete_task(db, p, task_id: int) -> None:
+    """删除任务及其节点、反馈、审核、延期与关联进展记录（仅项目管理员）。"""
+    task = db.get(OpsTask, task_id)
+    if task is None:
+        raise not_found("任务")
+    project = get_project(db, p, task.project_id)
+    manage(db, p, project)
+    log_op(db, p.id, "operations.task.delete", "ops_task", task.id,
+           before=snapshot(task, ["title", "owner_id", "status", "due_date", "source"]))
+    for model in (OpsTaskNode, OpsTaskUpdate, OpsTaskReview, OpsTaskDelay):
+        db.execute(delete(model).where(model.task_id == task.id))
+    db.execute(delete(OpsProjectProgress).where(OpsProjectProgress.task_id == task.id))
+    db.execute(delete(OpsTask).where(OpsTask.id == task.id))
+
+
+def remove_member(db, p, project_id, user_id, transfer: bool = False):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
     if user_id == project.owner_id:
@@ -189,13 +204,22 @@ def remove_member(db, p, project_id, user_id):
     row = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == user_id))
     if not row:
         raise not_found("团队成员")
-    if db.scalar(select(OpsTask.id).where(OpsTask.project_id == project.id, OpsTask.owner_id == user_id,
-                                        OpsTask.status != "done").limit(1)):
-        raise conflict("该成员仍有未完成任务，请先转交任务")
-    if db.scalar(select(OpsTask.id).where(OpsTask.project_id == project.id, OpsTask.department_reviewer_id == user_id,
-                                        OpsTask.approval_status.in_(["department_pending", "company_pending"])).limit(1)):
-        raise conflict("该成员仍有待审核任务，请先调整审核人")
-    log_op(db, p.id, "operations.member.remove", "ops_member", row.id, before=snapshot(row, ["user_id", "role"]))
+    unfinished = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.owner_id == user_id,
+                                                  OpsTask.status != "done")).all()
+    if unfinished and not transfer:
+        raise conflict(f"该成员仍有 {len(unfinished)} 项未完成任务，可转交给项目负责人后移除",
+                       {"unfinished": len(unfinished), "can_transfer": True})
+    reviewing = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.department_reviewer_id == user_id,
+                                                OpsTask.approval_status.in_(["department_pending", "company_pending"]))).all()
+    if reviewing and not transfer:
+        raise conflict(f"该成员仍有 {len(reviewing)} 项待审核任务，可转交给项目负责人后移除",
+                       {"reviewing": len(reviewing), "can_transfer": True})
+    if unfinished:
+        db.execute(update(OpsTask).where(OpsTask.id.in_([t.id for t in unfinished])).values(owner_id=project.owner_id))
+    if reviewing:
+        db.execute(update(OpsTask).where(OpsTask.id.in_([t.id for t in reviewing])).values(department_reviewer_id=project.owner_id))
+    log_op(db, p.id, "operations.member.remove", "ops_member", row.id, before=snapshot(row, ["user_id", "role"]),
+           after={"transferred_tasks": len(unfinished), "transferred_reviews": len(reviewing), "to": project.owner_id})
     db.delete(row)
 
 
