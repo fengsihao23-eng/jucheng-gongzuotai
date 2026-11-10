@@ -47,15 +47,30 @@ def _session(db: Session, user: SysUser, request: Request, method: str) -> dict:
     log_op(db, user.id, "auth.login", "user", user.id, after={"method": method}, ip=client_ip(request))
     db.commit()
     token, exp = create_jwt(user.id)
-    return {"token": token, "expires_at": exp, "profile": profile(build_principal(user))}
+    return {"token": token, "expires_at": exp, "profile": profile(build_principal(user), db)}
 
 
-def profile(p: Principal) -> dict:
+def visible_menus(db: Session, p: Principal) -> list[str]:
+    """运营项目按项目成员隔离：没有参与任何项目的人不显示该菜单。"""
+    menus = set(p.menus)
+    if "operations" in menus:
+        from app.models import OpsMember, OpsProject
+        from app.services import operations_service as ops
+        joined = ops.can_create(p) or db.scalar(
+            select(OpsProject.id).where(OpsProject.owner_id == p.id).limit(1)) is not None or db.scalar(
+            select(OpsMember.id).where(OpsMember.user_id == p.id).limit(1)) is not None
+        if not joined:
+            menus.discard("operations")
+    return sorted(menus, key=list(MENUS).index)
+
+
+def profile(p: Principal, db: Session | None = None) -> dict:
     u = p.user
+    menus = visible_menus(db, p) if db is not None else sorted(p.menus, key=list(MENUS).index)
     return {"id": u.id, "userid": u.wecom_userid, "name": u.name, "position": u.position,
             "dept_code": u.dept_code, "dept_name": u.department.name if u.department else None,
             "roles": [{"code": r.role_code, "name": r.name} for r in u.roles] or [{"code": "EMP", "name": "普通员工"}],
-            "menus": sorted(p.menus, key=list(MENUS).index), "buttons": sorted(p.buttons), "data_scope": p.data_scope,
+            "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
             "portal": p.portal, "is_admin": p.is_admin, "preferences": u.preferences or {},
             "mcp_token_hint": u.access_token_hint}
 
@@ -129,8 +144,8 @@ def wecom_oauth(body: OAuthIn, request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-def me(p: Principal = Depends(get_principal)):
-    return ok(profile(p))
+def me(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    return ok(profile(p, db))
 
 
 @router.post("/logout")

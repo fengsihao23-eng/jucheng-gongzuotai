@@ -32,7 +32,8 @@ def test_menu_matrix(client, login):
     fin = set(data(client.get("/api/v1/auth/me", headers=login("zhaoli")))["menus"])
     assert "contracts" not in fin and "flows" in fin
     emp = set(data(client.get("/api/v1/auth/me", headers=login("zengli")))["menus"])
-    assert emp == {"portal", "kb", "imports", "mcp", "operations"}  # 运营数据仍按项目成员隔离
+    # 运营项目只对项目成员开放：没参与任何项目时菜单不出现
+    assert emp == {"portal", "kb", "imports", "mcp"}
     assert client.get("/api/v1/admin/users", headers=login("chenjing")).json()["code"] == 40301
     assert data(client.get("/api/v1/admin/users", headers=login("admin")))["total"] >= 40
 
