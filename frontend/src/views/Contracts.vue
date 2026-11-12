@@ -6,6 +6,12 @@
       <el-button v-if="perms.write" type="primary" @click="openNew">新增合同</el-button>
     </PageHeader>
 
+    <div class="jc-grid c4 signing-cards" aria-label="签约统计">
+      <button v-for="item in signing" :key="item.key" type="button" :aria-pressed="f.sign_period === item.key" @click="choosePeriod(item.key)">
+        <span>{{ PERIODS[item.key] }}</span><b class="jc-num">{{ money(item.amount) }}</b><small>{{ item.count }} 份合同</small>
+      </button>
+    </div>
+    <p v-if="signing.length" class="jc-muted jc-small">{{ signingNote }}</p>
     <Panel>
       <div class="filters">
         <el-input v-model="f.keyword" placeholder="合同号 / 名称 / 客户 / 项目 / 审批单号" clearable style="width: 260px" @keyup.enter="search" @clear="search" />
@@ -19,7 +25,10 @@
         <el-select v-model="f.status" placeholder="状态" clearable style="width: 110px" @change="search">
           <el-option v-for="(n, k) in CONTRACT_STATUS" :key="k" :label="n" :value="Number(k)" />
         </el-select>
-        <el-date-picker v-model="f.sign_month" type="month" value-format="YYYY-MM" placeholder="签订月份" style="width: 130px" @change="search" />
+        <el-select v-model="f.owner_id" clearable filterable placeholder="负责人" style="width: 134px" @change="search">
+          <el-option v-for="u in owners" :key="u.id" :label="u.name" :value="u.id" />
+        </el-select>
+        <el-date-picker v-model="f.sign_month" type="month" value-format="YYYY-MM" placeholder="签订月份" style="width: 130px" @change="f.sign_period = ''; search()" />
         <el-select v-model="f.source_type" placeholder="来源" clearable style="width: 120px" @change="search">
           <el-option v-for="(n, k) in SOURCES" :key="k" :label="n" :value="Number(k)" />
         </el-select>
@@ -88,7 +97,9 @@ import ContractForm from './contract-form.vue'
 
 const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入' }
 const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
-const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code']
+const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code', 'owner_id', 'sign_period']
+const PERIODS = { all: '累计签约', month: '本月签约', week: '本周签约', today: '今日签约' }
+const signing = ref([]), signingNote = ref(''), owners = ref([])
 const route = useRoute()
 const router = useRouter()
 const f = reactive(Object.fromEntries(KEYS.map((k) => [k, ''])))
@@ -98,6 +109,7 @@ const formOpen = ref(false); const editing = ref(null)
 
 const extraTags = computed(() => {
   const t = []
+  if (f.sign_period) t.push({ key: 'sign_period', label: PERIODS[f.sign_period] })
   if (f.paid_month) t.push({ key: 'paid_month', label: `${f.paid_month} 有回款` })
   if (f.sign_from || f.sign_to) t.push({ key: 'sign_range', label: `签订 ${f.sign_from || '…'} ~ ${f.sign_to || '…'}` })
   if (f.project_code) t.push({ key: 'project_code', label: `项目 ${f.project_code}` })
@@ -107,23 +119,35 @@ const extraTags = computed(() => {
 function fromQuery() {
   for (const k of KEYS) {
     const v = route.query[k]
-    f[k] = v === undefined ? '' : ['status', 'source_type'].includes(k) ? Number(v) : String(v)
+    f[k] = v === undefined ? '' : ['status', 'source_type', 'owner_id'].includes(k) ? Number(v) : String(v)
   }
 }
 function params() {
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== '' && v !== null && v !== undefined))
 }
-async function load() {
+let loadVersion = 0
+async function load(withStats = false) {
+  const version = ++loadVersion
   loading.value = true
   try {
-    const r = await api.get('/contracts', { ...params(), page: page.value, page_size: pageSize.value })
+    const input = params()
+    const [r, board] = await Promise.all([
+      api.get('/contracts', { ...input, page: page.value, page_size: pageSize.value }),
+      withStats || !signing.value.length ? api.get('/contracts/signing', input) : null,
+    ])
+    if (version !== loadVersion) return
     rows.value = r.items; total.value = r.total; sums.value = r.sums; perms.value = r.perms
-  } finally { loading.value = false }
+    if (board) { signing.value = board.items; signingNote.value = board.note }
+  } catch {} finally { if (version === loadVersion) loading.value = false }
 }
 function search() {
   page.value = 1
   router.replace({ query: params() })
-  load()
+  load(true)
+}
+function choosePeriod(key) {
+  f.sign_month = ''; f.sign_from = ''; f.sign_to = ''; f.sign_period = f.sign_period === key ? '' : key
+  search()
 }
 function reset() { KEYS.forEach((k) => (f[k] = '')); search() }
 function dropExtra(key) {
@@ -138,17 +162,24 @@ function openNew() { editing.value = null; formOpen.value = true }
 function openEdit(row) { editing.value = row; formOpen.value = true }
 function onSaved(c) {
   if (!editing.value) router.push(`/contracts/${c.id}`)
-  else load()
+  else load(true)
 }
 
 onMounted(() => {
   fromQuery()
-  load()
+  load(true)
+  api.get('/contracts/options').then(result => owners.value = result.owners).catch(() => {})
   if (route.query.new) openNew()
 })
 </script>
 
 <style scoped>
+.signing-cards { margin: 0 0 4px; }
+.signing-cards button { display: grid; gap: 4px; text-align: left; background: var(--jc-surface); color: var(--jc-ink); border: 1px solid var(--jc-line); border-radius: var(--jc-radius); padding: 13px 16px; cursor: pointer; }
+.signing-cards button:is(:hover, [aria-pressed="true"]) { border-color: var(--jc-brand); }
+.signing-cards b { font-size: 20px; }
+.signing-cards small { color: var(--jc-ink-3); }
+
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sums .s { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: var(--jc-radius); font-size: 12px; }
 .sums b { font-size: 20px; font-weight: 600; color: var(--jc-ink); }

@@ -29,7 +29,7 @@ def verify_password(password: str, encoded: str | None) -> bool:
     return hmac.compare_digest(dk.hex(), digest)
 
 
-def create_jwt(user_id: int, minutes: int | None = None) -> tuple[str, int]:
+def create_jwt(user_id: int, minutes: int | None = None, *, verified_at: int | None = None) -> tuple[str, int]:
     from app.core.db import SessionLocal
     from app.models import SysUser
     with SessionLocal() as db:
@@ -39,7 +39,10 @@ def create_jwt(user_id: int, minutes: int | None = None) -> tuple[str, int]:
         user_id = user.id if user else user_id
         version = password_version(user.password_hash if user else None)
     exp = datetime.now(timezone.utc) + timedelta(minutes=minutes or settings.jwt_expire_minutes)
-    token = jwt.encode({"sub": str(user_id), "exp": exp, "typ": "session", "pwdv": version, "authv": 2}, settings.secret_key, algorithm=ALGO)
+    claims = {"sub": str(user_id), "exp": exp, "typ": "session", "pwdv": version, "authv": 2}
+    if verified_at is not None:
+        claims["verified_at"] = verified_at
+    token = jwt.encode(claims, settings.secret_key, algorithm=ALGO)
     return token, int(exp.timestamp())
 
 

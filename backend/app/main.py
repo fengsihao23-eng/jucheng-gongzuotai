@@ -60,7 +60,7 @@ async def trace_and_renew(request: Request, call_next):
     exp = getattr(request.state, "jwt_exp", None)
     principal = getattr(request.state, "principal", None)
     if exp and principal and exp - time.time() < 1800:
-        token, new_exp = create_jwt(principal.id)
+        token, new_exp = create_jwt(principal.id, verified_at=getattr(request.state, "identity_verified_at", None))
         response.headers["X-Refresh-Token"] = token
         response.headers["Access-Control-Expose-Headers"] = "X-Refresh-Token, X-Trace-Id"
     if request.url.path.startswith("/api/"):

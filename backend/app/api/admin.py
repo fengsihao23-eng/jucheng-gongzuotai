@@ -1,21 +1,37 @@
 """系统管理：账号角色、字典口径、数据源模式、定时任务、审批待处理队列、操作审计、通讯录同步。"""
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.config import settings
 from app.core.db import get_db, get_or_404
-from app.core.deps import Principal, client_ip, get_principal, require_menu
+from app.core.deps import Principal, build_principal, client_ip, get_principal, require_menu, require_recent_login
 from app.core.permissions import MENUS, ROLE_DEFS
-from app.core.response import BizError, bad_request, not_found, ok, page_data
+from app.core.response import BizError, bad_request, conflict, forbidden, not_found, ok, page_data
 from app.jobs import registry
-from app.models import LogOperation, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
+from app.models import LogOperation, OpsMember, OpsProject, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
 from app.services import dispatch_service, user_service
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
 Admin = Depends(require_menu("admin"))
+
+
+def _check_admin_write(request, p):
+    if not p.is_admin:
+        raise forbidden("只有平台管理员可变更授权")
+    require_recent_login(request)
+
+
+def _keep_admin(db, u, removing):
+    if not removing or u.status != 1 or not any(r.role_code == "ADMIN-01" for r in u.roles):
+        return
+    others = db.scalar(select(SysUser.id).join(SysUserRole, SysUserRole.user_id == SysUser.id)
+                       .join(SysRole, SysRole.id == SysUserRole.role_id).where(SysRole.role_code == "ADMIN-01",
+                       SysUser.status == 1, SysUser.is_deleted.is_(False), SysUser.id != u.id).limit(1))
+    if not others:
+        raise conflict("必须保留至少一个有效的平台管理员")
 
 
 @router.get("/users")
@@ -43,10 +59,14 @@ def users(keyword: str = "", dept: str = "", source: str = "", page: int = 1, pa
 
 
 @router.put("/users/{user_id}/roles")
-def set_roles(user_id: int, role_codes: list[str] = Body(embed=True), request: Request = None, p: Principal = Admin,
+def set_roles(user_id: int, request: Request, role_codes: list[str] = Body(embed=True), p: Principal = Admin,
               db: Session = Depends(get_db)):
+    _check_admin_write(request, p)
+    db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
+    role_codes = sorted(set(role_codes))
     u = get_or_404(db, SysUser, user_id, "用户")
     before = [r.role_code for r in u.roles]
+    _keep_admin(db, u, "ADMIN-01" not in role_codes)
     db.query(SysUserRole).filter(SysUserRole.user_id == u.id).delete()
     for code in role_codes:
         if code not in ROLE_DEFS:
@@ -58,8 +78,13 @@ def set_roles(user_id: int, role_codes: list[str] = Body(embed=True), request: R
 
 
 @router.put("/users/{user_id}/status")
-def set_status(user_id: int, status: int = Body(embed=True), p: Principal = Admin, db: Session = Depends(get_db)):
+def set_status(user_id: int, request: Request, status: int = Body(embed=True), p: Principal = Admin, db: Session = Depends(get_db)):
+    _check_admin_write(request, p)
+    if status not in (1, 2):
+        raise bad_request("请选择启用或停用")
+    db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
     u = get_or_404(db, SysUser, user_id, "用户")
+    _keep_admin(db, u, status != 1)
     log_op(db, p.id, "user.status", "user", u.id, {"status": u.status}, {"status": status})
     u.status = status
     if status != 1:
@@ -72,7 +97,8 @@ def set_status(user_id: int, status: int = Body(embed=True), p: Principal = Admi
 def roles(p: Principal = Admin, db: Session = Depends(get_db)):
     rows = {r.role_code: r for r in db.scalars(select(SysRole)).all()}
     counts = dict(db.execute(select(SysRole.role_code, func.count(SysUserRole.user_id))
-                             .join(SysUserRole, SysUserRole.role_id == SysRole.id).group_by(SysRole.role_code)).all())
+                             .join(SysUserRole, SysUserRole.role_id == SysRole.id).join(SysUser, SysUser.id == SysUserRole.user_id)
+                             .where(SysUser.is_deleted.is_(False)).group_by(SysRole.role_code)).all())
     out = []
     for code, d in ROLE_DEFS.items():
         override = rows[code].permissions if code in rows else {}
@@ -83,6 +109,45 @@ def roles(p: Principal = Admin, db: Session = Depends(get_db)):
     return ok({"roles": out, "menus": MENUS})
 
 
+@router.get("/roles/{code}/members")
+def role_members(code: str, keyword: str = Query("", max_length=100), page: int = Query(1, ge=1),
+                 page_size: int = Query(30, ge=1, le=100), p: Principal = Admin, db: Session = Depends(get_db)):
+    if code not in ROLE_DEFS:
+        raise not_found("角色")
+    q = select(SysUser).join(SysUserRole, SysUserRole.user_id == SysUser.id).join(SysRole, SysRole.id == SysUserRole.role_id)
+    q = q.where(SysRole.role_code == code, SysUser.is_deleted.is_(False))
+    if keyword:
+        q = q.where(or_(SysUser.name.icontains(keyword, autoescape=True), SysUser.wecom_userid.icontains(keyword, autoescape=True)))
+    total = db.scalar(select(func.count()).select_from(q.with_only_columns(SysUser.id).subquery()))
+    rows = db.scalars(q.order_by(SysUser.department_id, SysUser.id).offset((page - 1) * page_size).limit(page_size)).unique().all()
+    return ok(page_data([{"id": u.id, "name": u.name, "userid": u.wecom_userid, "status": u.status,
+                          "department": u.department.name if u.department else None, "last_login_at": u.last_login_at}
+                         for u in rows], total, page, page_size))
+
+
+@router.get("/users/{user_id}/effective-permissions")
+def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depends(get_db)):
+    from app.api.auth import visible_menus
+    from app.services import operations_service as ops
+
+    u = get_or_404(db, SysUser, user_id, "用户")
+    target = build_principal(u)
+    owned = list(db.execute(select(OpsProject.name, OpsProject.id).where(OpsProject.owner_id == u.id)))
+    joined = list(db.execute(select(OpsProject.name, OpsProject.id, OpsMember.role).join(OpsMember, OpsMember.project_id == OpsProject.id)
+                             .where(OpsMember.user_id == u.id, OpsProject.owner_id != u.id)))
+    last = db.scalar(select(LogOperation).where(LogOperation.user_id == u.id, LogOperation.action == "auth.login")
+                     .order_by(LogOperation.id.desc()).limit(1))
+    active = u.status == 1
+    return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes,
+               "menus": [MENUS[key] for key in visible_menus(db, target)] if active else [],
+               "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
+               "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_create(target),
+               "operations_archive": active and (target.is_admin or target.can("operations:archive")),
+               "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in owned] +
+                            [{"name": name, "id": pid, "role": role} for name, pid, role in joined]) if active else [],
+               "last_login": {"at": last.created_at, "method": (last.after or {}).get("method")} if last else None})
+
+
 class RolePermIn(BaseModel):
     menus: list[str]
     buttons: list[str]
@@ -90,7 +155,12 @@ class RolePermIn(BaseModel):
 
 
 @router.put("/roles/{code}")
-def update_role(code: str, body: RolePermIn, p: Principal = Admin, db: Session = Depends(get_db)):
+def update_role(code: str, body: RolePermIn, request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
+    _check_admin_write(request, p)
+    if body.data_scope not in {"self", "dept", "all"} or not set(body.menus) <= set(MENUS):
+        raise bad_request("菜单或数据范围无效")
+    if ("*" in body.buttons and code != "ADMIN-01") or (code == "ADMIN-01" and ("admin" not in body.menus or "*" not in body.buttons)):
+        raise bad_request("平台管理员须保留系统管理入口与完整权限，其他角色不得使用全权限")
     if code not in ROLE_DEFS:
         raise not_found("角色")
     role = user_service.role_by_code(db, code)

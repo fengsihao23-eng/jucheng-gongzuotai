@@ -1,12 +1,12 @@
 """站内通知（FR-12-02）：右上角铃铛。"""
 from fastapi import APIRouter, Body, Depends
-from sqlalchemy import func, select, update
+from sqlalchemy import String, cast, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok, page_data
-from app.models import SysNotify
+from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, OpsTask, SysNotify
 
 router = APIRouter(prefix="/notifications", tags=["通知"])
 
@@ -14,13 +14,24 @@ router = APIRouter(prefix="/notifications", tags=["通知"])
 @router.get("")
 def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp")
+    from app.services.collection_service import scoped
+    from app.services.operations_policy import task_access
+
+    task_notice = ("ops_task", "ops_task_reminder")
+    visible_task = exists(select(OpsTask.id).where(
+        cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p)))
+    visible_collection = exists(select(BizCollectionEntry.id).join(BizCollectionFollowup).where(
+        cast(BizCollectionEntry.id, String) == SysNotify.ref_id,
+        BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
+    q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
+        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_((*task_notice, "collection_entry")),
+            SysNotify.ref_type.in_(task_notice) & visible_task,
+            (SysNotify.ref_type == "collection_entry") & visible_collection & (p.has_menu("contracts") or p.has_menu("receivables"))))
+    unread_n = db.scalar(select(func.count()).select_from(q.where(SysNotify.read_status.is_(False)).subquery()))
     if unread:
         q = q.where(SysNotify.read_status.is_(False))
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.scalars(q.order_by(SysNotify.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
-    unread_n = db.scalar(select(func.count()).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
-                                                    SysNotify.read_status.is_(False)))
     items = [{"id": r.id, "type": r.msg_type, "title": r.title, "content": r.content, "link": r.link,
               "read": r.read_status, "created_at": r.created_at} for r in rows]
     return ok(page_data(items, total, page, page_size, unread=unread_n))

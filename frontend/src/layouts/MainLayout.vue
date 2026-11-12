@@ -98,7 +98,7 @@ const W = ['日', '一', '二', '三', '四', '五', '六']
 const today = dayjs().format('YYYY年M月D日') + ' 星期' + W[dayjs().day()]
 
 const groups = computed(() =>
-  MENU_GROUPS.map((g) => ({ ...g, items: g.items.filter((m) => auth.hasMenu(m.key)) })).filter((g) => g.items.length),
+  MENU_GROUPS.map((g) => ({ ...g, items: g.items.filter((m) => (m.anyMenu || [m.key]).some(key => auth.hasMenu(key))) })).filter((g) => g.items.length),
 )
 const isActive = (m) => (m.path === '/' ? route.path === '/' : route.path === m.path || route.path.startsWith(m.path + '/'))
 

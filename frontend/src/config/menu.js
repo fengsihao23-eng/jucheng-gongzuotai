@@ -4,19 +4,11 @@ export const MENU_GROUPS = [
   {
     title: '经营',
     items: [
-      { key: 'board', path: '/board', label: '经营看板' },
-      { key: 'reports', path: '/reports', label: '报表中心' },
-      { key: 'submissions', path: '/submissions', label: '汇报提交' },
-    ],
-  },
-  {
-    title: '台账',
-    items: [
       { key: 'contracts', path: '/contracts', label: '合同台账' },
-      { key: 'contracts', path: '/approvals', label: '审批台账' },
+      { key: 'contracts', anyMenu: ['contracts', 'receivables'], path: '/collections', label: '回款台账' },
       { key: 'opportunities', path: '/opportunities', label: '商机信息' },
-      { key: 'performance', path: '/performance', label: '业绩与运营' },
-      { key: 'clean', path: '/clean', label: '数据清洗' },
+      { key: 'projects', path: '/tender-projects', label: '招标与在建' },
+      { key: 'board', path: '/board', label: '经营看板' },
     ],
   },
   {
@@ -35,7 +27,8 @@ export const MENU_GROUPS = [
     items: [
       { key: 'operations', path: '/operations', label: '运营项目' },
       { key: 'market', path: '/market', label: '重点项目跟进' },
-      { key: 'projects', path: '/projects', label: '项目流程' },
+      { key: 'projects', path: '/general-projects', label: '一般项目' },
+      { key: 'projects', path: '/history-projects', label: '历史项目' },
       { key: 'intel', path: '/intel', label: '竞品情报' },
       { key: 'reviews', path: '/reviews', label: '项目复盘' },
     ],
@@ -46,6 +39,16 @@ export const MENU_GROUPS = [
       { key: 'tender', path: '/tender', label: '标书助手' },
       { key: 'service', path: '/service', label: '客服工单' },
       { key: 'hr', path: '/hr', label: '人事中心' },
+    ],
+  },
+  {
+    title: '报表与记录',
+    items: [
+      { key: 'reports', path: '/reports', label: '报表中心' },
+      { key: 'submissions', path: '/submissions', label: '汇报提交' },
+      { key: 'contracts', path: '/approvals', label: '审批台账' },
+      { key: 'performance', path: '/performance', label: '业绩与运营' },
+      { key: 'clean', path: '/clean', label: '数据清洗' },
     ],
   },
   {

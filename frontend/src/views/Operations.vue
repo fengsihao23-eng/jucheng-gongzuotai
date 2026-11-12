@@ -7,6 +7,7 @@
     <Panel class="mt-16" :loading="loading && !data.today">
       <el-tabs v-model="tab">
         <el-tab-pane label="月度任务总表" name="monthly" lazy><MonthlyPlan :today="data.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
+        <el-tab-pane label="项目与个人总结" name="digest" lazy><OpsDigest :active="tab === 'digest'" /></el-tab-pane>
         <el-tab-pane label="项目总览" name="projects">
           <section v-if="attention" class="attention-line" aria-label="需要关注">
             <button type="button" class="attention-task" @click="openTask(attention.task)">
@@ -65,6 +66,7 @@ import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
+import OpsDigest from './operations/OpsDigest.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskForm from './operations/TaskForm.vue'
 import { PROJECT_STATUS, TASK_STATUS, completionLabel, deadlineTone, tone } from './operations/shared'

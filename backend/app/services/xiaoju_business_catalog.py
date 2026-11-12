@@ -25,6 +25,7 @@ MODULES = {
     "journal": ("出纳日记账", "/journal"), "finance_data": ("财务数据与税务", "/finance-data"),
     "reports": ("报表与项目利润", "/reports"), "projects": ("项目与进度", "/projects"),
     "receivables": ("开票与收款", "/receivables"),
+    "collections": ("经营回款与跟进", "/collections"),
     "market": ("市场情报与复盘", "/market"), "opportunities": ("商机管理", "/opportunities"),
     "performance": ("业绩与运营", "/performance"), "clean": ("数据清洗导入", "/clean"),
     "hr": ("人事考勤与招聘", "/hr"), "service": ("客服工单", "/service"),
@@ -47,8 +48,20 @@ ROUTE_EXCLUSIONS = {
     "mcp_config.client_config", "mcp_config.self_test", "mcp_config.config_with_token",
     "wecom_personal.bind_start", "wecom_personal.bind_status", "wecom_personal.bind_qr", "wecom_personal.bind_cancel",
     "wecom_console.put_credential",
+    # Recent-login operations and reviewed external-source workflows stay in their own UI.
+    "admin.set_roles", "admin.set_status", "admin.update_role",
+    "operations.delete_task", "operations.archive_operation_task", "operations.restore_operation_task",
+    "operations.preview_campus_income", "operations.confirm_campus_income",
+    "source_checks.finance_sources", "source_checks.save_source", "source_checks.start_read", "source_checks.read_status",
+    "source_checks.verify_source", "source_checks.robot_state", "source_checks.save_robot",
 }
 LABELS = {
+    "role_members": "查角色实名名单", "effective_permissions": "查指定人员有效权限",
+    "signing": "查询累计、本月、本周和今日签约统计",
+    "collection_board": "查询应收余额和回款负责人", "follow_up": "登记回款跟进或催办",
+    "operation_digest": "查询运营项目周报、月报或个人工作总结",
+    "draft_proposal": "使用项目产品库生成学校方案初稿",
+    "add_project_members": "批量加入运营项目成员", "pause_follow": "暂停或恢复重点项目跟进",
     "monthly_plan": "查询负责人月度任务表和未完成原因", "review_operation_task": "部门或公司审核自行安排的任务",
     "submit_operation_delay_reason": "提交任务延期原因", "review_operation_delay": "认可或退回任务延期原因",
     "list_operations": "查询运营项目与当前待办", "create_operation": "新建运营项目", "operation_detail": "读取运营项目任务与学校资料",
@@ -135,6 +148,12 @@ LABELS = {
 }
 
 ROUTE_LABELS = {
+    "role_members": "查角色实名名单", "effective_permissions": "查指定人员有效权限",
+    "signing": "查询累计、本月、本周和今日签约统计",
+    "collection_board": "查询应收余额和回款负责人", "follow_up": "登记回款跟进或催办",
+    "operation_digest": "查询运营项目周报、月报或个人工作总结",
+    "draft_proposal": "使用项目产品库生成学校方案初稿",
+    "add_project_members": "批量加入运营项目成员", "pause_follow": "暂停或恢复重点项目跟进",
     "receivables.allocate": "核销到账与发票", "receivables.template": "下载开票收款导入模板", "receivables.upload": "上传开票收款来源表",
     "receivables.invoice_detail": "查询单张发票与已核销金额", "receivables.receipt_detail": "查询单笔到账及核销余额", "receivables.source_detail": "查看一条来源记录与版本",
     "wecom_approval.template": "读取审批模板和必填控件", "wecom_external.overview": "查看企微客户联系授权与客户统计",
@@ -215,10 +234,11 @@ def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
     if module == "operations":
-        return "query" if name == "draft_feedback" else "confirm"
+        return "query" if name in {"draft_feedback", "draft_proposal"} else "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"
     if module == 'imports' and name in {'upload', 'analyze'}: return 'execute'
-    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports", "receivables", "wecom_approval"}: return "confirm"
+    if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports", "receivables", "collections", "wecom_approval"}: return "confirm"
+    if module == "market" and name == "pause_follow": return "confirm"
     if module == "wecom_console": return "query" if name == "test_credential" else "confirm"
     if module == "kb" and name in {"update_doc", "review", "archive", "create_category", "update_category"}: return "confirm"
     if module == "flows": return "confirm"

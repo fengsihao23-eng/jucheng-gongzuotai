@@ -21,7 +21,21 @@
         </div>
         <p v-if="!departmentReviewers.length || !companyReviewers.length" class="jc-small jc-muted">部门审核人由项目团队指定；公司审核人需具有公司审核权限。请项目管理员先完善审核人员。</p>
       </template>
-      <el-form-item v-if="!initial?.id" label="关联学校（可选）"><el-select v-model="form.school_id" clearable filterable><el-option v-for="s in project.schools" :key="s.id" :label="s.name" :value="s.id" /></el-select></el-form-item>
+      <el-form-item v-if="project.schools.length" label="事项类型"><el-select v-model="form.kind">
+        <el-option label="一般事项" value="general" /><el-option label="市场开拓" value="outreach" />
+      </el-select></el-form-item>
+      <el-form-item v-if="project.schools.length" :label="form.kind === 'outreach' ? '目标学校' : '关联学校（可选）'"><el-select v-model="form.school_id" clearable filterable><el-option v-for="s in project.schools" :key="s.id" :label="s.name" :value="s.id" /></el-select></el-form-item>
+      <template v-if="project.can_manage && form.source === 'company'">
+        <el-form-item label="任务可见范围">
+          <el-radio-group v-model="form.visibility"><el-radio-button value="team">全项目组</el-radio-button><el-radio-button value="selected">指定成员</el-radio-button></el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="form.visibility === 'selected'" label="可查看任务的成员">
+          <el-select v-model="form.viewer_ids" filterable multiple collapse-tags collapse-tags-tooltip style="width: 100%" placeholder="选择项目成员">
+            <el-option v-for="m in project.members.filter(x => x.active)" :key="m.user_id" :value="m.user_id" :label="m.name" />
+          </el-select>
+          <p class="jc-muted jc-small">负责人、发布人、当前审核人及有权管理该项目的人员可查看。</p>
+        </el-form-item>
+      </template>
       <div class="two">
         <el-form-item label="重点程度"><el-radio-group v-model="form.priority"><el-radio-button value="key">重点任务</el-radio-button><el-radio-button value="normal">一般任务</el-radio-button></el-radio-group></el-form-item>
         <el-form-item label="反馈频率"><el-radio-group v-model="form.cadence"><el-radio-button value="daily">每天反馈</el-radio-button><el-radio-button value="node">按节点反馈</el-radio-button></el-radio-group></el-form-item>
@@ -44,7 +58,7 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { announceChange } from './shared'
-const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, mode: {type:String,default:'company'} })
+const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, schoolPreset: Number, mode: {type:String,default:'company'} })
 const emit = defineEmits(['update:modelValue', 'saved', 'closed'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assignable = computed(() => props.project.members.filter(m => m.role !== 'viewer' && m.active))
@@ -55,7 +69,9 @@ function sourceChanged() { form.owner_id = form.source === 'self' ? auth.profile
 watch(visible, async v => {
   monthChanged.value=!!props.initial?.id
   if (v) Object.assign(form, { title: props.initial?.title || '', description: props.initial?.description || '',
-    owner_id: props.initial?.owner_id || (props.mode === 'self' ? auth.profile?.id : null), due_date: props.initial?.due_date || null, school_id: null,
+    owner_id: props.initial?.owner_id || (props.mode === 'self' ? auth.profile?.id : null), due_date: props.initial?.due_date || null, school_id: props.initial?.school_id || props.schoolPreset || null,
+    kind: props.initial?.kind || (props.schoolPreset ? 'outreach' : 'general'), visibility: props.initial?.visibility || 'team',
+    viewer_ids: [...(props.initial?.viewer_ids || [])],
     priority: props.initial?.priority || 'key', cadence: props.initial?.cadence || 'daily', nodes: [], source:props.initial?.source || props.mode,
     plan_month:props.initial?.plan_month || props.project.today.slice(0,7), department_reviewer_id:props.initial?.department_reviewer_id || null,
     company_reviewer_id:props.initial?.company_reviewer_id || null })
@@ -63,12 +79,15 @@ watch(visible, async v => {
 }, { immediate: true })
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
+  if (form.kind === 'outreach' && !form.school_id) return ElMessage.warning('请选择市场开拓的学校')
   if (form.nodes.some(n => !n.name.trim() || !n.due_date || n.due_date > form.due_date)) return ElMessage.warning('请填写节点名称和日期，节点日期应不晚于任务截止日期')
   saving.value = true
   try {
     const body = { ...form, school_id: form.school_id || null }
     if (form.source !== 'self') {delete body.department_reviewer_id;delete body.company_reviewer_id}
-    if (props.initial?.id) { delete body.nodes; delete body.school_id; delete body.source }
+    if (!props.project.can_manage || form.source !== 'company') { delete body.visibility; delete body.viewer_ids }
+    else if (form.visibility !== 'selected') body.viewer_ids = []
+    if (props.initial?.id) { delete body.nodes; if (!body.school_id) delete body.school_id; delete body.source }
     const result = props.initial?.id ? await api.put(`/operations/tasks/${props.initial.id}`, body) : await api.post(`/operations/${props.project.id}/tasks`, body)
     visible.value = false; ElMessage.success('任务安排已保存'); emit('saved', result); announceChange()
   } catch {} finally { saving.value = false }

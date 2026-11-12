@@ -109,6 +109,10 @@
           <dt v-if="detail.lost_reason">丢单原因</dt><dd v-if="detail.lost_reason" class="jc-down">{{ detail.lost_reason }}</dd>
           <dt>备注</dt><dd style="white-space: pre-line">{{ detail.remark || '—' }}</dd>
         </dl>
+        <div v-if="auth.hasMenu('projects')" class="jc-row wrap mt-16">
+          <el-button v-if="detail.project_code" @click="$router.push('/projects/' + detail.project_code)">查看已关联项目</el-button>
+          <el-button v-else-if="auth.can('milestone:write') || auth.can('project:key')" @click="$router.push({ name: 'tender-projects', query: { opportunity: detail.id } })">登记为招标项目</el-button>
+        </div>
         <div v-if="auth.can('opp:write')" class="jc-row wrap mt-16">
           <template v-if="!['won', 'lost'].includes(detail.stage)">
             <el-button v-if="detail.stage !== 'negotiation'" type="primary" @click="openAdvance(detail)">推进到下一阶段</el-button>

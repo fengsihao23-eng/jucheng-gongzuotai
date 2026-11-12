@@ -89,6 +89,7 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
     p = build_principal(user)
     request.state.principal = p
     request.state.jwt_exp = payload["exp"]
+    request.state.identity_verified_at = payload.get("verified_at")
     return p
 
 
@@ -106,6 +107,15 @@ def require_button(button: str):
             raise forbidden("无此操作权限")
         return p
     return dep
+
+
+def require_recent_login(request: Request) -> None:
+    import time
+    from app.core.config import settings
+
+    at = getattr(request.state, "identity_verified_at", None)
+    if settings.environment == "prod" and (not isinstance(at, int) or not 0 <= time.time() - at <= 900):
+        raise forbidden("此操作需要本人重新验证身份，请重新登录后在 15 分钟内操作")
 
 
 def client_ip(request: Request) -> str | None:

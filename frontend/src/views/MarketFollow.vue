@@ -19,12 +19,18 @@
 
         <div class="layout">
           <Panel title="重点项目" :sub="`按异常优先排序`" :loading="loading">
-            <template #extra><el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox></template>
+            <template #extra>
+              <el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox>
+              <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
+              <el-button v-if="board?.summary_text" size="small" @click="summaryOpen = true">重点项目汇总</el-button>
+            </template>
+            <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
             <div class="cards">
               <div v-for="p in board?.projects || []" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" @click="$router.push(`/projects/${p.project_code}`)">
                 <div class="jc-row between">
                   <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
-                  <span v-if="p.alert" class="jc-down jc-small">▲ 异常</span>
+                  <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
+                  <span v-else-if="p.alert" class="jc-down jc-small">有异常</span>
                 </div>
                 <h4 class="jc-serif">{{ p.name }}</h4>
                 <div class="jc-small jc-muted">{{ p.customer_name }}</div>
@@ -33,9 +39,10 @@
                   <span class="jc-num jc-small">{{ Math.round(p.progress * 100) }}%</span>
                 </div>
                 <div class="row2 jc-small">
-                  <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b></span>
+                  <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b><span v-if="p.current_node_plan"> · {{ p.current_node_plan }}</span></span>
                   <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
                 </div>
+                <div :class="p.reported_this_week ? 'jc-up' : 'jc-warn'" class="jc-small mt-8">{{ p.reported_this_week ? '本周已反馈' : '本周未反馈' }}</div>
                 <div class="fb jc-small" :class="{ risk: p.latest_feedback?.risk_level >= 2 }">
                   <template v-if="p.latest_feedback"><span class="jc-muted jc-num">{{ shortDate(p.latest_feedback.feedback_date) }}</span> {{ p.latest_feedback.content }}</template>
                   <span v-else class="jc-muted">暂无进展反馈</span>
@@ -47,6 +54,7 @@
                   <b class="jc-num" :class="{ 'jc-warn': p.payment_rate != null && p.payment_rate < 0.5 }">{{ percent(p.payment_rate) }}</b>
                 </div>
                 <div class="jc-small jc-muted mt-8">市场 {{ p.market_owner_name || '—' }} · 项目经理 {{ p.owner_name || '—' }}</div>
+                <el-button v-if="p.is_key && auth.can('project:key')" size="small" link @click.stop="togglePause(p)">{{ p.paused ? '恢复跟进' : '暂停跟进' }}</el-button>
               </div>
             </div>
             <el-empty v-if="board && !board.projects.length" description="暂无重点项目" />
@@ -119,6 +127,10 @@
         <el-button v-if="pv.report" type="primary" @click="download(pv.report)">下载 docx 初稿</el-button>
       </template>
     </el-drawer>
+    <el-dialog v-model="summaryOpen" title="本周重点项目汇总" width="min(720px, 94vw)">
+      <p class="jc-muted jc-small">仅汇总当前跟进且有权限查看的重点项目。</p>
+      <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ board?.summary_text }}</div>
+    </el-dialog>
   </div>
 </template>
 
@@ -135,12 +147,18 @@ const route = useRoute()
 const tab = ref(route.query.tab === 'reports' ? 'reports' : 'board')
 const board = ref(null)
 const loading = ref(false)
-const includeAll = ref(false)
+const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
+async function togglePause(project) {
+  try {
+    await api.put('/market/projects/' + project.project_code + '/pause', { paused: !project.paused })
+    ElMessage.success(project.paused ? '已恢复跟进' : '已暂停跟进'); load()
+  } catch {}
+}
 
 async function load() {
   loading.value = true
   try {
-    board.value = await api.get('/market/board', { include_all: includeAll.value || undefined })
+    board.value = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
   } finally {
     loading.value = false
   }

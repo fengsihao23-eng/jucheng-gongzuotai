@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="jc-row between"><p class="jc-muted">产品资料可在有权限的运营项目之间复用，实际投入按学校设备清单中的采购单价计算。</p><el-button v-if="project.can_manage" type="primary" @click="edit()">新增产品</el-button></div>
+    <div class="jc-row between"><p class="jc-muted">产品资料可在有权限的运营项目之间复用，实际投入按学校设备清单中的采购单价计算。</p><div class="jc-row wrap"><CampusProposal :project="project" /><el-button v-if="project.can_manage" type="primary" @click="edit()">新增产品</el-button></div></div>
     <el-table :data="project.products">
       <el-table-column prop="name" label="产品名称" min-width="200" />
       <el-table-column prop="brand" label="品牌" width="140" />
@@ -26,6 +26,7 @@
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import CampusProposal from './CampusProposal.vue'
 import { unitPrice, announceChange } from './shared'
 const props = defineProps({ project: Object }), emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), formRef = ref(), id = ref(null), form = reactive({})

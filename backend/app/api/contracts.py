@@ -1,6 +1,7 @@
 """FR-05-01 合同台账 + FR-05-06 合同归档（原件版本控制、付款条款读取、到账流水自动关联）。"""
 from datetime import date
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import Response
@@ -21,10 +22,10 @@ Menu = Depends(require_menu("contracts"))
 def _filters(business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
              keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
-             region: str = "") -> dict:
+             region: str = "", sign_period: Literal["", "all", "month", "week", "today"] = "") -> dict:
     return {"business_line": business_line, "customer": customer, "status": status, "sign_month": sign_month,
             "sign_from": sign_from, "sign_to": sign_to, "source_type": source_type, "keyword": keyword.strip(),
-            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id, "region": region}
+            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id, "region": region, "sign_period": sign_period}
 
 
 def _need(p: Principal, button: str):
@@ -39,6 +40,12 @@ def list_contracts(page: int = 1, page_size: int = 20, f: dict = Depends(_filter
     data["perms"] = {"write": p.can("contracts:write"), "export": p.can("contracts:export"),
                      "archive": p.can("contracts:archive")}
     return ok(data)
+
+
+@router.get("/signing")
+def signing(f: dict = Depends(_filters), p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"items": cs.signing_board(db, p, **f),
+               "note": "按实际签订日统计截至今日的有效合同；周一为一周起点，已终止合同不计入。"})
 
 
 @router.get("/options")

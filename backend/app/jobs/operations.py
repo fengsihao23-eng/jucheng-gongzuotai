@@ -6,6 +6,7 @@ from app.core.timeutil import today
 from app.jobs.registry import job
 from app.models import OpsProject, OpsTask, SysNotify, SysUser
 from app.services import notify_service, operations_service as ops
+from app.services.operations_policy import archived
 
 
 @job("operations_task_reminder", "运营任务进展提醒", {"hour": 16, "minute": 0}, "每日 16:00",
@@ -15,7 +16,7 @@ def operations_task_reminder(db, params):
     sent = 0
     for project in projects:
         members = {m["user_id"] for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"}
-        tasks = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.status != "done", OpsTask.approval_status == "approved")).all()
+        tasks = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.status != "done", OpsTask.approval_status == "approved", ~archived())).all()
         for task in tasks:
             owner = db.get(SysUser, task.owner_id)
             if not owner or task.owner_id not in members:

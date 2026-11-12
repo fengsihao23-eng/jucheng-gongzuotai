@@ -22,7 +22,7 @@
             <el-select v-model="uf.source" placeholder="账号来源" clearable size="small" style="width: 140px" @change="loadUsers(1)"><el-option label="公司通讯录" value="directory" /><el-option label="本地 / 演示" value="local" /></el-select>
           </template>
           <el-table :data="users.items">
-            <el-table-column label="姓名" width="110" prop="name" />
+            <el-table-column label="姓名" width="110"><template #default="{ row }"><el-button link type="primary" @click="inspectPermissions(row)">{{ row.name }}</el-button></template></el-table-column>
             <el-table-column label="账号 / UserID" width="140"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
             <el-table-column label="来源" width="100" prop="source" />
             <el-table-column label="部门" width="110" prop="dept_name" />
@@ -53,7 +53,7 @@
         <Panel class="mt-16" title="角色权限矩阵" sub="菜单 / 按钮 / 数据范围三级控制；修改后用户下次请求即生效" :padding="false">
           <el-table :data="roles.roles">
             <el-table-column label="角色" width="170"><template #default="{ row }"><b>{{ row.name }}</b><div class="jc-mono jc-muted">{{ row.code }}</div></template></el-table-column>
-            <el-table-column label="人数" width="70" align="right" prop="users" />
+            <el-table-column label="人数" width="74" align="right"><template #default="{ row }"><el-button link type="primary" @click="showRoleMembers(row)">{{ row.users }}</el-button></template></el-table-column>
             <el-table-column label="数据范围" width="100"><template #default="{ row }">{{ SCOPE[row.data_scope] }}</template></el-table-column>
             <el-table-column label="可见菜单" min-width="420">
               <template #default="{ row }">
@@ -71,6 +71,8 @@
       </el-tab-pane>
 
       <!-- 字典口径 -->
+      <el-tab-pane label="机器人授权续期" name="robot" lazy><SourceChecks robot /></el-tab-pane>
+
       <el-tab-pane label="字典与口径" name="dicts">
         <div class="dict-layout">
           <Panel title="字典类型" :padding="false">
@@ -234,6 +236,39 @@
       <template #footer><el-button @click="dictDlg = false">取消</el-button><el-button type="primary" @click="saveDict">保存</el-button></template>
     </el-dialog>
 
+    <el-drawer v-model="memberDrawer" :title="memberRole ? memberRole.name + ' · 角色人员' : '角色人员'" size="min(660px, 100vw)">
+      <el-input v-model="rolePeopleKeyword" clearable placeholder="搜索姓名或企业账号" @change="loadRoleMembers(1)" />
+      <el-table :data="rolePeople.items" class="mt-16" v-loading="rolePeopleLoading">
+        <el-table-column label="姓名" min-width="110"><template #default="{ row }"><el-button link type="primary" @click="inspectPermissions(row)">{{ row.name }}</el-button></template></el-table-column>
+        <el-table-column label="账号" prop="userid" min-width="130" />
+        <el-table-column label="部门" prop="department" min-width="110" />
+        <el-table-column label="状态" width="70"><template #default="{ row }">{{ row.status === 1 ? '启用' : '停用' }}</template></el-table-column>
+        <el-table-column label="最近登录" min-width="155"><template #default="{ row }">{{ datetime(row.last_login_at) }}</template></el-table-column>
+      </el-table>
+      <el-pagination class="mt-16" :current-page="rolePeople.page || 1" :page-size="30" :total="rolePeople.total || 0" layout="total, prev, pager, next" @current-change="loadRoleMembers" />
+    </el-drawer>
+
+    <el-dialog v-model="permissionDialog" title="个人有效权限" width="min(660px, 94vw)" append-to-body>
+      <div v-loading="permissionLoading" style="min-height: 92px">
+        <template v-if="effective">
+          <h3>{{ effective.name }} <span class="jc-muted jc-small">{{ effective.userid }}</span></h3>
+          <p v-if="!effective.active">账号停用，当前不可访问。</p>
+          <template v-else>
+            <p>角色：{{ effective.roles.map(code => roles.roles.find(r => r.code === code)?.name || code).join('、') }}</p>
+            <p>通用数据范围：{{ SCOPE[effective.data_scope] }}</p>
+            <p>运营项目：{{ effective.operations_manage_all ? '可管理全量' : effective.operations_all ? '可查看全量' : '按项目成员身份' }}<span v-if="effective.operations_archive"> · 已获任务作废权限</span></p>
+            <p>菜单：{{ effective.menus.join('、') }}</p>
+            <p class="permission-actions">操作权限：{{ effective.buttons.map(button => PRIVILEGES[button] || button).join('、') || '仅基础操作' }}</p>
+            <el-table v-if="effective.projects.length" :data="effective.projects" size="small">
+              <el-table-column label="所在运营项目" prop="name" min-width="145" />
+              <el-table-column label="项目角色" min-width="125"><template #default="{ row }">{{ PROJECT_ROLES[row.role] || row.role }}</template></el-table-column>
+            </el-table>
+          </template>
+          <p v-if="effective.last_login" class="jc-muted jc-small">最近登录：{{ datetime(effective.last_login.at) }} · {{ effective.last_login.method === 'wecom_oauth' ? '企业微信' : '账号口令' }}</p>
+        </template>
+      </div>
+    </el-dialog>
+
     <!-- 角色权限 -->
     <el-dialog v-model="roleDlg" :title="`调整角色：${roleForm.name}`" width="680px">
       <el-form label-width="80px">
@@ -247,7 +282,7 @@
             <el-checkbox v-for="(v, k) in roles.menus" :key="k" :value="k">{{ v }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-form-item label="按钮权限"><el-select v-model="roleForm.buttons" multiple filterable allow-create style="width: 100%" /></el-form-item>
+        <el-form-item label="按钮权限"><el-select v-model="roleForm.buttons" multiple filterable allow-create style="width: 100%"><el-option v-for="(label, code) in PRIVILEGES" :key="code" :value="code" :label="label" /></el-select></el-form-item>
       </el-form>
       <template #footer><el-button @click="roleDlg = false">取消</el-button><el-button type="primary" @click="saveRole">保存</el-button></template>
     </el-dialog>
@@ -269,6 +304,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
+import SourceChecks from './SourceChecks.vue'
 import { datetime } from '@/utils/format'
 
 const DEPTS = [['ZB', '总经办'], ['CW', '财务部'], ['SC', '市场部'], ['YX', '营销管控部'], ['CP', '产品中心'], ['RS', '人事部'], ['XM', '项目部'], ['KF', '客服部'], ['ADMIN', '系统管理']]
@@ -295,6 +331,30 @@ const connectionForm = reactive({ wecom_corp_id: '', wecom_agent_id: '', wecom_s
 const secretConfigured = ref(false)
 const departmentOptions = computed(() => users.value.departments?.map((d) => [d.code, d.name]) || DEPTS)
 const roles = ref({ roles: [], menus: {} })
+const PRIVILEGES = { 'operations:manage': '运营项目全量管理', 'operations:view_all': '运营项目全量只读', 'operations:archive': '运营任务作废与恢复', 'collections:request': '回款催办', 'project:key': '重点项目管理' }
+const PROJECT_ROLES = { owner: '负责人', co_owner: '联合负责人', manager: '项目管理员', member: '执行成员', reviewer: '部门审核人', viewer: '只读' }
+const memberDrawer = ref(false), memberRole = ref(null), rolePeopleKeyword = ref(''), rolePeople = ref({ items: [] }), rolePeopleLoading = ref(false)
+const permissionDialog = ref(false), effective = ref(null), permissionLoading = ref(false)
+let memberRequest = 0, permissionRequest = 0
+function showRoleMembers(row) {
+  memberRole.value = row; rolePeopleKeyword.value = ''; rolePeople.value = { items: [] }; memberDrawer.value = true; loadRoleMembers(1)
+}
+async function loadRoleMembers(page) {
+  const current = ++memberRequest
+  rolePeopleLoading.value = true
+  try {
+    const result = await api.get('/admin/roles/' + memberRole.value.code + '/members', { page, keyword: rolePeopleKeyword.value })
+    if (current === memberRequest) rolePeople.value = result
+  } catch {} finally { if (current === memberRequest) rolePeopleLoading.value = false }
+}
+async function inspectPermissions(row) {
+  const current = ++permissionRequest
+  permissionDialog.value = true; effective.value = null; permissionLoading.value = true
+  try {
+    const result = await api.get('/admin/users/' + row.id + '/effective-permissions')
+    if (current === permissionRequest) effective.value = result
+  } catch {} finally { if (current === permissionRequest) permissionLoading.value = false }
+}
 const dicts = ref([])
 const curType = ref('payment_target')
 const ds = ref({ sources: [] })
@@ -442,6 +502,7 @@ onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles()
 </script>
 
 <style scoped>
+.permission-actions { overflow-wrap: anywhere; }
 .directory-message { margin: 0; line-height: 1.7; }
 .directory-warnings { line-height: 1.8; padding-left: 20px; }
 .directory-archive { margin-top: 16px; line-height: 1.8; }

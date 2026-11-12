@@ -9,7 +9,7 @@
             <h2>{{ task.title }}</h2>
             <p class="context">{{ [task.project_name, task.school_name].filter(Boolean).join(' · ') }}</p>
           </div>
-          <div class="actions"><el-button plain @click="withXiaoju">用小聚办理</el-button><el-button v-if="task.can_edit" plain @click="emit('edit', task)">调整安排</el-button></div>
+          <div v-if="!archived" class="actions"><el-button plain @click="withXiaoju">用小聚办理</el-button><el-button v-if="task.can_edit" plain @click="emit('edit', task)">调整安排</el-button><el-button v-if="task.can_archive && showArchive" link type="danger" @click="emit('archive', task)">作废任务</el-button></div>
         </header>
         <dl class="facts">
           <div><dt>负责人</dt><dd>{{ task.owner_name }}</dd></div><div><dt>截止日期</dt><dd>{{ task.due_date }}</dd><small v-if="task.deadline_basis && task.deadline_basis !== task.due_date">原定 {{ task.deadline_basis }}</small></div>
@@ -17,6 +17,7 @@
           <div v-if="task.approval_status === 'approved'"><dt>任务进度</dt><dd aria-live="polite"><el-progress v-if="progress.percent !== null" aria-label="任务进度" :percentage="progress.percent" :color="task.status === 'blocked' ? 'var(--jc-down)' : task.status === 'done' ? 'var(--jc-up)' : 'var(--jc-brand)'" /><span v-else>{{ progress.label }}</span></dd></div>
           <div v-else><dt>任务审核</dt><dd>{{ statusLabel(task) }}</dd></div>
         </dl>
+        <el-alert v-if="archived" :title="'已作废：' + task.archive_reason" type="info" :closable="false" class="notice" />
         <el-alert v-if="task.overdue" title="任务或节点已逾期，请反馈进展与下一步安排。" type="warning" :closable="false" class="notice" />
         <div class="body-grid" :class="{ 'one-column': !task.can_feedback && !task.can_review }">
           <div class="details">
@@ -27,7 +28,7 @@
               <p v-if="task.plan_context.problems" class="plain jc-muted">遇到的问题：{{ task.plan_context.problems }}</p>
             </section>
             <section v-if="task.source === 'self'" class="section"><h3>审核流程</h3><p>部门审核：{{ task.department_reviewer_name }}<br>公司审核：{{ task.company_reviewer_name }}</p></section>
-            <TaskDelayPanel v-if="task.delay_status" class="section" :task="task" :save="save" :busy="saving" />
+            <TaskDelayPanel v-if="!archived && task.delay_status" class="section" :task="task" :save="save" :busy="saving" />
             <section v-if="task.nodes.length" class="section">
               <h3>阶段节点 <small>{{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }} 已完成</small></h3>
               <ol class="nodes"><li v-for="(node, index) in task.nodes" :key="node.id" :class="{ complete: node.completed_at, overdue: node.overdue && !node.completed_at }"><i aria-hidden="true">{{ index + 1 }}</i><span>{{ node.name }}</span><small>{{ node.completed_at ? '已完成' : node.overdue ? `逾期 · ${node.due_date}` : node.due_date }}</small></li></ol>
@@ -70,7 +71,7 @@
         </div>
       </template>
     </div>
-    <template v-if="!unavailable && (task?.can_feedback || task?.can_review || task?.delay_status)" #footer>
+    <template v-if="!archived && !unavailable && (task?.can_feedback || task?.can_review || task?.delay_status)" #footer>
       <div class="task-footer"><el-button @click="visible = false">关闭</el-button>
         <el-button v-if="task.can_review" type="danger" plain :disabled="saving || draftStale" @click="review('reject')">退回修改</el-button>
         <el-button v-if="task.can_review" type="primary" :loading="saving" :disabled="draftStale" @click="review('approve')">审核通过</el-button>
@@ -90,8 +91,8 @@ import { datetime } from '@/utils/format'
 import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, taskProgress, tone, announceChange } from './shared'
 import TaskDelayPanel from './TaskDelayPanel.vue'
 
-const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number })
-const emit = defineEmits(['update:modelValue', 'edit'])
+const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean, showArchive: Boolean })
+const emit = defineEmits(['update:modelValue', 'edit', 'archive'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assistant = useAssistant(), task = ref(null), loading = ref(false), unavailable = ref(false), saving = ref(false)
 const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
@@ -128,7 +129,7 @@ async function load(background = false) {
   const current = ++version, id = props.taskId
   if (!background) loading.value = true
   try {
-    const result = await api.get(`/operations/tasks/${id}`, null, { silent: true })
+    const result = await api.get(`/operations/tasks/${id}`, props.archived ? { archived: true } : null, { silent: true })
     if (current !== version || !visible.value) return
     if (props.projectId && result.project_id !== props.projectId) { task.value = null; unavailable.value = true; return }
     if (task.value?.revision > result.revision) return

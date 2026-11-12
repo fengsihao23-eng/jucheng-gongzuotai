@@ -46,7 +46,7 @@ def _session(db: Session, user: SysUser, request: Request, method: str) -> dict:
     user.last_login_at = utcnow()
     log_op(db, user.id, "auth.login", "user", user.id, after={"method": method}, ip=client_ip(request))
     db.commit()
-    token, exp = create_jwt(user.id)
+    token, exp = create_jwt(user.id, verified_at=int(user.last_login_at.timestamp()))
     return {"token": token, "expires_at": exp, "profile": profile(build_principal(user), db)}
 
 
@@ -56,7 +56,7 @@ def visible_menus(db: Session, p: Principal) -> list[str]:
     if "operations" in menus:
         from app.models import OpsMember, OpsProject
         from app.services import operations_service as ops
-        joined = ops.can_create(p) or db.scalar(
+        joined = ops.can_view_all(p) or db.scalar(
             select(OpsProject.id).where(OpsProject.owner_id == p.id).limit(1)) is not None or db.scalar(
             select(OpsMember.id).where(OpsMember.user_id == p.id).limit(1)) is not None
         if not joined:

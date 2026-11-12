@@ -194,8 +194,14 @@ def profit_of(db: Session, code: str, T: date | None = None, p=None) -> dict:
 # ------------------------------------------------------------------ 列表 / 新建 / 详情
 def list_projects(db: Session, p, *, status: int | None = None, business_line: str | None = None,
                   is_key: bool | None = None, owner_id: int | None = None, keyword: str | None = None,
-                  mine: bool = False) -> list[dict]:
+                  mine: bool = False, scope: str = "all") -> list[dict]:
     q = visible_query(p)
+    if scope == "pipeline":
+        q = q.where(BizProject.status.in_((1, 2)))
+    elif scope == "history":
+        q = q.where(BizProject.status == 5)
+    elif scope == "general":
+        q = q.where(BizProject.status != 5, BizProject.is_key.is_(False))
     if status:
         q = q.where(BizProject.status == status)
     if business_line:
@@ -212,7 +218,17 @@ def list_projects(db: Session, p, *, status: int | None = None, business_line: s
     rows = db.scalars(q.order_by(BizProject.is_key.desc(), BizProject.project_code)).unique().all()
     T = today()
     money = money_summary(db, [r.project_code for r in rows])
-    return [project_brief(db, r, T, money.get(r.project_code)) for r in rows]
+    items = [project_brief(db, r, T, money.get(r.project_code)) for r in rows]
+    if scope == "pipeline" and items and p and p.has_menu("opportunities"):
+        from app.models import BizOpportunity
+        from app.services import opportunity_service as opp
+        links = {}
+        for opportunity in db.scalars(opp._filtered(p).where(BizOpportunity.project_code.in_([r.project_code for r in rows]))
+                                     .order_by(BizOpportunity.id)).unique():
+            links.setdefault(opportunity.project_code, []).append({"id": opportunity.id, "no": opportunity.opp_no, "name": opportunity.name})
+        for item in items:
+            item["opportunities"] = links.get(item["project_code"], [])
+    return items
 
 
 def templates(db: Session) -> dict:
@@ -281,7 +297,7 @@ def create_project(db: Session, data: dict, operator_id: int | None, source: str
                    customer_name=data["customer_name"], owner_id=data.get("owner_id"),
                    market_owner_id=data.get("market_owner_id"), status=int(data.get("status") or 2),
                    is_key=bool(data.get("is_key")), budget_amount=data.get("budget_amount"),
-                   start_date=start or None, milestone_template=tpl_key, remark=data.get("remark"))
+                   bid_deadline=data.get("bid_deadline"), start_date=start or None, milestone_template=tpl_key, remark=data.get("remark"))
     nodes = build_nodes(tpl or [], start or today(), p.owner_id)
     p.milestones = nodes
     if nodes and nodes[-1].plan_date:

@@ -1,17 +1,21 @@
 """运营项目跟进：任务、学校基础资料、产品库及手工收入。"""
-from fastapi import APIRouter, Depends, Query
+from typing import Literal
+from decimal import Decimal
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import Principal, require_menu
-from app.core.response import ok
+from app.core.deps import Principal, require_menu, require_recent_login
+from app.core.response import forbidden, ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
-from app.schemas.operations import (DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
+from app.schemas.operations import (ArchiveIn, BatchMembersIn, DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
                                     ProjectIn, ProjectProgressEntriesIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch, TaskSource)
 from app.services import operations_deadlines as deadlines
 from app.services import operations_service as ops
 from app.services import operations_plans as plans
+from app.services import operations_digest as digest, operations_policy as policy, campus_income_file as income_file
+from app.services import campus_proposal
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
@@ -31,9 +35,15 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
     q = select(SysUser).where(SysUser.status == 1, SysUser.is_deleted.is_(False)).order_by(SysUser.id)
     if not manager:
         q = q.where(SysUser.id.in_([m["user_id"] for m in ops.members(db, project)] if project else [p.id]))
-    return ok({"users": [{"id": u.id, "name": u.name, "dept": u.dept_code} for u in db.scalars(q)],
+    return ok({"users": [{"id": u.id, "name": u.name, "dept": u.dept_code, "department": u.department.name if u.department else None} for u in db.scalars(q)],
                "categories": sorted(set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.category)))),
                **(plans.options(db, p, project) if project else {})})
+
+
+@router.get("/digest")
+def operation_digest(mode: Literal["week", "month"] = "week", period: str = "", project_id: int | None = None,
+                     mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(digest.period_summary(db, p, mode, period, project_id, mine))
 
 
 @router.get("/monthly")
@@ -48,7 +58,7 @@ def monthly_plan(month: Month | None = None, owner_id: int | None = None, projec
 def product_library(keyword: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
     """检索可访问项目的产品库，供跨项目复用。"""
     q = select(OpsProduct, OpsProject.name).join(OpsProject, OpsProject.id == OpsProduct.project_id).where(
-        OpsProduct.project_id.in_(ops.visible_projects(p).with_only_columns(OpsProject.id)))
+        OpsProduct.project_id.in_(ops.visible_projects(p, members_only=True).with_only_columns(OpsProject.id)))
     if keyword:
         q = q.where(OpsProduct.name.ilike(f"%{keyword}%"))
     return ok({"items": [{**ops.product_dict(r), "source_project": name} for r, name in db.execute(q.order_by(OpsProduct.id.desc()))]})
@@ -62,16 +72,16 @@ def create_operation(body: ProjectIn, p: Principal = Menu, db: Session = Depends
 
 
 @router.get("/tasks")
-def operation_tasks(project_id: int | None = None, mine: bool = False,
+def operation_tasks(project_id: int | None = None, mine: bool = False, archived: bool = False,
                     p: Principal = Menu, db: Session = Depends(get_db)):
     if project_id:
         ops.get_project(db, p, project_id)
-    return ok({"items": ops.tasks(db, p, project_id, mine)})
+    return ok({"items": ops.tasks(db, p, project_id, mine, archived=archived)})
 
 
 @router.get("/tasks/{task_id}")
-def operation_task(task_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
-    return ok(ops.task_detail(db, p, task_id))
+def operation_task(task_id: int, archived: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(ops.task_detail(db, p, task_id, archived=archived))
 
 
 @router.put("/tasks/{task_id}")
@@ -82,10 +92,27 @@ def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: 
 
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+def delete_task(task_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    require_recent_login(request)
     ops.delete_task(db, p, task_id)
     db.commit()
     return ok()
+
+
+@router.post("/tasks/{task_id}/archive")
+def archive_operation_task(task_id: int, body: ArchiveIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    require_recent_login(request)
+    policy.archive(db, p, task_id, body.reason)
+    db.commit()
+    return ok()
+
+
+@router.post("/tasks/{task_id}/restore")
+def restore_operation_task(task_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    require_recent_login(request)
+    policy.archive(db, p, task_id, "", restore=True)
+    db.commit()
+    return ok(ops.task_detail(db, p, task_id))
 
 
 @router.post("/tasks/{task_id}/feedback")
@@ -182,6 +209,18 @@ def save_operation_member(project_id: int, body: MemberIn, p: Principal = Menu, 
     return ok(ops.members(db, ops.get_project(db, p, project_id)))
 
 
+@router.post("/{project_id}/members/batch")
+def add_project_members(project_id: int, body: BatchMembersIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    project = ops.get_project(db, p, project_id, lock=True)
+    ops.manage(db, p, project)
+    existing = {m["user_id"] for m in ops.members(db, project)}
+    added = sorted(set(body.user_ids) - existing)
+    for uid in added:
+        ops.set_member(db, p, project_id, MemberIn(user_id=uid, role=body.role))
+    db.commit()
+    return ok({"added": len(added), "already_member": len(set(body.user_ids)) - len(added), "items": ops.members(db, project)})
+
+
 @router.delete("/{project_id}/members/{user_id}")
 def remove_operation_member(project_id: int, user_id: int, transfer: bool = False, p: Principal = Menu,
                             db: Session = Depends(get_db)):
@@ -198,6 +237,27 @@ def create_operation_task(project_id: int, body: TaskIn, p: Principal = Menu, db
     return ok(ops.task_detail(db, p, task.id))
 
 
+@router.post("/{project_id}/proposal")
+def draft_proposal(project_id: int, body: campus_proposal.ProposalIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(campus_proposal.draft(db, p, project_id, body))
+
+
+@router.post("/{project_id}/income-file/preview")
+async def preview_campus_income(project_id: int, file: UploadFile = File(...), p: Principal = Menu, db: Session = Depends(get_db)):
+    report, _, batch = income_file.prepare(db, p, project_id, await file.read(income_file.MAX_BYTES + 1), file.filename or "")
+    return ok({**report, "already_imported": bool(batch)})
+
+
+@router.post("/{project_id}/income-file/confirm")
+async def confirm_campus_income(project_id: int, file: UploadFile = File(...), expected_sha: str = Form(...),
+                                expected_rows: int = Form(...), expected_amount: Decimal = Form(...),
+                                p: Principal = Menu, db: Session = Depends(get_db)):
+    result = income_file.confirm(db, p, project_id, await file.read(income_file.MAX_BYTES + 1), file.filename or "",
+                                 expected_sha, expected_rows, expected_amount)
+    db.commit()
+    return ok(result)
+
+
 @router.post("/{project_id}/schools")
 def create_school(project_id: int, body: SchoolIn, p: Principal = Menu, db: Session = Depends(get_db)):
     row = ops.save_school(db, p, project_id, body)
@@ -208,7 +268,9 @@ def create_school(project_id: int, body: SchoolIn, p: Principal = Menu, db: Sess
 @router.get("/{project_id}/schools/{school_id}/history")
 def school_history(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     """学校阶段、跟进安排和基础资料的变更记录。"""
-    ops.get_project(db, p, project_id)
+    project = ops.get_project(db, p, project_id)
+    if not ops.has_project_content(db, p, project):
+        raise forbidden("仅项目成员可查看学校资料")
     ops.school(db, project_id, school_id)
     rows = db.execute(select(LogOperation, SysUser.name).outerjoin(SysUser, SysUser.id == LogOperation.user_id)
         .where(LogOperation.target_type == "ops_school", LogOperation.target_id == str(school_id))

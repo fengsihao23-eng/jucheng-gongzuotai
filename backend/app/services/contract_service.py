@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_op, snapshot
 from app.core.response import BizError, bad_request, not_found
 from app.core.storage import file_brief, read_bytes, save_bytes
-from app.core.timeutil import month_range, today, utcnow
+from app.core.timeutil import month_range, today, utcnow, week_range
 from app.models import (CONTRACT_STATUS, BizContract, BizPayment, BizPaymentPlan, BizProject, FinBankFlow, SysFile,
                         SyncWecomApproval, SysUser)
 from app.services import codes, notify_service, payment_service
@@ -41,7 +41,7 @@ def _received_sq():
 def filtered(p, *, business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
              keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
-             region: str = ""):
+             region: str = "", sign_period: str = ""):
     q = select(BizContract).where(BizContract.is_deleted.is_(False))
     if p is not None and p.data_scope == "self":
         q = q.where(BizContract.owner_id == p.id)
@@ -53,6 +53,15 @@ def filtered(p, *, business_line: str = "", customer: str = "", status: int | No
         q = q.where(BizContract.customer_name.contains(customer))
     if status:
         q = q.where(BizContract.status == status)
+    if sign_period:
+        bounds = signing_periods().get(sign_period)
+        if bounds is None:
+            raise bad_request("无效的签约统计期间")
+        start, end = bounds
+        q = q.where(BizContract.status.in_((1, 2)), BizContract.sign_date <= end)
+        if start:
+            q = q.where(BizContract.sign_date >= start)
+        sign_month, sign_from, sign_to = "", None, None
     if sign_month:
         s, e = month_range(sign_month)
         q = q.where(BizContract.sign_date >= s, BizContract.sign_date <= e)
@@ -76,6 +85,25 @@ def filtered(p, *, business_line: str = "", customer: str = "", status: int | No
                         BizContract.customer_name.ilike(kw), BizContract.project_code.ilike(kw),
                         BizContract.source_approval_no.ilike(kw)))
     return q
+
+
+def signing_periods():
+    day = today()
+    return {"all": (None, day), "month": (month_range(ref=day)[0], day),
+            "week": (week_range(ref=day)[0], day), "today": (day, day)}
+
+
+def signing_board(db, p, **filters):
+    base = filtered(p, **{k: v for k, v in filters.items() if k not in {
+        "sign_month", "sign_from", "sign_to", "sign_period"}}).where(BizContract.status.in_((1, 2))).subquery()
+    result = []
+    for key, (start, end) in signing_periods().items():
+        q = select(func.count(base.c.id), func.coalesce(func.sum(base.c.amount), 0)).where(base.c.sign_date <= end)
+        if start:
+            q = q.where(base.c.sign_date >= start)
+        count, amount = db.execute(q).one()
+        result.append({"key": key, "start": start, "end": end, "count": count, "amount": amount})
+    return result
 
 
 def _period_paid(db: Session, ids: list[int], paid_month: str) -> dict[int, Decimal]:

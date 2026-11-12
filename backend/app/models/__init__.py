@@ -9,3 +9,5 @@ from app.models.ext_operations import *  # noqa: F401,F403
 from app.models.ext_project_finance import *  # noqa: F401,F403
 from app.models.ext_operations_progress import OpsProjectProgress  # noqa: F401
 from app.models.ext_operations_delay import OpsTaskDelay  # noqa: F401
+from app.models.ext_workbench import (BizCollectionEntry, BizCollectionFollowup, BizProjectFollowSetting,  # noqa: F401
+                                      OpsTaskAudience, OpsTaskPolicy)

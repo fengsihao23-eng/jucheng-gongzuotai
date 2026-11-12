@@ -18,7 +18,7 @@ from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, forbidden, not_found, ok, page_data
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today
-from app.models import BizProject, BizProjectReview, MktIntel, RptReport, SysFile, SysUser
+from app.models import BizProject, BizProjectFollowSetting, BizProjectReview, MktIntel, RptReport, SysFile, SysUser
 from app.services import market_service as ms
 from app.services import project_service as ps
 
@@ -37,10 +37,29 @@ def _docx(data: bytes, filename: str) -> Response:
 
 # ================================================================ 跟进看板
 @router.get("/board")
-def board(include_all: bool = False, p: Principal = Market, db: Session = Depends(get_db)):
-    d = ms.key_board(db, p, include_all)
+def board(include_all: bool = False, include_paused: bool = False, p: Principal = Market, db: Session = Depends(get_db)):
+    d = ms.key_board(db, p, include_all, include_paused)
     d["events"] = ms.key_events(db, p, days=60)[:30]
     return ok(d)
+
+
+class PauseIn(BaseModel):
+    paused: bool
+
+
+@router.put("/projects/{project_code}/pause")
+def pause_follow(project_code: str, body: PauseIn, p: Principal = Market, db: Session = Depends(get_db)):
+    if not p.can("project:key"):
+        raise forbidden("无管理重点项目权限")
+    project = ps.get_project(db, project_code, p)
+    db.execute(select(BizProject.id).where(BizProject.id == project.id).with_for_update())
+    row = db.get(BizProjectFollowSetting, project.id) or BizProjectFollowSetting(project_id=project.id)
+    before = bool(row.paused)
+    row.paused = body.paused
+    db.add(row)
+    log_op(db, p.id, "market.follow_pause", "biz_project", project_code, before={"paused": before}, after={"paused": body.paused})
+    db.commit()
+    return ok({"paused": body.paused})
 
 
 @router.get("/events")

@@ -12,6 +12,8 @@ UnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6, allo
 Id = Annotated[int, Field(gt=0)]
 Month = Annotated[str, StringConstraints(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")]
 TaskSource = Literal["company", "self", "project_plan"]
+Visibility = Literal["team", "selected"]
+TaskKind = Literal["general", "outreach"]
 
 
 class Input(BaseModel):
@@ -49,6 +51,15 @@ class ProjectProgressEntriesIn(Input):
 class MemberIn(Input):
     user_id: Id
     role: Literal["manager", "co_owner", "member", "reviewer", "viewer"] = "member"
+
+
+class BatchMembersIn(Input):
+    user_ids: list[Id] = Field(min_length=1, max_length=200)
+    role: Literal["member", "viewer"] = "member"
+
+
+class ArchiveIn(Input):
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=500)]
 
 
 class SchoolIn(Input):
@@ -111,6 +122,9 @@ class TaskIn(Input):
     department_reviewer_id: Id | None = None
     company_reviewer_id: Id | None = None
     nodes: list[NodeIn] = Field(default_factory=list, max_length=30)
+    kind: TaskKind = "general"
+    visibility: Visibility = "team"
+    viewer_ids: list[Id] = Field(default_factory=list, max_length=200)
 
     @model_validator(mode="after")
     def node_dates(self):
@@ -129,6 +143,12 @@ class TaskPatch(Input):
     plan_month: Month | None = None
     department_reviewer_id: Id | None = None
     company_reviewer_id: Id | None = None
+
+
+    school_id: Id | None = None
+    kind: TaskKind | None = None
+    visibility: Visibility | None = None
+    viewer_ids: list[Id] | None = Field(default=None, max_length=200)
 
 
 class FeedbackIn(Input):

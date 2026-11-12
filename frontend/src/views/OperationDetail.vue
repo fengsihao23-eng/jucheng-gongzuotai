@@ -22,19 +22,39 @@
             </div>
             <TaskCards v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" @menu="openMenu" />
             <ul v-if="menu.open" class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
-              <li class="jc-down" @click="removeTask">删除任务</li>
+              <li class="jc-down" @click="removeTask(menu.task)">作废任务</li>
             </ul>
             <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false" />
-            <el-empty v-else :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
+            <el-empty v-if="!filteredTasks.length" :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
           </el-tab-pane>
-          <el-tab-pane label="学校与经营资料" name="schools"><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
-          <el-tab-pane label="设备产品库" name="products"><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
-          <el-tab-pane label="项目团队" name="team"><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
+          <template v-if="project.can_view_project_content">
+            <template v-if="hasSchools">
+              <el-tab-pane label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane label="每日收入" name="income" lazy><SchoolData mode="income" :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
+              <el-tab-pane label="学校档案" name="schools" lazy><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
+            </template>
+            <el-tab-pane label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
+            <el-tab-pane label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
+          </template>
+          <el-tab-pane label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
+          <el-tab-pane v-if="project.can_archive_tasks" label="已作废任务" name="archive" lazy>
+            <el-table :data="archivedTasks">
+              <el-table-column label="任务" prop="title" min-width="175" />
+              <el-table-column label="负责人" prop="owner_name" min-width="100" />
+              <el-table-column label="作废说明" prop="archive_reason" min-width="175" />
+              <el-table-column label="操作" width="165"><template #default="{ row }">
+                <el-button link type="primary" @click="archivedTask = row.id; archiveOpen = true">查看记录</el-button>
+                <el-button link type="primary" @click="restore(row)">恢复</el-button>
+              </template></el-table-column>
+            </el-table>
+          </el-tab-pane>
         </el-tabs>
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
-      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" @saved="t => pendingTask = t" @closed="taskFormClosed" />
-      <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" />
+      <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" :school-preset="schoolPreset" @saved="t => pendingTask = t" @closed="taskFormClosed" />
+      <TaskDialog v-model="archiveOpen" :task-id="archivedTask" :project-id="project.id" archived />
+      <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" show-archive @archive="removeTask" />
       <el-dialog v-model="delayOpen" title="待处理延期" width="min(660px, calc(100vw - 24px))" align-center append-to-body @closed="delayClosed">
         <ul v-if="delayRows.length" class="delay-list">
           <li v-for="row in delayRows" :key="row.id">
@@ -71,6 +91,7 @@ import TaskForm from './operations/TaskForm.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskCards from './operations/TaskCards.vue'
 import TaskOverview from './operations/TaskOverview.vue'
+import OpsDigest from './operations/OpsDigest.vue'
 import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
@@ -79,6 +100,24 @@ const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = us
 const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
 const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
 const popupPaused = ref(false)
+const schoolPreset = ref(null), archivedTasks = ref([]), archivedTask = ref(null), archiveOpen = ref(false)
+const hasSchools = computed(() => project.value?.category.includes('校园') || project.value?.schools.length)
+watch(tab, value => { if (value === 'archive') loadArchive() })
+async function loadArchive() {
+  if (!project.value?.can_archive_tasks) return
+  const id = project.value.id
+  try {
+    const result = await api.get('/operations/tasks', { project_id: id, archived: true })
+    if (project.value?.id === id) archivedTasks.value = result.items
+  } catch {}
+}
+async function restore(row) {
+  try {
+    await ElMessageBox.confirm('恢复「' + row.title + '」为可见任务？', '恢复任务')
+    await api.post('/operations/tasks/' + row.id + '/restore')
+    ElMessage.success('任务已恢复'); loadArchive(); load()
+  } catch {}
+}
 const delayOpen = ref(false), pendingDelay = ref(null)
 const menu = ref({ open: false, x: 0, y: 0, task: null })
 const statuses = { ongoing: '进行中', done: '已完成' }
@@ -107,26 +146,28 @@ async function load(background = false) {
   catch (err) { if (current === version && [40301, 40401].includes(err.code)) project.value = null }
   finally { if (current === version) loading.value = false }
 }
-function newTask() { taskMode.value='company';editingTask.value = null; taskForm.value = true }
-function newSelfTask() {taskMode.value='self';editingTask.value=null;taskForm.value=true}
-function editTask(task) { editingTask.value = task; popupPaused.value = true; taskForm.value = true }
+function newTask() { schoolPreset.value = null; taskMode.value='company';editingTask.value = null; taskForm.value = true }
+function newOutreach(school) { newTask(); schoolPreset.value = school.id }
+function newSelfTask() {schoolPreset.value = null; taskMode.value='self';editingTask.value=null;taskForm.value=true}
+function editTask(task) { schoolPreset.value = null; editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 function openMenu(task, event) {
-  if (!project.value?.can_manage) return
+  if (!task.can_archive) return
   menu.value = { open: true, x: event.clientX, y: event.clientY, task }
 }
-async function removeTask() {
-  const task = menu.value.task
+async function removeTask(task) {
   menu.value.open = false
   if (!task) return
   try {
-    await ElMessageBox.confirm(`删除任务「${task.title}」？节点、反馈与进展记录会一并删除，不可恢复。`, '删除任务',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
-  } catch { return }
-  await api.del(`/operations/tasks/${task.id}`)
-  ElMessage.success('任务已删除')
-  load(true)
+    const result = await ElMessageBox.prompt('作废后从任务、汇总和提醒中移除，过程记录可查、可恢复。', '作废「' + task.title + '」', {
+      inputPlaceholder: '填写作废原因', inputValidator: value => Boolean(value?.trim()) || '请填写原因',
+      confirmButtonText: '作废', cancelButtonText: '取消', type: 'warning',
+    })
+    await api.post('/operations/tasks/' + task.id + '/archive', { reason: result.value.trim() })
+    if (selectedTask.value === task.id) closeTask()
+    ElMessage.success('任务已作废'); load()
+  } catch {}
 }
 function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
 function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }

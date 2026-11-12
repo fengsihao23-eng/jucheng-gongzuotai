@@ -8,7 +8,26 @@
       <el-select v-model="userId" filterable placeholder="选择团队成员" style="width: 240px"><el-option v-for="u in users" :key="u.id" :value="u.id" :label="`${u.name} · ${u.dept || '跨部门'}`" /></el-select>
       <el-select v-model="memberRole" style="width: 160px"><el-option v-for="(v, k) in ROLES" :key="k" :value="k" :label="v" /></el-select>
       <el-button type="primary" :disabled="!userId" :loading="saving" @click="save">保存成员</el-button>
+      <el-button @click="batchOpen = true">批量加入团队</el-button>
     </div>
+    <el-dialog v-model="batchOpen" title="批量加入此项目" width="min(580px, 94vw)" append-to-body>
+      <el-form label-position="top">
+        <el-form-item label="按部门选择">
+          <el-select v-model="batchDept" clearable placeholder="全部部门" style="width: 205px">
+            <el-option v-for="d in departments" :key="d.code" :label="d.name" :value="d.code" />
+          </el-select>
+          <el-button :disabled="!batchDept || !batchCandidates.length" @click="pickDept">选择该部门可加入人员</el-button>
+        </el-form-item>
+        <el-form-item label="确认人员">
+          <el-select v-model="batchIds" filterable multiple collapse-tags collapse-tags-tooltip style="width: 100%" placeholder="选择未加入的员工">
+            <el-option v-for="u in available" :key="u.id" :value="u.id" :label="u.name + ' · ' + (u.department || u.dept || '跨部门')" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="授予项目角色"><el-radio-group v-model="batchRole"><el-radio value="member">执行成员</el-radio><el-radio value="viewer">只读成员</el-radio></el-radio-group></el-form-item>
+        <p class="jc-muted jc-small">权限只作用于本项目。现有团队成员的权限不会被覆盖。</p>
+      </el-form>
+      <template #footer><el-button @click="batchOpen = false">取消</el-button><el-button type="primary" :disabled="!batchIds.length" :loading="saving" @click="saveBatch">加入 {{ batchIds.length }} 人</el-button></template>
+    </el-dialog>
     <el-table :data="project.members">
       <el-table-column prop="name" label="成员" min-width="160"><template #default="{ row }">{{ row.name }} <span v-if="row.is_owner" class="jc-muted jc-small">项目负责人</span><span v-else-if="!row.active" class="jc-down jc-small">账号已停用</span></template></el-table-column>
       <el-table-column prop="dept" label="部门" width="110" />
@@ -18,12 +37,26 @@
   </div>
 </template>
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { ROLES, announceChange } from './shared'
 const props = defineProps({ project: Object }), emit = defineEmits(['saved', 'settings'])
 const users = ref([]), userId = ref(null), memberRole = ref('member'), saving = ref(false)
+const batchOpen = ref(false), batchIds = ref([]), batchDept = ref(''), batchRole = ref('member')
+const available = computed(() => users.value.filter(u => !props.project.members.some(m => m.user_id === u.id)))
+const departments = computed(() => Array.from(new Map(available.value.filter(u => u.dept).map(u => [u.dept, { code: u.dept, name: u.department || u.dept }])).values()))
+const batchCandidates = computed(() => available.value.filter(u => !batchDept.value || u.dept === batchDept.value))
+function pickDept() { batchIds.value = [...new Set([...batchIds.value, ...batchCandidates.value.map(u => u.id)])] }
+async function saveBatch() {
+  if (batchIds.value.length > 200) return ElMessage.warning('每次最多加入 200 人')
+  saving.value = true
+  try {
+    const result = await api.post('/operations/' + props.project.id + '/members/batch', { user_ids: batchIds.value, role: batchRole.value })
+    batchIds.value = []; batchOpen.value = false; emit('saved'); announceChange()
+    ElMessage.success('已加入 ' + result.added + ' 人')
+  } catch {} finally { saving.value = false }
+}
 onMounted(async () => { if (props.project.can_manage) { try { users.value = (await api.get('/operations/options', { project_id: props.project.id })).users.filter(u => u.id !== props.project.owner_id) } catch {} } })
 async function save() {
   saving.value = true

@@ -18,7 +18,7 @@ def company_reviewer(p):
 
 def department_reviewer(db, project, user_id):
     return project.owner_id == user_id or db.scalar(select(OpsMember.id).where(
-        OpsMember.project_id == project.id, OpsMember.user_id == user_id, OpsMember.role.in_(["manager", "reviewer"]))) is not None
+        OpsMember.project_id == project.id, OpsMember.user_id == user_id, OpsMember.role.in_(["manager", "co_owner", "reviewer"]))) is not None
 
 
 def validate_reviewers(db, project, owner_id, department_id, company_id):
@@ -50,7 +50,7 @@ def options(db, p, project):
     team = ops.members(db, project)
     candidates = db.scalars(select(SysUser).where(SysUser.status == 1, SysUser.is_deleted.is_(False)).order_by(SysUser.id)).all()
     return {"department_reviewers": [{"id": m["user_id"], "name": m["name"], "dept": m["dept"]}
-                                     for m in team if m["active"] and m["role"] in {"manager", "reviewer"}],
+                                     for m in team if m["active"] and m["role"] in {"manager", "co_owner", "reviewer"}],
             "company_reviewers": [{"id": u.id, "name": u.name, "dept": u.dept_code}
                                   for u in candidates if company_reviewer(build_principal(u))],
             "can_propose": ops.role(db, p, project) in {"manager", "member", "reviewer"}}

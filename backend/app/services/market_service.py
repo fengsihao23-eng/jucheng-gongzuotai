@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.response import bad_request, encode
 from app.core.storage import save_bytes
 from app.core.timeutil import last_week, month_range, prev_month, today, week_range
-from app.models import (PROJECT_STATUS, BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectReview,
+from app.models import (PROJECT_STATUS, BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting, BizProjectReview,
                         MktIntel, RptReport, SysUser)
 from app.services import project_service as ps
 
@@ -43,8 +43,11 @@ def _llm(system: str, user: str) -> str | None:
 
 
 # ------------------------------------------------------------------ 跟进看板
-def key_board(db: Session, p=None, include_all: bool = False) -> dict:
-    q = ps.visible_query(p)
+def key_board(db: Session, p=None, include_all: bool = False, include_paused: bool = False) -> dict:
+    paused = set(db.scalars(select(BizProjectFollowSetting.project_id).where(BizProjectFollowSetting.paused.is_(True))))
+    q = ps.visible_query(p).where(BizProject.status != 5)
+    if not include_paused:
+        q = q.where(BizProject.id.not_in(paused))
     if not include_all:
         q = q.where(BizProject.is_key.is_(True))
     projects = db.scalars(q.order_by(BizProject.project_code)).unique().all()
@@ -52,8 +55,9 @@ def key_board(db: Session, p=None, include_all: bool = False) -> dict:
     money = ps.money_summary(db, [x.project_code for x in projects])
     ids = [x.id for x in projects]
     latest: dict[int, BizProjectFeedback] = {}
+    week_start, _ = week_range(ref=T)
     if ids:
-        for f in db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id.in_(ids))
+        for f in db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id.in_(ids), BizProjectFeedback.feedback_date <= T)
                             .order_by(BizProjectFeedback.feedback_date, BizProjectFeedback.id)):
             latest[f.project_id] = f
     cards = []
@@ -61,12 +65,22 @@ def key_board(db: Session, p=None, include_all: bool = False) -> dict:
         b = ps.project_brief(db, x, T, money.get(x.project_code))
         f = latest.get(x.id)
         b["latest_feedback"] = ps.feedback_dict(f) if f else None
+        b["paused"] = x.id in paused
+        b["reported_this_week"] = bool(f and week_start <= f.feedback_date <= T)
         b["alert"] = b["delayed_nodes"] > 0 or bool(f and f.risk_level >= 2)
         cards.append(b)
     cards.sort(key=lambda c: (not c["alert"], c["project_code"]))
     tot_c = sum((c["contract_total"] for c in cards), ZERO)
     tot_r = sum((c["received"] for c in cards), ZERO)
-    return {"projects": cards, "summary": {
+    current = [x for x in cards if x["is_key"] and not x["paused"]]
+    summary_text = "\n".join(
+        f"{x['name']}：{x['market_owner_name'] or x['owner_name'] or '未分配'}；"
+        f"{'本周已反馈' if x['reported_this_week'] else '本周未反馈'}；"
+        f"{x['current_node'] or '尚无节点'} {x['current_node_plan'] or ''}；"
+        f"{(x['latest_feedback'] or {}).get('content', '尚无进展记录')}"
+        for x in current)
+    return {"projects": cards, "week_start": week_start, "summary_text": summary_text, "summary": {
+        "unreported": sum(not x["reported_this_week"] for x in current),
         "count": len(cards), "alert_count": sum(1 for c in cards if c["alert"]),
         "delayed_nodes": sum(c["delayed_nodes"] for c in cards), "contract_total": tot_c, "received": tot_r,
         "payment_rate": (tot_r / tot_c).quantize(Decimal("0.0001")) if tot_c else None}}

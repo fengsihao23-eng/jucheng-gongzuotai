@@ -5,6 +5,7 @@
     </PageHeader>
 
     <el-tabs v-model="tab" @tab-change="reloadTab">
+      <el-tab-pane label="源表核对" name="sources" lazy><SourceChecks /></el-tab-pane>
       <!-- ============ 柠檬云同步 ============ -->
       <el-tab-pane label="柠檬云同步" name="lemon">
         <div class="jc-grid c3">
@@ -218,6 +219,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import api from '@/api/client'
+import SourceChecks from './SourceChecks.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 import { baseGrid, wanAxis, wanTooltip } from '@/utils/chart'

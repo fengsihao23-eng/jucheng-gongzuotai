@@ -8,8 +8,8 @@ from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsProjectProgress, OpsSchool,
-                        OpsTask, OpsTaskDelay, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
-from app.services import notify_service, operations_deadlines as deadlines
+                        OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
+from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date", "task_id"]
@@ -20,20 +20,31 @@ TASK_FIELDS += ["plan_month", "source", "approval_status", "department_reviewer_
 STATUS_LABELS = {"todo": "待开始", "doing": "进行中", "blocked": "遇到阻碍", "done": "已完成"}
 SOURCE_LABELS = {"project_plan": "负责人计划", "company": "公司安排", "self": "自行安排"}
 ZERO = Decimal("0.00")
+EXECUTION_ROLES = {"manager", "co_owner", "member", "reviewer"}
+POLICY_FIELDS = {"visibility", "viewer_ids", "kind"}
 
 
 def can_create(p):
     return p.is_admin or p.can("operations:manage")
 
 
-def visible_projects(p):
+def can_view_all(p):
+    return can_create(p) or p.can("operations:view_all")
+
+
+def visible_projects(p, *, members_only=False):
     q = select(OpsProject)
-    if not can_create(p):
-        conditions = [OpsProject.owner_id == p.id, OpsProject.id.in_(select(OpsMember.project_id).where(OpsMember.user_id == p.id))]
-        if p.can("operations:approve"):
-            conditions.append(OpsProject.id.in_(select(OpsTask.project_id).where(OpsTask.company_reviewer_id == p.id)))
+    if not can_view_all(p):
+        conditions = [policy.member_clause(p)]
+        if not members_only and p.can("operations:approve"):
+            conditions.append(OpsProject.id.in_(select(OpsTask.project_id).where(
+                OpsTask.company_reviewer_id == p.id, ~policy.archived())))
         q = q.where(or_(*conditions))
     return q
+
+
+def has_project_content(db, p, project):
+    return can_view_all(p) or role(db, p, project) is not None
 
 
 def get_project(db, p, project_id, *, lock=False):
@@ -73,14 +84,17 @@ def user(db, user_id):
 def assignee(db, project, user_id):
     u = user(db, user_id)
     member_role = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == user_id))
-    if project.owner_id != user_id and member_role not in {"manager", "member", "reviewer"}:
+    if project.owner_id != user_id and member_role not in EXECUTION_ROLES:
         raise bad_request("任务负责人须为本项目可参与执行的成员，请先在团队中添加")
     return u
 
 
 def project_dict(db, p, project):
     my_role = role(db, p, project)
-    return {"id": project.id, **snapshot(project, PROJECT_FIELDS), "owner_name": project.owner.name,
+    fields = snapshot(project, PROJECT_FIELDS)
+    if not (can_view_all(p) or my_role):
+        fields.update(objective="", target_date=None)
+    return {"id": project.id, **fields, "owner_name": project.owner.name,
             "my_role": my_role, "can_manage": my_role == "manager"}
 
 
@@ -119,8 +133,12 @@ def progress_dict(row):
 
 
 def project_progress(db, p, project_id, before_id=None):
-    get_project(db, p, project_id)
-    query = select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id)
+    project = get_project(db, p, project_id)
+    if not has_project_content(db, p, project):
+        raise forbidden("仅项目成员可查看项目进度")
+    query = select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id,
+        or_(OpsProjectProgress.task_id.is_(None),
+            OpsProjectProgress.task_id.in_(select(OpsTask.id).where(OpsTask.project_id == project_id, policy.task_access(p)))))
     if before_id is not None:
         query = query.where(OpsProjectProgress.id < before_id)
     rows = db.scalars(query.order_by(OpsProjectProgress.id.desc()).limit(26)).all()
@@ -173,28 +191,18 @@ def set_member(db, p, project_id, body):
         raise bad_request("项目负责人的权限随负责人设置维护")
     row = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == body.user_id))
     if body.role == "viewer" and db.scalar(select(OpsTask.id).where(
-            OpsTask.project_id == project.id, OpsTask.owner_id == body.user_id, OpsTask.status != "done").limit(1)):
+            OpsTask.project_id == project.id, OpsTask.owner_id == body.user_id, OpsTask.status != "done", ~policy.archived()).limit(1)):
         raise conflict("该成员仍有未完成任务，请先转交任务再改为只读")
     if body.role not in {"manager", "co_owner", "reviewer"} and db.scalar(select(OpsTask.id).where(
             OpsTask.project_id == project.id, OpsTask.department_reviewer_id == body.user_id,
-            OpsTask.approval_status.in_(["department_pending", "company_pending"])).limit(1)):
+            OpsTask.approval_status.in_(["department_pending", "company_pending"]), ~policy.archived()).limit(1)):
         raise conflict("该成员仍是待审核任务的部门审核人，请先调整任务审核人")
     return _write(db, p, row or OpsMember(project_id=project.id), body.model_dump(), ["user_id", "role"])
 
 
 def delete_task(db, p, task_id: int) -> None:
-    """删除任务及其节点、反馈、审核、延期与关联进展记录（仅项目管理员）。"""
-    task = db.get(OpsTask, task_id)
-    if task is None:
-        raise not_found("任务")
-    project = get_project(db, p, task.project_id)
-    manage(db, p, project)
-    log_op(db, p.id, "operations.task.delete", "ops_task", task.id,
-           before=snapshot(task, ["title", "owner_id", "status", "due_date", "source"]))
-    for model in (OpsTaskNode, OpsTaskUpdate, OpsTaskReview, OpsTaskDelay):
-        db.execute(delete(model).where(model.task_id == task.id))
-    db.execute(delete(OpsProjectProgress).where(OpsProjectProgress.task_id == task.id))
-    db.execute(delete(OpsTask).where(OpsTask.id == task.id))
+    """兼容旧客户端：作废保留节点、反馈、审核和延期记录。"""
+    policy.archive(db, p, task_id, "从旧版任务菜单作废")
 
 
 def remove_member(db, p, project_id, user_id, transfer: bool = False):
@@ -206,12 +214,12 @@ def remove_member(db, p, project_id, user_id, transfer: bool = False):
     if not row:
         raise not_found("团队成员")
     unfinished = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.owner_id == user_id,
-                                                  OpsTask.status != "done")).all()
+                                                  OpsTask.status != "done", ~policy.archived())).all()
     if unfinished and not transfer:
         raise conflict(f"该成员仍有 {len(unfinished)} 项未完成任务，可转交给项目负责人后移除",
                        {"unfinished": len(unfinished), "can_transfer": True})
     reviewing = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.department_reviewer_id == user_id,
-                                                OpsTask.approval_status.in_(["department_pending", "company_pending"]))).all()
+                                                OpsTask.approval_status.in_(["department_pending", "company_pending"]), ~policy.archived())).all()
     if reviewing and not transfer:
         raise conflict(f"该成员仍有 {len(reviewing)} 项待审核任务，可转交给项目负责人后移除",
                        {"reviewing": len(reviewing), "can_transfer": True})
@@ -221,6 +229,8 @@ def remove_member(db, p, project_id, user_id, transfer: bool = False):
         db.execute(update(OpsTask).where(OpsTask.id.in_([t.id for t in reviewing])).values(department_reviewer_id=project.owner_id))
     log_op(db, p.id, "operations.member.remove", "ops_member", row.id, before=snapshot(row, ["user_id", "role"]),
            after={"transferred_tasks": len(unfinished), "transferred_reviews": len(reviewing), "to": project.owner_id})
+    db.execute(delete(OpsTaskAudience).where(OpsTaskAudience.user_id == user_id,
+        OpsTaskAudience.task_id.in_(select(OpsTask.id).where(OpsTask.project_id == project.id))))
     db.delete(row)
 
 
@@ -311,9 +321,8 @@ def school_data(db, project):
     return result
 
 
-def get_task(db, p, task_id, *, lock=False):
-    q = select(OpsTask).where(OpsTask.id == task_id,
-        OpsTask.project_id.in_(visible_projects(p).with_only_columns(OpsProject.id)))
+def get_task(db, p, task_id, *, lock=False, archived=False):
+    q = select(OpsTask).where(OpsTask.id == task_id, policy.task_access(p, archive=archived))
     if lock:
         q = q.with_for_update(of=OpsTask)
     task = db.scalar(q)
@@ -332,10 +341,16 @@ def _event(db, p, task, kind, content, next_step=""):
                          status=task.status, progress=task.progress, created_at=now()))
 
 
-def _notify(db, recipients, project, task, title, content):
-    users = db.scalars(select(SysUser).where(SysUser.id.in_(set(recipients)))).all()
-    notify_service.send(db, users, "operations_task", title, content,
-                        link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id), wecom=False)
+def _notify(db, recipients, project, task, title, content, *, assignment=False):
+    from app.core.deps import build_principal
+
+    db.flush()
+    users = [u for u in db.scalars(select(SysUser).where(SysUser.id.in_(set(recipients))))
+             if db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(u))))]
+    notify_service.send(db, users, "operations_assignment" if assignment else "operations_task", title, content,
+                        link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id),
+                        wecom=assignment, defer=assignment,
+                        wecom_content="你有一项新的运营任务安排，请进入工作台查看。")
 
 
 def _create_project_plan(db, p, project, entry):
@@ -349,7 +364,7 @@ def _create_project_plan(db, p, project, entry):
     _event(db, p, task, "planned", f"登记负责人计划，计划完成日期 {task.due_date}。")
     log_op(db, p.id, "operations.task.create", "ops_task", task.id, after=snapshot(task, TASK_FIELDS))
     if project.owner_id != p.id:
-        _notify(db, [project.owner_id], project, task, "收到项目计划事项", f"{project.name}：{task.title}，截止 {task.due_date}。")
+        _notify(db, [project.owner_id], project, task, "收到项目计划事项", f"{project.name}：{task.title}，截止 {task.due_date}。", assignment=True)
     return task
 
 
@@ -364,7 +379,7 @@ def create_task(db, p, project_id, body):
     assigned = assignee(db, project, body.owner_id)
     if body.school_id:
         school(db, project.id, body.school_id)
-    values = body.model_dump(exclude={"nodes"})
+    values = body.model_dump(exclude={"nodes", *POLICY_FIELDS})
     values["plan_month"] = body.plan_month or body.due_date.strftime("%Y-%m")
     values["approval_status"] = "approved" if body.source == "company" else "department_pending"
     if body.source == "self":
@@ -376,12 +391,16 @@ def create_task(db, p, project_id, body):
     db.add(task)
     db.flush()
     task.nodes = [OpsTaskNode(task_id=task.id, seq=i, **node.model_dump()) for i, node in enumerate(body.nodes, 1)]
+    policy.update_policy(db, p, project, task, {k: v for k, v in body.model_dump(exclude_unset=True).items()
+                        if k in POLICY_FIELDS and (body.source == "company" or k == "kind")})
+    if body.source == "self" and (body.visibility != "team" or body.viewer_ids):
+        raise bad_request("自行安排任务由项目团队查看")
     _event(db, p, task, "assigned" if body.source == "company" else "submitted",
            f"{'公司安排' if body.source == 'company' else '自行安排，提交部门审核'}：{assigned.name}，计划月份 {task.plan_month}，要求 {task.due_date} 前完成。")
     log_op(db, p.id, "operations.task.create", "ops_task", task.id, after=snapshot(task, TASK_FIELDS))
     target = assigned.id if body.source == "company" else task.department_reviewer_id
     _notify(db, [target], project, task, "收到运营项目任务" if body.source == "company" else "任务等待部门审核",
-            f"{project.name}：{task.title}，计划月份 {task.plan_month}，截止 {task.due_date}。")
+            f"{project.name}：{task.title}，计划月份 {task.plan_month}，截止 {task.due_date}。", assignment=body.source == "company")
     db.flush()
     return task
 
@@ -398,6 +417,11 @@ def edit_task(db, p, task_id, body):
     values = body.model_dump(exclude_unset=True)
     if not values or any(v is None for v in values.values()):
         raise bad_request("请提供有效的任务修改内容")
+    policy_values = {k: values.pop(k) for k in tuple(values) if k in POLICY_FIELDS}
+    if task.source == "self" and policy_values.keys() & {"visibility", "viewer_ids"}:
+        raise bad_request("自行安排任务由项目团队查看")
+    if "school_id" in values:
+        school(db, project.id, values["school_id"])
     if "owner_id" in values:
         assignee(db, project, values["owner_id"])
     if "due_date" in values and any(n.due_date > values["due_date"] for n in task.nodes):
@@ -414,7 +438,8 @@ def edit_task(db, p, task_id, body):
     if "due_date" in values and task.approval_status == "approved" and task.original_due_date is None:
         task.original_due_date = task.due_date
     _write(db, p, task, values, TASK_FIELDS)
-    labels = {"title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率", "plan_month": "计划月份", "department_reviewer_id": "部门审核人", "company_reviewer_id": "公司审核人"}
+    policy.update_policy(db, p, project, task, policy_values)
+    labels = {"school_id": "学校", "title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率", "plan_month": "计划月份", "department_reviewer_id": "部门审核人", "company_reviewer_id": "公司审核人"}
     changed = "；".join(f"{labels[k]}：{before[k]} → {snapshot(task, TASK_FIELDS)[k]}" for k in values if before[k] != snapshot(task, TASK_FIELDS)[k])
     _event(db, p, task, "changed", changed or "核对任务安排。")
     task.revision += 1
@@ -424,7 +449,7 @@ def edit_task(db, p, task_id, body):
         _notify(db, [task.department_reviewer_id], project, task, "任务重新提交审核", f"{task.title}已修改，请核对最新安排。")
     log_op(db, p.id, "operations.task.revised", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     if previous != task.owner_id:
-        _notify(db, [task.owner_id], project, task, "运营任务已转交给你", f"{project.name}：{task.title}，截止 {task.due_date}。")
+        _notify(db, [task.owner_id], project, task, "运营任务已转交给你", f"{project.name}：{task.title}，截止 {task.due_date}。", assignment=True)
     return task
 
 
@@ -492,9 +517,13 @@ def feedback(db, p, task_id, body):
     return task
 
 
-def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None):
+def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, access=None):
     from app.services import operations_plans as plans
-    finished = task.status == "done" or task.approval_status != "approved"
+    access = access if access is not None else policy.details(db, task.id)
+    if not access:
+        access = {"kind": "general", "visibility": "team", "viewer_ids": [], "archived_at": None, "archive_reason": ""}
+    archived = bool(access["archived_at"])
+    finished = archived or task.status == "done" or task.approval_status != "approved"
     day = today()
     overdue = not finished and (task.due_date < day or any(not n.completed_at and n.due_date < day for n in task.nodes))
     stale = not finished and task.cadence == "daily" and (not task.last_feedback_at or task.last_feedback_at.astimezone(TZ).date() < day)
@@ -502,12 +531,14 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None):
     stage = plans.review_stage(db, p, project, task)
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
             **deadlines.view(p, task, my_role, delay, day),
+            **access, "viewer_ids": access["viewer_ids"] if my_role == "manager" else [],
+            "can_archive": (p.is_admin or p.can("operations:archive")) and my_role == "manager",
             "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
             "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale,
             "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role in {"member", "reviewer"} and task.owner_id == p.id)),
-            "can_edit": project.status == "active" and task.status != "done" and (my_role == "manager" or (task.source == "self" and task.creator_id == p.id and my_role in {"member", "reviewer"})),
-            "can_review": project.status == "active" and stage is not None, "review_stage": stage,
+            "can_edit": not archived and project.status == "active" and task.status != "done" and (my_role == "manager" or (task.source == "self" and task.creator_id == p.id and my_role in {"member", "reviewer"})),
+            "can_review": not archived and project.status == "active" and stage is not None, "review_stage": stage,
             "department_reviewer_name": task.department_reviewer.name if task.department_reviewer else None,
             "company_reviewer_name": task.company_reviewer.name if task.company_reviewer else None,
             "nodes": [{"id": n.id, "name": n.name, "due_date": n.due_date, "completed_at": n.completed_at,
@@ -515,9 +546,11 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None):
             **({"updates": updates} if updates is not None else {})}
 
 
-def task_detail(db, p, task_id):
-    task = get_task(db, p, task_id)
+def task_detail(db, p, task_id, *, archived=False):
+    task = get_task(db, p, task_id, archived=archived)
     project = get_project(db, p, task.project_id)
+    if archived and not policy.can_archive(db, p, project):
+        raise forbidden("仅获作废管理权限的人员可查看作废任务")
     updates = [{"id": u.id, "kind": u.kind, "author_name": u.author.name, "created_at": u.created_at,
                 **snapshot(u, ["content", "next_step", "status", "progress"])} for u in db.scalars(
                     select(OpsTaskUpdate).where(OpsTaskUpdate.task_id == task.id).order_by(OpsTaskUpdate.id.desc()))]
@@ -531,10 +564,12 @@ def task_detail(db, p, task_id):
             "plan_context": progress_dict(plan) if plan else None, "today": today()}
 
 
-def tasks(db, p, project_id=None, mine=False):
+def tasks(db, p, project_id=None, mine=False, *, archived=False):
     projects = db.scalars(visible_projects(p).order_by(OpsProject.id)).all()
+    if archived:
+        projects = [project for project in projects if policy.can_archive(db, p, project)]
     by_id = {r.id: r for r in projects if project_id is None or r.id == project_id}
-    q = select(OpsTask).where(OpsTask.project_id.in_(by_id)).order_by(OpsTask.due_date, OpsTask.id)
+    q = select(OpsTask).where(OpsTask.project_id.in_(by_id), policy.task_access(p, archive=archived)).order_by(OpsTask.due_date, OpsTask.id)
     if mine:
         q = q.where(OpsTask.owner_id == p.id)
     task_rows = db.scalars(q).all()
@@ -547,8 +582,9 @@ def tasks(db, p, project_id=None, mine=False):
     for update in db.scalars(select(OpsTaskUpdate).where(OpsTaskUpdate.task_id.in_(task_ids),
                             OpsTaskUpdate.kind == "feedback").order_by(OpsTaskUpdate.task_id, OpsTaskUpdate.id.desc()).distinct(OpsTaskUpdate.task_id)):
         latest[update.task_id] = update.content
+    access = policy.batch_details(db, task_ids)
     roles = {id: role(db, p, project) for id, project in by_id.items()}
-    rows = [{**task_dict(db, p, by_id[t.project_id], t, viewer_role=roles[t.project_id], delay=delays.get(t.id)),
+    rows = [{**task_dict(db, p, by_id[t.project_id], t, viewer_role=roles[t.project_id], delay=delays.get(t.id), access=access.get(t.id, {})),
              "latest_feedback": latest.get(t.id, ""), "plan_context": contexts.get(t.id)} for t in task_rows]
     return sorted(rows, key=lambda t: (t["status"] == "done", not t["overdue"], t["status"] != "blocked", t["priority"] != "key", t["due_date"], t["id"]))
 
@@ -588,23 +624,27 @@ def list_projects(db, p, keyword="", category="", key_only=False):
 
 def project_detail(db, p, project_id):
     project = get_project(db, p, project_id)
-    progress = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.project_id == project.id).order_by(OpsProjectProgress.id.desc()).limit(1))
     rows = tasks(db, p, project_id)
-    schools = school_data(db, project)
-    products = db.scalars(select(OpsProduct).where(OpsProduct.project_id == project.id).order_by(OpsProduct.id)).all()
+    shared = has_project_content(db, p, project)
+    progress = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.project_id == project.id,
+        or_(OpsProjectProgress.task_id.is_(None), OpsProjectProgress.task_id.in_([t["id"] for t in rows])))
+        .order_by(OpsProjectProgress.id.desc()).limit(1)) if shared else None
+    schools = school_data(db, project) if shared else []
+    products = db.scalars(select(OpsProduct).where(OpsProduct.project_id == project.id).order_by(OpsProduct.id)).all() if shared else []
     daily = defaultdict(lambda: ZERO)
     for s in schools:
         for i in s["incomes"]:
             daily[i["income_date"]] += Decimal(i["amount"])
     unassigned = [{"id": r.id, **snapshot(r, ["income_date", "amount", "source", "note"])} for r in db.scalars(
-        select(OpsProjectIncome).where(OpsProjectIncome.project_id == project.id).order_by(OpsProjectIncome.income_date.desc()))]
+        select(OpsProjectIncome).where(OpsProjectIncome.project_id == project.id).order_by(OpsProjectIncome.income_date.desc()))] if shared else []
     unassigned_total = sum((Decimal(r["amount"]) for r in unassigned), ZERO)
     for r in unassigned:
         daily[r["income_date"]] += Decimal(r["amount"])
     batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
-        select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))]
+        select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))] if shared else []
     return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
-            "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project), "tasks": rows, "stats": task_stats(rows),
+            "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared else [],
+            "can_archive_tasks": policy.can_archive(db, p, project), "can_view_project_content": shared, "tasks": rows, "stats": task_stats(rows),
             "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,
             "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),

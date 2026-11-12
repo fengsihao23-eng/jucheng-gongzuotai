@@ -133,7 +133,7 @@ def _register_expense(db: Session, a: ApprovalDto, f: dict) -> str:
     status, project_code = 2, None  # 默认：已通过、待归集
     if code in PUBLIC_EXPENSE_LABELS or raw_code in PUBLIC_EXPENSE_LABELS:
         status = 4  # 归集为公共费用
-    elif code and db.scalar(select(BizProject.id).where(BizProject.project_code == code)):
+    elif code and db.scalar(select(BizProject.id).where(BizProject.project_code == code, BizProject.is_deleted.is_(False))):
         status, project_code = 4, code
     r = BizExpenseReport(approval_no=a.sp_no, applicant_id=applicant.id if applicant else None,
                          dept_code=applicant.dept_code if applicant else None, project_code=project_code,
@@ -151,6 +151,11 @@ def _register_expense(db: Session, a: ApprovalDto, f: dict) -> str:
                             f"所属项目「{raw_code or '未填写'}」无法匹配，请在报销归集页补充。",
                             link="/expenses?status=pending", ref_type="expense", ref_id=a.sp_no, wecom=False)
     return a.sp_no
+
+
+def _register_procurement(db: Session, a: ApprovalDto, f: dict) -> str:
+    # Finance must explicitly map the approved procurement template. The same approval can be counted only once.
+    return _register_expense(db, a, {**f, "category": "采购"})
 
 
 def _register_opportunity(db: Session, a: ApprovalDto, f: dict) -> str:
@@ -182,8 +187,8 @@ def _confirm_receipt(db, a, values):
 
 
 HANDLERS = {"contract": _register_contract, "expense": _register_expense, "opportunity": _register_opportunity,
-            "invoice": _request_invoice, "receipt": _confirm_receipt}
-LEDGER_KEYS = {"contract", "invoice", "receipt"}
+            "invoice": _request_invoice, "receipt": _confirm_receipt, "procurement": _register_procurement}
+LEDGER_KEYS = {"contract", "invoice", "receipt", "procurement"}
 
 
 # ---------------- 主流程 ----------------

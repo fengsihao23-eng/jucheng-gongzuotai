@@ -22,7 +22,8 @@ def _abs(link: str | None) -> str | None:
 
 
 def send(db: Session, users: Iterable[SysUser], msg_type: str, title: str, content: str, *, link: str | None = None,
-         ref_type: str | None = None, ref_id: str | None = None, wecom: bool = True, md: bool = True) -> list[SysNotify]:
+         ref_type: str | None = None, ref_id: str | None = None, wecom: bool = True, md: bool = True,
+         defer: bool = False, wecom_content: str | None = None) -> list[SysNotify]:
     """对每个用户写一条站内通知；wecom=True 时同时推企微（每人一条 wecom_app 记录，便于逐条追踪状态）。"""
     users = [u for u in users if u and u.status == 1 and not u.is_deleted]
     rows: list[SysNotify] = []
@@ -30,12 +31,12 @@ def send(db: Session, users: Iterable[SysUser], msg_type: str, title: str, conte
         rows.append(SysNotify(user_id=u.id, channel="inapp", msg_type=msg_type, title=title, content=content,
                               link=link, ref_type=ref_type, ref_id=ref_id, send_status=1, sent_at=utcnow()))
         if wecom:
-            rows.append(SysNotify(user_id=u.id, channel="wecom_app", msg_type=msg_type, title=title, content=content,
+            rows.append(SysNotify(user_id=u.id, channel="wecom_app", msg_type=msg_type, title=title, content=wecom_content if wecom_content is not None else content,
                                   link=link, ref_type=ref_type, ref_id=ref_id, send_status=0))
     db.add_all(rows)
     db.flush()
     pending = [r for r in rows if r.channel == "wecom_app"]
-    if pending:
+    if pending and not defer:
         _deliver(db, pending, "markdown" if md else "textcard")
     return rows
 
@@ -51,6 +52,26 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
                 allowed.append(r)
             else:
                 r.send_status, r.error_msg, r.retry_count = 2, "未绑定公司通讯录的账号不发送企业微信消息", MAX_RETRY
+        rows = allowed
+        if not rows:
+            db.flush()
+            return
+    if any(r.msg_type == "operations_assignment" for r in rows):
+        from app.core.deps import build_principal
+        from app.models import OpsTask
+        from app.services.operations_policy import task_access
+
+        allowed = []
+        for r in rows:
+            if r.msg_type == "operations_assignment":
+                u = by_user.get(r.user_id)
+                can_receive = u and u.status == 1 and not u.is_deleted and r.ref_id and r.ref_id.isdigit() and db.scalar(
+                    select(OpsTask.id).where(OpsTask.id == int(r.ref_id), OpsTask.owner_id == r.user_id,
+                                             task_access(build_principal(u))))
+                if not can_receive:
+                    r.send_status, r.error_msg, r.retry_count = 2, "任务已转交、作废或收件人不再有权限", MAX_RETRY
+                    continue
+            allowed.append(r)
         rows = allowed
         if not rows:
             db.flush()
@@ -85,7 +106,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
 
 def retry_failed(db: Session) -> int:
     rows = db.scalars(select(SysNotify).where(SysNotify.channel == "wecom_app", SysNotify.send_status.in_([0, 2]),
-                                              SysNotify.retry_count < MAX_RETRY)).all()
+                                              SysNotify.retry_count < MAX_RETRY).order_by(SysNotify.id).limit(500).with_for_update(skip_locked=True)).all()
     if rows:
         _deliver(db, list(rows))
     return len(rows)

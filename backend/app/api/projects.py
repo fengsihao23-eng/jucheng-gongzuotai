@@ -1,6 +1,7 @@
 """项目流程（项目部 P1 · PRD 7.6）：项目台账、标准控制流程节点引擎、变更留痕、周进度导出。"""
 from datetime import date
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import Response
@@ -11,9 +12,9 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deps import Principal, client_ip, require_menu
-from app.core.response import bad_request, forbidden, not_found, ok
+from app.core.response import bad_request, conflict, forbidden, not_found, ok
 from app.core.storage import file_brief, save_bytes
-from app.models import BizProject, BizProjectMilestone, SysUser
+from app.models import PROJECT_STATUS, BizOpportunity, BizProject, BizProjectMilestone, SysUser
 from app.services import project_service as ps
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -29,9 +30,10 @@ def _xlsx(data: bytes, filename: str) -> Response:
 @router.get("")
 def list_projects(status: int | None = None, business_line: str | None = None, is_key: bool | None = None,
                   owner_id: int | None = None, keyword: str | None = None, mine: bool = False,
+                  scope: Literal["all", "pipeline", "general", "history"] = "all",
                   p: Principal = Menu, db: Session = Depends(get_db)):
     items = ps.list_projects(db, p, status=status, business_line=business_line, is_key=is_key, owner_id=owner_id,
-                             keyword=keyword, mine=mine)
+                             keyword=keyword, mine=mine, scope=scope)
     return ok({"items": items, "total": len(items), "data_scope": p.data_scope,
                "can_create": p.is_admin or p.can("milestone:write") or p.can("project:key")})
 
@@ -57,6 +59,8 @@ class ProjectIn(BaseModel):
     start_date: date | None = None
     plan_end_date: date | None = None
     milestone_template: str | None = None
+    bid_deadline: date | None = None
+    opportunity_id: int | None = None
     remark: str | None = None
 
 
@@ -65,11 +69,30 @@ def create_project(body: ProjectIn, request: Request, p: Principal = Menu, db: S
     if not (p.is_admin or p.can("milestone:write") or p.can("project:key")):
         raise forbidden("无新建项目权限")
     data = body.model_dump()
+    if body.status not in PROJECT_STATUS:
+        raise bad_request("项目状态无效")
+    source_id = data.pop("opportunity_id")
+    source = None
+    if source_id:
+        from app.services import opportunity_service as opp
+        if not p.has_menu("opportunities"):
+            raise forbidden("无商机访问权限")
+        source = db.scalar(opp._filtered(p).where(BizOpportunity.id == source_id).with_for_update(of=BizOpportunity))
+        if not source:
+            raise not_found("商机")
+        if source.project_code:
+            raise conflict("该商机已关联项目，请从商机详情打开原项目")
+        if body.business_line != source.business_line or body.customer_name.strip() != source.customer_name.strip():
+            raise bad_request("新项目的客户和业务线必须与关联商机一致")
     if data["is_key"] and not p.can("project:key"):
         data["is_key"] = False
     if not data.get("owner_id") and p.dept_code == "XM":
         data["owner_id"] = p.id
     proj = ps.create_project(db, data, p.id)
+    if source:
+        source.project_code = proj.project_code
+        log_op(db, p.id, "project.link_opportunity", "biz_project", proj.project_code,
+               after={"opportunity_id": source.id}, ip=client_ip(request))
     log_op(db, p.id, "project.create", "project", proj.project_code, after={"name": proj.name}, ip=client_ip(request))
     db.commit()
     return ok({"project_code": proj.project_code, "id": proj.id})
