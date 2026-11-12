@@ -25,6 +25,13 @@ say "1/6 检查服务器连通性与 Docker"
 "${SSH[@]}" 'set -e; docker --version >/dev/null 2>&1 || { echo NO_DOCKER; exit 3; }; docker compose version >/dev/null 2>&1 || { echo NO_COMPOSE; exit 4; }; docker info >/dev/null 2>&1 || { echo NO_DOCKER_PERM; exit 5; }' \
   || die "服务器不可达或未安装 Docker/Compose（可用 apt install docker.io docker-compose-v2 或 sudo curl -fsSL https://get.docker.com | sh）"
 
+# 2026-11-12 事故：构建缓存堆到 12.6GB，镜像 68 个，本次构建把根分区写满，
+# Postgres 无法写 WAL 进入崩溃循环。部署前先卡住剩余空间。
+FREE_GB=$("${SSH[@]}" "df -Pk / | awk 'NR==2{print int(\$4/1048576)}'")
+[[ "$FREE_GB" =~ ^[0-9]+$ ]] || die "无法读取服务器磁盘余量"
+[[ "$FREE_GB" -ge 5 ]] || die "服务器根分区只剩 ${FREE_GB}GB，先清理再部署（否则数据库会因写满磁盘崩溃）"
+say "磁盘余量 ${FREE_GB}GB"
+
 say "2/6 创建目录 $REMOTE_DIR"
 "${SSH[@]}" "mkdir -p '$REMOTE_DIR/backend' '$REMOTE_DIR/frontend' '$REMOTE_DIR/deploy/backups'"
 
@@ -54,6 +61,8 @@ scp -q "$ROOT/deploy/app.env" "$SERVER:$REMOTE_DIR/backend/.env"
 "${SSH[@]}" "chmod 600 '$REMOTE_DIR/backend/.env' '$REMOTE_DIR/deploy/.env' '$REMOTE_DIR/deploy/certs/privkey.pem'"
 
 say "5/6 构建并启动容器（首次约 3-8 分钟）"
+# 先回收旧构建缓存与悬空镜像：每次部署都会产生新层，累积起来足以写满根分区
+"${SSH[@]}" "docker builder prune -f --filter until=168h >/dev/null 2>&1 || true; docker image prune -f >/dev/null 2>&1 || true"
 "${SSH[@]}" "cd '$REMOTE_DIR/deploy' && docker compose --profile build build xiaoju-workspace && docker compose up -d --build --remove-orphans && docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s reload"
 
 say "6/6 等待服务健康"
