@@ -14,6 +14,7 @@ from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import forbidden, ok
 from app.core.timeutil import today
 from app.services import contract_service as cs
+from app.services import contracts_sync as csync
 
 router = APIRouter(prefix="/contracts", tags=["合同台账"])
 Menu = Depends(require_menu("contracts"))
@@ -73,6 +74,97 @@ def export(request: Request, f: dict = Depends(_filters), p: Principal = Menu, d
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
                              "X-Export-Rows": str(n)})
+
+
+class SyncSourceIn(BaseModel):
+    key: str
+    enabled: bool = True
+    docid: str
+    sheet_id: str
+    reader_id: int
+    auto_apply: bool = False
+    fields: dict[str, str]
+
+
+@router.get("/sync/sources")
+def sync_sources(p: Principal = Menu, db: Session = Depends(get_db)):
+    """合同台账的固定来源配置（企业微信在线表格）。"""
+    from app.services import dict_service
+
+    items = dict_service.items(db, csync.DICT_TYPE)
+    return ok({"items": [{"key": k, **v} for k, v in items.items() if isinstance(v, dict)],
+               "required": list(csync.REQUIRED), "regions": sorted(csync.REGIONS),
+               "business_lines": cs.LINES})
+
+
+@router.put("/sync/sources")
+def save_sync_source(body: SyncSourceIn, request: Request, p: Principal = Menu,
+                     db: Session = Depends(get_db)):
+    from app.services import dict_service
+
+    _need(p, "contracts:write")
+    key = body.key.strip()
+    if not key or len(key) > 40:
+        raise forbidden("来源名称需为 1~40 字")
+    fields = {k: v.strip() for k, v in body.fields.items() if v and v.strip()}
+    missing = [f for f in csync.REQUIRED if f not in fields]
+    if missing:
+        raise forbidden("未映射必填字段：" + "、".join(missing))
+    value = {"enabled": body.enabled, "format": "sheet", "docid": body.docid.strip(),
+             "sheet_id": body.sheet_id.strip(), "reader_id": body.reader_id,
+             "auto_apply": body.auto_apply, "fields": fields}
+    dict_service.put(db, csync.DICT_TYPE, key, value)
+    log_op(db, p.id, "contract.sync_config", "contract", None, None,
+           {"key": key, "reader_id": body.reader_id, "auto_apply": body.auto_apply}, client_ip(request))
+    db.commit()
+    return ok({"key": key, **value})
+
+
+@router.delete("/sync/sources/{key}")
+def delete_sync_source(key: str, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    from sqlalchemy import select
+
+    from app.models import SysDict
+    from app.services import dict_service
+
+    _need(p, "contracts:write")
+    row = db.scalar(select(SysDict).where(SysDict.dict_type == csync.DICT_TYPE, SysDict.dict_key == key))
+    if row:
+        row.status = 0
+        log_op(db, p.id, "contract.sync_config_delete", "contract", None, None, {"key": key}, client_ip(request))
+        db.commit()
+    return ok({"deleted": bool(row)})
+
+
+def _sync_config(db: Session, source: str) -> dict:
+    from app.services import dict_service
+
+    config = dict_service.get(db, csync.DICT_TYPE, source) if source else None
+    if not isinstance(config, dict):
+        raise forbidden("没有这个固定来源，请先在同步设置里配置")
+    return config
+
+
+@router.get("/sync/preview")
+def sync_preview(source: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
+    """读取企业微信在线表格并与台账比对，只返回差异，不改台账。"""
+    return ok({"source": source, **csync.preview(db, _sync_config(db, source), source)})
+
+
+@router.post("/sync/apply")
+def sync_apply(request: Request, source: str = Body(..., embed=True),
+               contract_nos: list[str] | None = Body(None, embed=True), p: Principal = Menu,
+               db: Session = Depends(get_db)):
+    """确认差异后落库；只写合同主档，不碰回款、付款计划与归档原件。"""
+    _need(p, "contracts:write")
+    config = _sync_config(db, source)
+    data = csync.preview(db, config, source)
+    result = csync.apply(db, p, config, data, only=contract_nos, ip=client_ip(request), key=source)
+    log_op(db, p.id, "contract.sync_apply", "contract", None, None,
+           {"source": source, "created": result["created"], "updated": result["updated"],
+            "skipped": result["skipped"]}, client_ip(request))
+    db.commit()
+    return ok(result)
 
 
 class ContractIn(BaseModel):

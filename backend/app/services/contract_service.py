@@ -26,7 +26,7 @@ from app.models import (CONTRACT_STATUS, BizContract, BizPayment, BizPaymentPlan
 from app.services import codes, notify_service, payment_service
 
 ZERO = Decimal("0")
-SOURCE_TYPES = {1: "企微审批", 2: "人工录入", 3: "Excel 导入"}
+SOURCE_TYPES = {1: "企微审批", 2: "人工录入", 3: "Excel 导入", 4: "企微表格同步"}
 PAY_SOURCE = {1: "流水核对", 2: "人工登记", 3: "归档自动关联"}
 EDIT_FIELDS = ["contract_no", "name", "project_code", "customer_name", "amount", "sign_date", "business_line",
                "region", "owner_id", "status", "remark"]
@@ -339,15 +339,18 @@ def _clean(db: Session, body: dict, creating: bool) -> dict:
     return out
 
 
-def create(db: Session, p, body: dict, ip: str | None = None) -> BizContract:
+def create(db: Session, p, body: dict, ip: str | None = None, source_type: int = 2) -> BizContract:
     data = _clean(db, body, True)
     if data.get("project_code") and not data.get("business_line"):
         data["business_line"] = data["project_code"].split("-")[1]
     no = data.pop("contract_no", None) or codes.contract_no(db, data["sign_date"].year)
     if db.scalar(select(BizContract.id).where(BizContract.contract_no == no)):
         raise BizError(40901, f"合同编号 {no} 已存在")
-    c = BizContract(contract_no=no, source_type=2, status=data.pop("status", 1),
-                    owner_id=data.pop("owner_id", None) or p.id, **data)
+    owner = data.pop("owner_id", None)
+    if owner is None and source_type != 4:
+        owner = p.id  # 人工录入默认归属于录入人；企微表格同步不臆造负责人
+    c = BizContract(contract_no=no, source_type=source_type, status=data.pop("status", 1),
+                    owner_id=owner, **data)
     db.add(c)
     db.flush()
     log_op(db, p.id, "contract.create", "contract", c.id, None, snapshot(c, EDIT_FIELDS + ["source_type"]), ip)

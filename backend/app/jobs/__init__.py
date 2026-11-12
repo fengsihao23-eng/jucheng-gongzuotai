@@ -2,7 +2,7 @@
 import importlib
 
 DOMAIN_MODULES = ["core", "finance_ops", "reports", "exec", "market", "hr", "knowledge", "marketing", "receivables",
-                  "operations", "submissions", "workbench"]
+                  "contracts", "operations", "submissions", "workbench"]
 
 
 def load_all() -> None:
