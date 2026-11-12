@@ -24,7 +24,8 @@ try {
     if (path === '/auth/me') data = profile
     else if (path === '/notifications') data = { items: [], total: 0, unread: 0 }
     else if (path === '/admin/users') data = { items: confirmed ? [user] : [], total: confirmed ? 1 : 0, directory_total: confirmed ? 1 : 0, departments: [{ code: 'TEST', name: '测试部门' }] }
-    else if (path === '/admin/roles') data = { roles: [{ code: 'EMP', name: '普通员工', menus: [], buttons: [], users: confirmed ? 1 : 0 }], menus: {} }
+    else if (path === '/admin/roles') data = { roles: [{ code: 'EMP', name: '普通员工', menus: [], buttons: [], users: confirmed ? 1 : 0 }], menus: {}, directory_total: confirmed ? 1 : 0,
+      departments: confirmed ? [{ code: 'TEST', name: '测试部门', total: 1, directory: true, role_counts: { EMP: 1 } }] : [] }
     else if (path === '/admin/addressbook/status') data = { ready: attempts > 1, message: attempts > 1 ? '公司应用已配置' : '公司通讯录尚未接入', scope_note: '只读取公司授权范围内的人员' }
     else if (path === '/assistant/catalog') data = { connectors: [{ key: 'wecom', fields: [{ key: 'wecom_corp_id', value: '' }, { key: 'wecom_agent_id', value: '' }, { key: 'wecom_secret', configured: false }] }] }
     else if (path === '/assistant/connectors/wecom/configure') {

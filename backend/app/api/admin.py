@@ -1,6 +1,8 @@
 """系统管理：账号角色、字典口径、数据源模式、定时任务、审批待处理队列、操作审计、通讯录同步。"""
+from typing import Literal
+
 from fastapi import APIRouter, Body, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
@@ -34,43 +36,82 @@ def _keep_admin(db, u, removing):
         raise conflict("必须保留至少一个有效的平台管理员")
 
 
-@router.get("/users")
-def users(keyword: str = "", dept: str = "", source: str = "", page: int = 1, page_size: int = 50, p: Principal = Admin,
-          db: Session = Depends(get_db)):
+AccountSource = Literal["", "directory", "local"]
+UNASSIGNED_DEPARTMENT = "__unassigned__"
+
+
+def _user_query(source: AccountSource = "", keyword: str = ""):
     q = select(SysUser).where(SysUser.is_deleted.is_(False))
+    if source:
+        marker = func.coalesce(SysUser.preferences["company_directory"].as_string(), "")
+        in_directory = marker.not_in(("", "{}", "[]", "false", "0"))
+        q = q.where(in_directory if source == "directory" else ~in_directory)
     if keyword:
-        q = q.where(or_(SysUser.name.contains(keyword), SysUser.wecom_userid.contains(keyword)))
-    rows = db.scalars(q.order_by(SysUser.department_id, SysUser.id)).all()
-    directory_total = sum(bool((u.preferences or {}).get("company_directory")) for u in rows)
-    if source == "directory": rows = [u for u in rows if (u.preferences or {}).get("company_directory")]
-    elif source == "local": rows = [u for u in rows if not (u.preferences or {}).get("company_directory")]
-    if dept:
-        rows = [u for u in rows if u.dept_code == dept]
-    total = len(rows)
-    rows = rows[(page - 1) * page_size: page * page_size]
-    items = [{"id": u.id, "userid": u.wecom_userid, "name": u.name, "dept_code": u.dept_code,
-              "dept_name": u.department.name if u.department else None, "position": u.position,
-              "status": u.status, "roles": [r.role_code for r in u.roles], "last_login_at": u.last_login_at,
-              "mobile": u.mobile, "email": u.email,
-              "source": "公司通讯录" if (u.preferences or {}).get("company_directory") else "已归档演示" if (u.preferences or {}).get("archived_demo_userid") else "本地账号",
-              "has_mcp_token": bool(u.access_token)} for u in rows]
-    return ok(page_data(items, total, page, page_size, directory_total=directory_total,
+        q = q.where(or_(SysUser.name.icontains(keyword, autoescape=True),
+                        SysUser.wecom_userid.icontains(keyword, autoescape=True)))
+    return q
+
+
+def _count_users(db, query):
+    return db.scalar(select(func.count()).select_from(query.with_only_columns(SysUser.id).subquery()))
+
+
+@router.get("/users")
+def users(keyword: str = Query("", max_length=100), dept: str = "", source: AccountSource = "",
+          page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=100), role: str = "", compact: bool = False,
+          p: Principal = Admin, db: Session = Depends(get_db)):
+    q = _user_query(source, keyword.strip())
+    if dept == UNASSIGNED_DEPARTMENT:
+        q = q.where(SysUser.department_id.is_(None))
+    elif dept:
+        q = q.where(SysUser.department.has(SysDepartment.dept_code == dept))
+    if role:
+        if role not in ROLE_DEFS:
+            raise not_found("角色")
+        q = q.where(SysUser.roles.any(SysRole.role_code == role))
+    total = _count_users(db, q)
+    rows = db.scalars(q.order_by(SysUser.department_id, SysUser.id).offset((page - 1) * page_size).limit(page_size)).all()
+    items = []
+    for u in rows:
+        item = {"id": u.id, "userid": u.wecom_userid, "name": u.name, "dept_code": u.dept_code,
+                "dept_name": u.department.name if u.department else None, "position": u.position,
+                "status": u.status, "roles": sorted(r.role_code for r in u.roles)}
+        if not compact:
+            prefs = u.preferences or {}
+            item.update(last_login_at=u.last_login_at, mobile=u.mobile, email=u.email,
+                        source="公司通讯录" if prefs.get("company_directory") else "已归档演示" if prefs.get("archived_demo_userid") else "本地账号",
+                        has_mcp_token=bool(u.access_token))
+        items.append(item)
+    if compact:
+        return ok(page_data(items, total, page, page_size))
+    return ok(page_data(items, total, page, page_size, directory_total=_count_users(db, _user_query("directory", keyword.strip())),
                        departments=[{"code": d.dept_code, "name": d.name} for d in db.scalars(select(SysDepartment).order_by(SysDepartment.name))]))
 
 
+class RoleAssignmentsIn(BaseModel):
+    role_codes: list[str] = Field(max_length=50)
+    expected_role_codes: list[str] | None = Field(default=None, max_length=50)
+
+
 @router.put("/users/{user_id}/roles")
-def set_roles(user_id: int, request: Request, role_codes: list[str] = Body(embed=True), p: Principal = Admin,
+def set_roles(user_id: int, request: Request, body: RoleAssignmentsIn, p: Principal = Admin,
               db: Session = Depends(get_db)):
     _check_admin_write(request, p)
+    role_codes = sorted(set(body.role_codes))
+    unknown = set(role_codes) - ROLE_DEFS.keys()
+    if unknown:
+        raise bad_request(f"未知角色 {min(unknown)}")
     db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
-    role_codes = sorted(set(role_codes))
     u = get_or_404(db, SysUser, user_id, "用户")
-    before = [r.role_code for r in u.roles]
+    db.refresh(u, attribute_names=["status", "roles"])
+    before = sorted(r.role_code for r in u.roles)
+    if body.expected_role_codes is not None and before != sorted(set(body.expected_role_codes)):
+        raise conflict("这名员工的角色已被更新，请重新查看后再保存")
+    if before == role_codes:
+        return ok()
     _keep_admin(db, u, "ADMIN-01" not in role_codes)
     db.query(SysUserRole).filter(SysUserRole.user_id == u.id).delete()
     for code in role_codes:
-        if code not in ROLE_DEFS:
-            raise BizError(40001, f"未知角色 {code}")
         db.add(SysUserRole(user_id=u.id, role_id=user_service.role_by_code(db, code).id))
     log_op(db, p.id, "user.roles", "user", u.id, {"roles": before}, {"roles": role_codes}, client_ip(request))
     db.commit()
@@ -94,11 +135,27 @@ def set_status(user_id: int, request: Request, status: int = Body(embed=True), p
 
 
 @router.get("/roles")
-def roles(p: Principal = Admin, db: Session = Depends(get_db)):
+def roles(source: AccountSource = "", p: Principal = Admin, db: Session = Depends(get_db)):
     rows = {r.role_code: r for r in db.scalars(select(SysRole)).all()}
-    counts = dict(db.execute(select(SysRole.role_code, func.count(SysUserRole.user_id))
-                             .join(SysUserRole, SysUserRole.role_id == SysRole.id).join(SysUser, SysUser.id == SysUserRole.user_id)
-                             .where(SysUser.is_deleted.is_(False)).group_by(SysRole.role_code)).all())
+    accounts = _user_query(source).with_only_columns(SysUser.id, SysUser.department_id, SysUser.status).subquery()
+    by_department = {}
+    counts = {}
+    assignments = (select(accounts.c.department_id, SysRole.role_code, func.count())
+        .select_from(accounts).join(SysUserRole, SysUserRole.user_id == accounts.c.id)
+        .join(SysRole, SysRole.id == SysUserRole.role_id).group_by(accounts.c.department_id, SysRole.role_code))
+    for dept_id, code, count in db.execute(assignments):
+        by_department.setdefault(dept_id, {})[code] = count
+        counts[code] = counts.get(code, 0) + count
+
+    departments = []
+    grouped = (select(SysDepartment.id, SysDepartment.dept_code, SysDepartment.name, SysDepartment.wecom_dept_id,
+                      func.count().label("total"), func.count().filter(accounts.c.status == 1).label("active"))
+        .select_from(accounts).outerjoin(SysDepartment, SysDepartment.id == accounts.c.department_id)
+        .group_by(SysDepartment.id).order_by(SysDepartment.sort, SysDepartment.id))
+    for dept_id, code, name, wecom_id, total, active in db.execute(grouped):
+        departments.append({"code": code or UNASSIGNED_DEPARTMENT, "name": name or "未分配部门",
+                            "directory": wecom_id is not None, "total": total, "active": active,
+                            "role_counts": by_department.get(dept_id, {})})
     out = []
     for code, d in ROLE_DEFS.items():
         override = rows[code].permissions if code in rows else {}
@@ -106,7 +163,8 @@ def roles(p: Principal = Admin, db: Session = Depends(get_db)):
         out.append({"code": code, "name": d["name"], "dept": d["dept"], "menus": eff["menus"], "buttons": eff["buttons"],
                     "data_scope": eff["data_scope"], "portal": eff["portal"], "users": counts.get(code, 0),
                     "customized": bool(override)})
-    return ok({"roles": out, "menus": MENUS})
+    return ok({"roles": out, "menus": MENUS, "departments": departments,
+               "directory_total": _count_users(db, _user_query("directory"))})
 
 
 @router.get("/roles/{code}/members")
@@ -139,6 +197,8 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                      .order_by(LogOperation.id.desc()).limit(1))
     active = u.status == 1
     return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes,
+               "assigned_roles": sorted(r.role_code for r in u.roles),
+               "department": u.department.name if u.department else None, "position": u.position,
                "menus": [MENUS[key] for key in visible_menus(db, target)] if active else [],
                "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
                "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_create(target),

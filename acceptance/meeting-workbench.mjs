@@ -1,5 +1,6 @@
+import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
-import { API, WEB, call, loginPage, save, shot, step } from './lib.mjs'
+import { API, WEB, OUT, call, loginPage, save, shot, step } from './lib.mjs'
 
 const health = await fetch(API + '/health').then(r => r.json())
 if (health.env !== 'test') throw new Error('此脚本只可在独立测试环境运行')
@@ -21,11 +22,59 @@ await step('A01', '角色人数下钻及实名权限', async () => {
   await page.goto(WEB + '/admin')
   const row = page.getByRole('row').filter({ has: page.getByText('ADMIN-01', { exact: true }) })
   await row.getByRole('button').first().click()
-  const drawer = page.locator('.el-drawer').filter({ hasText: '角色人员' })
-  await waitFor(drawer.getByText('admin', { exact: true }))
-  await drawer.getByRole('button', { name: '系统管理员', exact: true }).or(drawer.getByRole('button', { name: admin.name, exact: true })).first().click()
-  await waitFor(page.getByText('个人有效权限', { exact: true }))
-  await waitFor(page.getByText('运营项目：可管理全量', { exact: false }))
+  const people = page.getByRole('dialog', { name: /角色人员/ })
+  await waitFor(people.getByText('admin', { exact: true }))
+  await people.getByRole('button', { name: '查看 ' + admin.name + ' 的权限', exact: true }).click()
+  await waitFor(page.getByRole('dialog', { name: '个人有效权限', exact: true }).getByText('可管理全量', { exact: false }))
+})
+
+await step('A02', '部门卡按角色筛选并仅授权所选员工', async () => {
+  const finance = (await call('admin', 'GET', '/admin/users', { keyword: 'chenjing' })).items[0]
+  const peer = (await call('admin', 'GET', '/admin/users', { keyword: 'zhaoli' })).items[0]
+  const before = await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')
+  const peerBefore = await call('admin', 'GET', '/admin/users/' + peer.id + '/effective-permissions')
+  const added = before.assigned_roles.includes('KB-01') ? 'EMP' : 'KB-01'
+  try {
+    await page.goto(WEB + '/admin')
+    await page.getByRole('button', { name: /^财务部，/ }).click()
+    const people = page.getByRole('dialog', { name: '财务部 · 部门人员' })
+    await waitFor(people.getByRole('button', { name: '查看 ' + peer.name + ' 的权限' }))
+    const filtered = page.waitForResponse(res => res.url().includes('/admin/users') && new URL(res.url()).searchParams.get('role') === 'CW-01')
+    await people.getByRole('button', { name: /^财务经理 / }).click()
+    await filtered
+    await people.getByRole('button', { name: '查看 ' + peer.name + ' 的权限' }).waitFor({ state: 'hidden' })
+    await people.getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }).click()
+    const card = page.getByRole('dialog', { name: '个人有效权限', exact: true })
+    await waitFor(card.getByRole('heading', { name: finance.name, exact: true }))
+    await card.locator('.grant .el-select__wrapper').click()
+    await page.getByRole('option', { name: added === 'KB-01' ? /知识库管理员/ : /普通员工/ }).click()
+    await card.getByRole('heading', { name: finance.name, exact: true }).click()
+    await waitFor(card.getByText(/将新增/))
+    assert.deepEqual((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).assigned_roles, before.assigned_roles)
+    const saved = page.waitForResponse(res => res.url().endsWith('/admin/users/' + finance.id + '/roles') && res.request().method() === 'PUT')
+    await card.getByRole('button', { name: '保存此人权限' }).click()
+    assert.equal((await saved).status(), 200)
+    const addedName = added === 'KB-01' ? '知识库管理员' : '普通员工'
+    await waitFor(card.locator('dd').filter({ hasText: addedName }).first())
+    assert.ok((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).assigned_roles.includes(added))
+    assert.deepEqual((await call('admin', 'GET', '/admin/users/' + peer.id + '/effective-permissions')).assigned_roles, peerBefore.assigned_roles)
+    await card.screenshot({ path: OUT + '/screens/person-permissions.png', animations: 'disabled' })
+    await card.getByRole('button', { name: /返回部门人员/ }).click()
+    await waitFor(people.getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }))
+    await people.screenshot({ path: OUT + '/screens/department-roster.png', animations: 'disabled' })
+
+    const mobile = await loginPage(browser, 'admin', { width: 390, height: 844 })
+    await mobile.goto(WEB + '/admin')
+    await mobile.getByRole('button', { name: /^财务部，/ }).click()
+    const mobileCard = mobile.getByRole('dialog', { name: '财务部 · 部门人员' })
+    await waitFor(mobileCard.getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }))
+    const box = await mobileCard.boundingBox()
+    assert.ok(box.x >= 0 && box.x + box.width <= 391)
+    await mobileCard.screenshot({ path: OUT + '/screens/department-mobile.png', animations: 'disabled' })
+    return true
+  } finally {
+    await call('admin', 'PUT', '/admin/users/' + finance.id + '/roles', { role_codes: before.assigned_roles })
+  }
 })
 
 await step('D02', '签约卡片下钻到同页清单', async () => {

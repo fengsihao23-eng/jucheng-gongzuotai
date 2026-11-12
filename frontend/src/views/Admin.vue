@@ -10,64 +10,80 @@
       <el-tab-pane label="账号与角色" name="users">
         <Panel title="公司人员接入" sub="从公司授权的通讯录读取真实人员，预览后确认建档。">
           <div class="jc-row between"><p class="directory-message">{{ directory.message }}</p><StatusPill :text="directory.ready ? '公司应用已配置' : '等待公司授权'" :tone="directory.ready ? 'up' : 'info'" /></div>
-          <p class="jc-muted jc-small">{{ directory.scope_note }} 新成员默认普通员工权限，业务角色可在下表分配。</p>
-          <div class="jc-row"><el-button size="small" @click="connectDirectory">配置公司应用</el-button><el-button size="small" @click="copyDirectoryGuide">复制授权清单</el-button><span v-if="users.directory_total" class="jc-muted jc-small">已建档 {{ users.directory_total }} 名公司成员</span></div>
+          <p class="jc-muted jc-small">{{ directory.scope_note }} 新成员默认普通员工权限，可在下方按部门查看和分配角色。</p>
+          <div class="jc-row"><el-button size="small" @click="connectDirectory">配置公司应用</el-button><el-button size="small" @click="copyDirectoryGuide">复制授权清单</el-button><span v-if="roles.directory_total" class="jc-muted jc-small">已建档 {{ roles.directory_total }} 名公司成员</span></div>
         </Panel>
-        <Panel class="mt-16" :padding="false">
-          <template #extra>
-            <el-input v-model="uf.keyword" placeholder="姓名 / 账号" clearable size="small" style="width: 180px" @change="loadUsers(1)" />
-            <el-select v-model="uf.dept" placeholder="部门" clearable size="small" style="width: 130px" @change="loadUsers(1)">
-              <el-option v-for="d in departmentOptions" :key="d[0]" :label="d[1]" :value="d[0]" />
-            </el-select>
-            <el-select v-model="uf.source" placeholder="账号来源" clearable size="small" style="width: 140px" @change="loadUsers(1)"><el-option label="公司通讯录" value="directory" /><el-option label="本地 / 演示" value="local" /></el-select>
-          </template>
-          <el-table :data="users.items">
-            <el-table-column label="姓名" width="110"><template #default="{ row }"><el-button link type="primary" @click="inspectPermissions(row)">{{ row.name }}</el-button></template></el-table-column>
-            <el-table-column label="账号 / UserID" width="140"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
-            <el-table-column label="来源" width="100" prop="source" />
-            <el-table-column label="部门" width="110" prop="dept_name" />
-            <el-table-column label="职位" width="130" prop="position" />
-            <el-table-column label="手机" width="140"><template #default="{ row }">{{ row.mobile || '未返回' }}</template></el-table-column>
-            <el-table-column label="工作邮箱" width="190"><template #default="{ row }">{{ row.email || '未返回' }}</template></el-table-column>
-            <el-table-column label="角色" min-width="260">
-              <template #default="{ row }">
-                <el-select v-model="row.roles" multiple size="small" style="width: 100%" @change="setRoles(row)">
-                  <el-option v-for="r in roles.roles" :key="r.code" :label="r.name" :value="r.code" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="90">
-              <template #default="{ row }"><StatusPill :text="row.status === 1 ? '在职' : '停用'" :tone="row.status === 1 ? 'up' : 'down'" dot /></template>
-            </el-table-column>
-            <el-table-column label="MCP 令牌" width="90" align="center"><template #default="{ row }">{{ row.has_mcp_token ? '已生成' : '—' }}</template></el-table-column>
-            <el-table-column label="最近登录" width="150"><template #default="{ row }">{{ datetime(row.last_login_at) }}</template></el-table-column>
-            <el-table-column width="80" align="center">
-              <template #default="{ row }">
-                <el-button link :type="row.status === 1 ? 'danger' : 'primary'" @click="toggleUser(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </Panel>
-        <el-pagination v-model:current-page="uf.page" layout="total, prev, pager, next" :total="users.total" :page-size="50" @current-change="loadUsers" />
 
-        <Panel class="mt-16" title="角色权限矩阵" sub="菜单 / 按钮 / 数据范围三级控制；修改后用户下次请求即生效" :padding="false">
+        <Panel class="mt-16 role-matrix" title="角色权限矩阵" sub="按部门查看成员，也可按角色查看授权名单。" :padding="false" :loading="matrixLoading">
+          <template #extra>
+            <el-select v-model="accountSource" aria-label="人员来源" size="small" style="width: 135px" :disabled="matrixLoading && !roles.roles.length" @change="changeAccountSource">
+              <el-option label="公司通讯录" value="directory" /><el-option label="全部账号" value="all" /><el-option label="本地 / 演示" value="local" />
+            </el-select>
+          </template>
+          <section class="departments" aria-label="按部门查看人员">
+            <header><h4>按部门查人员</h4><span class="jc-muted jc-small">点部门打开人员小卡，再点员工查看权限</span></header>
+            <div v-if="matrixDepartments.length" class="department-grid">
+              <button v-for="dept in matrixDepartments" :key="dept.code" type="button" class="department-card"
+                      :aria-label="dept.displayName + '，' + dept.total + ' 人'" @click="peopleCard.openDepartment(dept)">
+                <strong>{{ dept.displayName }}</strong><span class="jc-num">{{ dept.total }} 人 <span aria-hidden="true">›</span></span>
+              </button>
+            </div>
+            <el-empty v-else-if="!matrixLoading && !matrixError" :image-size="44" description="所选来源暂无人员" />
+            <div v-if="matrixError" class="jc-down">{{ matrixError }} <el-button link type="primary" @click="loadRoles">重试</el-button></div>
+          </section>
+
+          <div class="role-heading"><h4>角色规则</h4><span class="jc-muted jc-small">角色规则对所有拥有该角色的人生效；个人授权在人员小卡中保存。</span></div>
           <el-table :data="roles.roles">
-            <el-table-column label="角色" width="170"><template #default="{ row }"><b>{{ row.name }}</b><div class="jc-mono jc-muted">{{ row.code }}</div></template></el-table-column>
-            <el-table-column label="人数" width="74" align="right"><template #default="{ row }"><el-button link type="primary" @click="showRoleMembers(row)">{{ row.users }}</el-button></template></el-table-column>
-            <el-table-column label="数据范围" width="100"><template #default="{ row }">{{ SCOPE[row.data_scope] }}</template></el-table-column>
-            <el-table-column label="可见菜单" min-width="420">
+            <el-table-column label="角色" width="170"><template #default="{ row }"><el-button link type="primary" @click="peopleCard.openRole(row)">{{ row.name }}</el-button><div class="jc-mono jc-muted">{{ row.code }}</div></template></el-table-column>
+            <el-table-column label="人数" width="72" align="right"><template #default="{ row }"><el-button link type="primary" :aria-label="'查看' + row.name + '人员'" @click="peopleCard.openRole(row)">{{ row.users }}</el-button></template></el-table-column>
+            <el-table-column label="数据范围" width="95"><template #default="{ row }">{{ SCOPE[row.data_scope] }}</template></el-table-column>
+            <el-table-column label="可见菜单" min-width="410">
               <template #default="{ row }">
                 <span v-for="m in row.menus" :key="m" class="jc-pill" style="margin: 2px">{{ roles.menus[m] || m }}</span>
               </template>
             </el-table-column>
-            <el-table-column width="90" align="center">
+            <el-table-column width="94" align="center">
               <template #default="{ row }">
-                <el-button link type="primary" @click="editRole(row)">调整</el-button>
+                <el-button v-if="canManage" link type="primary" @click="editRole(row)">调整规则</el-button>
                 <StatusPill v-if="row.customized" text="已定制" tone="info" />
               </template>
             </el-table-column>
           </el-table>
         </Panel>
+
+        <details class="account-details jc-card mt-16" @toggle="toggleAccountDetails">
+          <summary>账号明细 <span class="jc-muted jc-small">账号状态、联系方式和最近登录</span></summary>
+          <div v-if="accountDetailsOpen">
+            <div class="account-filters">
+              <el-input v-model="uf.keyword" placeholder="姓名 / 账号" aria-label="搜索账号" clearable size="small" style="width: 180px" @change="loadUsers(1)" />
+              <el-select v-model="uf.dept" placeholder="全部部门" aria-label="按部门筛选账号" clearable size="small" style="width: 138px" @change="loadUsers(1)">
+                <el-option v-for="dept in matrixDepartments" :key="dept.code" :label="dept.displayName" :value="dept.code" />
+              </el-select>
+            </div>
+            <el-table v-loading="usersLoading" :data="users.items">
+              <el-table-column label="姓名" width="120"><template #default="{ row }"><el-button link type="primary" @click="peopleCard.openPerson(row)">{{ row.name }}</el-button></template></el-table-column>
+              <el-table-column label="账号 / UserID" width="145"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
+              <el-table-column label="来源" width="110" prop="source" />
+              <el-table-column label="部门" width="120" prop="dept_name" />
+              <el-table-column label="职位" width="130" prop="position" />
+              <el-table-column label="手机" width="135"><template #default="{ row }">{{ row.mobile || '未返回' }}</template></el-table-column>
+              <el-table-column label="工作邮箱" width="185"><template #default="{ row }">{{ row.email || '未返回' }}</template></el-table-column>
+              <el-table-column label="角色" min-width="170">
+                <template #default="{ row }"><span v-for="code in row.roles" :key="code" class="jc-pill" style="margin: 2px">{{ roles.roles.find(r => r.code === code)?.name || code }}</span><span v-if="!row.roles.length" class="jc-muted">未分配角色</span></template>
+              </el-table-column>
+              <el-table-column label="状态" width="85">
+                <template #default="{ row }"><StatusPill :text="row.status === 1 ? '在职' : '停用'" :tone="row.status === 1 ? 'up' : 'down'" dot /></template>
+              </el-table-column>
+              <el-table-column label="MCP 令牌" width="90" align="center"><template #default="{ row }">{{ row.has_mcp_token ? '已生成' : '—' }}</template></el-table-column>
+              <el-table-column label="最近登录" width="150"><template #default="{ row }">{{ datetime(row.last_login_at) }}</template></el-table-column>
+              <el-table-column v-if="canManage" width="72" align="center">
+                <template #default="{ row }"><el-button link :type="row.status === 1 ? 'danger' : 'primary'" @click="toggleUser(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button></template>
+              </el-table-column>
+            </el-table>
+            <el-pagination class="accounts-pagination" v-if="users.total > 50" :current-page="uf.page" layout="total, prev, pager, next"
+                           :total="users.total" :page-size="50" @current-change="loadUsers" />
+          </div>
+        </details>
       </el-tab-pane>
 
       <!-- 字典口径 -->
@@ -236,38 +252,8 @@
       <template #footer><el-button @click="dictDlg = false">取消</el-button><el-button type="primary" @click="saveDict">保存</el-button></template>
     </el-dialog>
 
-    <el-drawer v-model="memberDrawer" :title="memberRole ? memberRole.name + ' · 角色人员' : '角色人员'" size="min(660px, 100vw)">
-      <el-input v-model="rolePeopleKeyword" clearable placeholder="搜索姓名或企业账号" @change="loadRoleMembers(1)" />
-      <el-table :data="rolePeople.items" class="mt-16" v-loading="rolePeopleLoading">
-        <el-table-column label="姓名" min-width="110"><template #default="{ row }"><el-button link type="primary" @click="inspectPermissions(row)">{{ row.name }}</el-button></template></el-table-column>
-        <el-table-column label="账号" prop="userid" min-width="130" />
-        <el-table-column label="部门" prop="department" min-width="110" />
-        <el-table-column label="状态" width="70"><template #default="{ row }">{{ row.status === 1 ? '启用' : '停用' }}</template></el-table-column>
-        <el-table-column label="最近登录" min-width="155"><template #default="{ row }">{{ datetime(row.last_login_at) }}</template></el-table-column>
-      </el-table>
-      <el-pagination class="mt-16" :current-page="rolePeople.page || 1" :page-size="30" :total="rolePeople.total || 0" layout="total, prev, pager, next" @current-change="loadRoleMembers" />
-    </el-drawer>
-
-    <el-dialog v-model="permissionDialog" title="个人有效权限" width="min(660px, 94vw)" append-to-body>
-      <div v-loading="permissionLoading" style="min-height: 92px">
-        <template v-if="effective">
-          <h3>{{ effective.name }} <span class="jc-muted jc-small">{{ effective.userid }}</span></h3>
-          <p v-if="!effective.active">账号停用，当前不可访问。</p>
-          <template v-else>
-            <p>角色：{{ effective.roles.map(code => roles.roles.find(r => r.code === code)?.name || code).join('、') }}</p>
-            <p>通用数据范围：{{ SCOPE[effective.data_scope] }}</p>
-            <p>运营项目：{{ effective.operations_manage_all ? '可管理全量' : effective.operations_all ? '可查看全量' : '按项目成员身份' }}<span v-if="effective.operations_archive"> · 已获任务作废权限</span></p>
-            <p>菜单：{{ effective.menus.join('、') }}</p>
-            <p class="permission-actions">操作权限：{{ effective.buttons.map(button => PRIVILEGES[button] || button).join('、') || '仅基础操作' }}</p>
-            <el-table v-if="effective.projects.length" :data="effective.projects" size="small">
-              <el-table-column label="所在运营项目" prop="name" min-width="145" />
-              <el-table-column label="项目角色" min-width="125"><template #default="{ row }">{{ PROJECT_ROLES[row.role] || row.role }}</template></el-table-column>
-            </el-table>
-          </template>
-          <p v-if="effective.last_login" class="jc-muted jc-small">最近登录：{{ datetime(effective.last_login.at) }} · {{ effective.last_login.method === 'wecom_oauth' ? '企业微信' : '账号口令' }}</p>
-        </template>
-      </div>
-    </el-dialog>
+    <DepartmentPermissions ref="peopleCard" :roles="roles.roles" :departments="matrixDepartments" :source="accountScope"
+                           :can-manage="canManage" :privileges="PRIVILEGES" @roles-changed="refreshPersonRoles" />
 
     <!-- 角色权限 -->
     <el-dialog v-model="roleDlg" :title="`调整角色：${roleForm.name}`" width="680px">
@@ -305,9 +291,10 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import SourceChecks from './SourceChecks.vue'
+import DepartmentPermissions from './admin/DepartmentPermissions.vue'
+import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 
-const DEPTS = [['ZB', '总经办'], ['CW', '财务部'], ['SC', '市场部'], ['YX', '营销管控部'], ['CP', '产品中心'], ['RS', '人事部'], ['XM', '项目部'], ['KF', '客服部'], ['ADMIN', '系统管理']]
 const SCOPE = { self: '本人', dept: '本部门', all: '全公司' }
 const DICT_NAMES = { business_line: '业务线', payment_target: '回款目标', opportunity_stage: '商机阶段', approval_template: '企微审批模板映射', expense_category: '费用类别', caliber: '统计口径', report_rule: '汇报提交规则', notify_rule: '推送规则', alert_rule: '预警规则', milestone_template: '项目流程模板', portal_cards: '门户卡片方案', bank_template: '银行流水模板', lemon_template: '柠檬云导出模板', attendance_rule: '考勤规则', attendance_template: '考勤导出模板', clean_template: '清洗模板', sign_target: '签约目标', cs_category: '客服问题分类' }
 const JOB_ST = { success: '成功', failed: '失败', running: '执行中', skipped: '已跳过' }
@@ -318,9 +305,15 @@ const VIA = { callback: '回调', reconcile: '兜底对账', manual: '人工重�
 const APR_OPTS = [{ label: '全部', value: -1 }, { label: '待人工', value: 2 }, { label: '待处理', value: 0 }, { label: '已登记', value: 1 }]
 
 const route = useRoute()
+const auth = useAuth()
+const canManage = computed(() => auth.profile?.is_admin === true)
 const tab = ref(route.query.tab || 'users')
 const users = ref({ items: [], total: 0 })
-const uf = reactive({ keyword: '', dept: '', source: '', page: 1 })
+const uf = reactive({ keyword: '', dept: '', page: 1 })
+const usersLoading = ref(false), accountDetailsOpen = ref(false)
+const accountSource = ref('all')
+const accountScope = computed(() => accountSource.value === 'all' ? '' : accountSource.value)
+const peopleCard = ref(null)
 const directory = ref({ ready: false, message: '正在读取公司通讯录状态' })
 const directoryPreview = ref(null)
 const directoryDialog = ref(false)
@@ -329,32 +322,34 @@ const connecting = ref(false)
 const connectionResult = ref(null)
 const connectionForm = reactive({ wecom_corp_id: '', wecom_agent_id: '', wecom_secret: '' })
 const secretConfigured = ref(false)
-const departmentOptions = computed(() => users.value.departments?.map((d) => [d.code, d.name]) || DEPTS)
-const roles = ref({ roles: [], menus: {} })
-const PRIVILEGES = { 'operations:manage': '运营项目全量管理', 'operations:view_all': '运营项目全量只读', 'operations:archive': '运营任务作废与恢复', 'collections:request': '回款催办', 'project:key': '重点项目管理' }
-const PROJECT_ROLES = { owner: '负责人', co_owner: '联合负责人', manager: '项目管理员', member: '执行成员', reviewer: '部门审核人', viewer: '只读' }
-const memberDrawer = ref(false), memberRole = ref(null), rolePeopleKeyword = ref(''), rolePeople = ref({ items: [] }), rolePeopleLoading = ref(false)
-const permissionDialog = ref(false), effective = ref(null), permissionLoading = ref(false)
-let memberRequest = 0, permissionRequest = 0
-function showRoleMembers(row) {
-  memberRole.value = row; rolePeopleKeyword.value = ''; rolePeople.value = { items: [] }; memberDrawer.value = true; loadRoleMembers(1)
+const roles = ref({ roles: [], menus: {}, departments: [], directory_total: 0 })
+const matrixLoading = ref(false), matrixError = ref('')
+let matrixRequest = 0, userRequest = 0, sourceResolved = false
+const PRIVILEGES = {
+  '*': '全部操作权限',
+  'operations:manage': '管理全部运营项目', 'operations:view_all': '查看全部运营项目',
+  'operations:archive': '作废与恢复运营任务', 'operations:approve': '审核运营任务',
+  'project:key': '管理重点项目', 'project:weekly': '导出项目周进度', 'milestone:write': '维护项目节点',
+  'feedback:write': '登记项目进展', 'review:write': '编辑项目复盘', 'intel:write': '维护竞品情报',
+  'contracts:write': '编辑合同', 'contracts:export': '导出合同', 'contracts:archive': '归档合同',
+  'collections:request': '催办回款', 'receivables:invoice': '登记开票', 'receivables:receipt': '登记到账',
+  'receivables:correct': '更正开票与到账', 'receivables:source': '核对开票与到账来源',
+  'expense:allocate': '归集项目报销', 'flows:import': '导入银行流水', 'flows:match': '核对银行流水',
+  'journal:write': '登记出纳日记账', 'finance:sync': '同步财务数据', 'tax:upload': '上传税务资料',
+  'cost:write': '登记项目成本', 'report:generate': '生成报表', 'board:target': '设置经营目标',
+  'opp:write': '维护商机', 'submissions:remind': '催交汇报', 'clean:import': '导入清洗数据',
+  'imports:handle': '处理待整理资料', 'tender:write': '编辑标书资料', 'kb:manage': '管理知识库',
+  'hr:write': '维护人事资料', 'hr:attendance': '维护考勤', 'ticket:write': '处理客服工单',
 }
-async function loadRoleMembers(page) {
-  const current = ++memberRequest
-  rolePeopleLoading.value = true
-  try {
-    const result = await api.get('/admin/roles/' + memberRole.value.code + '/members', { page, keyword: rolePeopleKeyword.value })
-    if (current === memberRequest) rolePeople.value = result
-  } catch {} finally { if (current === memberRequest) rolePeopleLoading.value = false }
-}
-async function inspectPermissions(row) {
-  const current = ++permissionRequest
-  permissionDialog.value = true; effective.value = null; permissionLoading.value = true
-  try {
-    const result = await api.get('/admin/users/' + row.id + '/effective-permissions')
-    if (current === permissionRequest) effective.value = result
-  } catch {} finally { if (current === permissionRequest) permissionLoading.value = false }
-}
+const matrixDepartments = computed(() => {
+  const departments = roles.value.departments || []
+  return departments.map(dept => {
+    const peers = departments.filter(item => item.name === dept.name)
+    const label = dept.directory ? '公司通讯录' : '本地'
+    const suffix = peers.length <= 1 ? '' : ' · ' + (peers.filter(item => item.directory === dept.directory).length === 1 ? label : dept.code)
+    return { ...dept, displayName: dept.name + suffix }
+  })
+})
 const dicts = ref([])
 const curType = ref('payment_target')
 const ds = ref({ sources: [] })
@@ -386,8 +381,49 @@ const dictTypes = computed(() => dicts.value.reduce((m, d) => ((m[d.dict_type] =
 const preview = (v) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s && s.length > 160 ? s.slice(0, 160) + '…' : s }
 const fmtFields = (f) => (f ? Object.entries(f).filter(([, v]) => v).map(([k, v]) => `${k}：${v}`).join('；') : '')
 
-async function loadUsers(p = uf.page) { uf.page = p; users.value = await api.get('/admin/users', { ...uf, page_size: 50 }) }
-async function loadRoles() { roles.value = await api.get('/admin/roles') }
+async function loadUsers(page = uf.page) {
+  uf.page = page
+  const current = ++userRequest
+  usersLoading.value = true
+  try {
+    const result = await api.get('/admin/users', { ...uf, source: accountScope.value, page_size: 50 })
+    if (current === userRequest) users.value = result
+  } catch { if (current === userRequest) users.value = { items: [], total: 0 } }
+  finally { if (current === userRequest) usersLoading.value = false }
+}
+async function loadRoles() {
+  const current = ++matrixRequest
+  matrixLoading.value = true
+  matrixError.value = ''
+  try {
+    let result = await api.get('/admin/roles', { source: accountScope.value }, { silent: true })
+    if (current !== matrixRequest) return
+    if (!sourceResolved && result.directory_total) {
+      accountSource.value = 'directory'
+      if (accountDetailsOpen.value) loadUsers(1)
+      result = await api.get('/admin/roles', { source: accountScope.value }, { silent: true })
+    }
+    if (current === matrixRequest) {
+      sourceResolved = true
+      roles.value = result
+    }
+  } catch (error) { if (current === matrixRequest) matrixError.value = error.message }
+  finally { if (current === matrixRequest) matrixLoading.value = false }
+}
+function changeAccountSource() {
+  sourceResolved = true; uf.dept = ''
+  loadRoles()
+  if (accountDetailsOpen.value) loadUsers(1)
+}
+function toggleAccountDetails(event) {
+  accountDetailsOpen.value = event.currentTarget.open
+  if (accountDetailsOpen.value) loadUsers()
+}
+function refreshPersonRoles(id) {
+  if (id === auth.profile?.id) auth.fetchMe().catch(() => {})
+  loadRoles()
+  if (accountDetailsOpen.value) loadUsers()
+}
 async function loadDicts() { dicts.value = await api.get('/admin/dicts') }
 async function loadJobs() { jobs.value = await api.get('/admin/jobs') }
 async function loadApprovals(p = af.page) {
@@ -396,10 +432,9 @@ async function loadApprovals(p = af.page) {
 }
 async function loadAudit(p = auf.page) { auf.page = p; aud.value = await api.get('/admin/audit', { action: auf.action, page: p, page_size: 30 }) }
 
-async function setRoles(row) { await api.put(`/admin/users/${row.id}/roles`, { role_codes: row.roles }); ElMessage.success('角色已更新'); loadRoles() }
 async function toggleUser(row) {
   await api.put(`/admin/users/${row.id}/status`, { status: row.status === 1 ? 2 : 1 })
-  ElMessage.success(row.status === 1 ? '已停用，MCP 令牌同时吊销' : '已启用'); loadUsers()
+  ElMessage.success(row.status === 1 ? '已停用，MCP 令牌同时吊销' : '已启用'); loadUsers(); loadRoles()
 }
 function editRole(r) { roleForm.value = JSON.parse(JSON.stringify(r)); roleDlg.value = true }
 async function saveRole() {
@@ -455,8 +490,10 @@ async function confirmDirectory() {
   syncing.value = true
   try {
     const result = await api.post('/admin/addressbook/sync', { preview_id: directoryPreview.value.preview_id })
-    ElMessage.success(result.message); directoryDialog.value = false; uf.source = 'directory'
-    await loadUsers(1); await loadRoles(); directory.value = await api.get('/admin/addressbook/status')
+    ElMessage.success(result.message); directoryDialog.value = false; accountSource.value = 'directory'; sourceResolved = true; uf.dept = ''
+    await loadRoles()
+    if (accountDetailsOpen.value) await loadUsers(1)
+    directory.value = await api.get('/admin/addressbook/status')
   } finally { syncing.value = false }
 }
 async function connectDirectory() {
@@ -496,13 +533,32 @@ async function copyDirectoryGuide() {
   try { await navigator.clipboard.writeText(guide); ElMessage.success('授权清单已复制') } catch { ElMessage.warning('复制失败，请从页面说明中手动复制') }
 }
 
-const loaders = { users: () => { loadUsers(1); loadRoles() }, dicts: loadDicts, sources: async () => { ds.value = await api.get('/admin/datasources'); wxMenu.value = await api.get('/admin/wecom/menu') }, jobs: loadJobs, approvals: () => loadApprovals(1), audit: () => loadAudit(1) }
+const loaders = { users: loadRoles, dicts: loadDicts, sources: async () => { ds.value = await api.get('/admin/datasources'); wxMenu.value = await api.get('/admin/wecom/menu') }, jobs: loadJobs, approvals: () => loadApprovals(1), audit: () => loadAudit(1) }
 watch(tab, (t) => loaders[t]?.())
-onMounted(() => { loaders[tab.value]?.(); if (tab.value !== 'users') loadRoles(); api.get('/admin/addressbook/status').then((result) => { directory.value = result }); if (route.query.connect === 'wecom') connectDirectory() })
+onMounted(() => { loaders[tab.value]?.(); api.get('/admin/addressbook/status').then((result) => { directory.value = result }); if (route.query.connect === 'wecom') connectDirectory() })
 </script>
 
 <style scoped>
-.permission-actions { overflow-wrap: anywhere; }
+.departments { padding: 15px 18px 17px; border-bottom: 1px solid var(--jc-line-2); }
+.departments header, .role-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; }
+.departments h4, .role-heading h4 { margin: 0; font-size: 14px; }
+.department-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 156px), 1fr)); gap: 8px; margin-top: 11px; }
+.department-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; min-height: 43px; padding: 7px 10px; text-align: left; background: var(--jc-surface); border: 1px solid var(--jc-line); color: var(--jc-ink); border-radius: var(--jc-radius-sm); cursor: pointer; font: inherit; font-size: 13px; }
+.department-card:hover { border-color: var(--jc-brand); background: var(--jc-brand-50); }
+.department-card:focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 2px; }
+.department-card strong { overflow-wrap: anywhere; }
+.department-card .jc-num { flex-shrink: 0; color: var(--jc-brand); font-size: 12px; }
+.department-card .jc-num span { padding-left: 2px; font-size: 15px; }
+.role-heading { padding: 12px 18px; border-bottom: 1px solid var(--jc-line-2); }
+.account-details summary { padding: 13px 18px; cursor: pointer; font-weight: 600; }
+.account-details summary span { margin-left: 6px; font-weight: 400; }
+.account-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 18px 12px; }
+.accounts-pagination { padding: 12px 18px; }
+@media (max-width: 520px) {
+  .departments, .role-heading { padding-inline: 12px; }
+  .department-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .role-matrix :deep(.hd) { align-items: flex-start; flex-direction: column; }
+}
 .directory-message { margin: 0; line-height: 1.7; }
 .directory-warnings { line-height: 1.8; padding-left: 20px; }
 .directory-archive { margin-top: 16px; line-height: 1.8; }
