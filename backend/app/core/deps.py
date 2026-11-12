@@ -2,10 +2,11 @@
 from dataclasses import dataclass, field
 
 from fastapi import Depends, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.permissions import PUBLIC_MENUS, ROLE_DEFS
+from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS
 from app.core.response import BizError, forbidden
 from app.core.security import decode_jwt, password_version
 from app.models import SysUser
@@ -41,7 +42,7 @@ class Principal:
         return menu in self.menus
 
 
-def build_principal(user: SysUser) -> Principal:
+def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
     codes = [r.role_code for r in user.roles] or ["EMP"]
     menus, buttons, scope, portal = set(PUBLIC_MENUS), set(), "self", "employee"
     best_portal_rank = -1
@@ -59,7 +60,22 @@ def build_principal(user: SysUser) -> Principal:
         rank = list(ROLE_DEFS).index(code) if code in ROLE_DEFS else 99
         if best_portal_rank == -1 or rank < best_portal_rank:
             best_portal_rank, portal = rank, perm.get("portal", portal)
+    individual = user.permission_override if not inherit_only and "ADMIN-01" not in codes else None
+    if individual is not None:
+        menus = set(individual.menus) & set(MENUS)
+        menus.add("portal")
+        buttons = set(individual.buttons) - {"*"}
+        scope = individual.data_scope
     return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal)
+
+
+def owner_scope(column, p):
+    """Shared owner-based scope for contract/opportunity lists and direct links."""
+    if p is None or p.data_scope == "all":
+        return True
+    if p.data_scope == "dept" and p.user.department_id:
+        return column.in_(select(SysUser.id).where(SysUser.department_id == p.user.department_id))
+    return column == p.id
 
 
 def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:

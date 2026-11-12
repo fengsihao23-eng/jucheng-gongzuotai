@@ -18,14 +18,21 @@ const task = await call('admin', 'POST', '/operations/' + project.id + '/tasks',
 const page = await loginPage(browser, 'admin')
 const waitFor = async (locator) => locator.waitFor({ state: 'visible', timeout: 10000 })
 
-await step('A01', '角色人数下钻及实名权限', async () => {
+await step('A01', '角色规则已收进部门卡片', async () => {
   await page.goto(WEB + '/admin')
-  const row = page.getByRole('row').filter({ has: page.getByText('ADMIN-01', { exact: true }) })
-  await row.getByRole('button').first().click()
-  const people = page.getByRole('dialog', { name: /角色人员/ })
-  await waitFor(people.getByText('admin', { exact: true }))
-  await people.getByRole('button', { name: '查看 ' + admin.name + ' 的权限', exact: true }).click()
-  await waitFor(page.getByRole('dialog', { name: '个人有效权限', exact: true }).getByText('可管理全量', { exact: false }))
+  await waitFor(page.getByRole('button', { name: /^财务部，/ }))
+  assert.equal(await page.locator('.role-matrix .el-table').count(), 0)
+  await page.getByRole('button', { name: /^财务部，/ }).click()
+  const people = page.getByRole('dialog', { name: '财务部 · 部门人员' })
+  await people.getByRole('tab', { name: '角色规则', exact: true }).click()
+  await waitFor(people.getByRole('region', { name: '本部门角色规则' }).or(people.locator('.department-rules')))
+  const rule = people.locator('.role-rule').filter({ hasText: 'CW-01' })
+  await waitFor(rule.getByText('可见菜单', { exact: true }))
+  const filtered = page.waitForResponse(res => res.url().includes('/admin/users') && new URL(res.url()).searchParams.get('role') === 'CW-01')
+  await rule.getByRole('button', { name: /人/ }).click()
+  await filtered
+  assert.ok(await people.getByRole('tab', { name: '部门人员' }).getAttribute('aria-selected') === 'true')
+  await people.screenshot({ path: OUT + '/screens/department-roster.png', animations: 'disabled' })
 })
 
 await step('A02', '部门卡按角色筛选并仅授权所选员工', async () => {
@@ -46,16 +53,15 @@ await step('A02', '部门卡按角色筛选并仅授权所选员工', async () =
     await people.getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }).click()
     const card = page.getByRole('dialog', { name: '个人有效权限', exact: true })
     await waitFor(card.getByRole('heading', { name: finance.name, exact: true }))
-    await card.locator('.grant .el-select__wrapper').click()
+    await card.locator('.grant > .el-select .el-select__wrapper').click()
     await page.getByRole('option', { name: added === 'KB-01' ? /知识库管理员/ : /普通员工/ }).click()
     await card.getByRole('heading', { name: finance.name, exact: true }).click()
     await waitFor(card.getByText(/将新增/))
     assert.deepEqual((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).assigned_roles, before.assigned_roles)
-    const saved = page.waitForResponse(res => res.url().endsWith('/admin/users/' + finance.id + '/roles') && res.request().method() === 'PUT')
+    const saved = page.waitForResponse(res => res.url().endsWith('/admin/users/' + finance.id + '/permissions') && res.request().method() === 'PUT')
     await card.getByRole('button', { name: '保存此人权限' }).click()
     assert.equal((await saved).status(), 200)
-    const addedName = added === 'KB-01' ? '知识库管理员' : '普通员工'
-    await waitFor(card.locator('dd').filter({ hasText: addedName }).first())
+    await card.locator('.grant > .el-select .el-tag').filter({ hasText: added === 'KB-01' ? '知识库管理员' : '普通员工' }).waitFor()
     assert.ok((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).assigned_roles.includes(added))
     assert.deepEqual((await call('admin', 'GET', '/admin/users/' + peer.id + '/effective-permissions')).assigned_roles, peerBefore.assigned_roles)
     await card.screenshot({ path: OUT + '/screens/person-permissions.png', animations: 'disabled' })
@@ -73,7 +79,66 @@ await step('A02', '部门卡按角色筛选并仅授权所选员工', async () =
     await mobileCard.screenshot({ path: OUT + '/screens/department-mobile.png', animations: 'disabled' })
     return true
   } finally {
-    await call('admin', 'PUT', '/admin/users/' + finance.id + '/roles', { role_codes: before.assigned_roles })
+    const current = await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')
+    await call('admin', 'PUT', '/admin/users/' + finance.id + '/permissions', {
+      role_codes: before.assigned_roles, permissions: before.individual_permissions, expected_revision: current.permission_revision,
+    })
+  }
+})
+
+await step('A03', '个人小卡直接配置菜单、操作和范围，保存后生效', async () => {
+  const finance = (await call('admin', 'GET', '/admin/users', { keyword: 'chenjing' })).items[0]
+  const before = await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')
+  const peer = (await call('admin', 'GET', '/admin/users', { keyword: 'zhaoli' })).items[0]
+  const peerBefore = await call('admin', 'GET', '/admin/users/' + peer.id + '/effective-permissions')
+  try {
+    await page.goto(WEB + '/admin')
+    await page.getByRole('button', { name: /^财务部，/ }).click()
+    const people = page.getByRole('dialog', { name: '财务部 · 部门人员' })
+    await people.getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }).click()
+    const card = page.getByRole('dialog', { name: '个人有效权限', exact: true })
+    await card.getByText('单独配置', { exact: true }).click()
+    await card.locator('.personal-settings .el-radio').filter({ hasText: '本人' }).click()
+    await card.locator('.personal-settings .el-checkbox').filter({ hasText: '流水核对' }).click()
+    await card.locator('.personal-settings .el-checkbox').filter({ hasText: '客服工单' }).click()
+    await card.locator('.personal-settings .el-select__wrapper').click()
+    await page.getByRole('option', { name: '处理客服工单', exact: true }).click()
+    await page.getByRole('option', { name: '归集项目报销', exact: true }).click()
+    await card.getByRole('heading', { name: finance.name, exact: true }).click()
+    assert.equal((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).permission_revision, before.permission_revision)
+    const saved = page.waitForResponse(res => res.url().endsWith('/admin/users/' + finance.id + '/permissions') && res.request().method() === 'PUT')
+    await card.getByRole('button', { name: '保存此人权限' }).click()
+    assert.equal((await saved).status(), 200)
+    await waitFor(card.locator('.personal-settings'))
+    const actual = await call('chenjing', 'GET', '/auth/me')
+    assert.equal(actual.data_scope, 'self')
+    assert.ok(!actual.menus.includes('flows') && actual.menus.includes('service'))
+    assert.ok(actual.buttons.includes('ticket:write') && !actual.buttons.includes('expense:allocate'))
+    assert.equal((await call('chenjing', 'GET', '/flows', undefined, { raw: true })).status, 403)
+    assert.deepEqual((await call('admin', 'GET', '/admin/users/' + peer.id + '/effective-permissions')).permission_revision, peerBefore.permission_revision)
+    await card.screenshot({ path: OUT + '/screens/personal-configuration.png', animations: 'disabled' })
+
+    const mobile = await loginPage(browser, 'admin', { width: 390, height: 844 })
+    await mobile.goto(WEB + '/admin')
+    await mobile.getByRole('button', { name: /^财务部，/ }).click()
+    await mobile.getByRole('dialog', { name: '财务部 · 部门人员' }).getByRole('button', { name: '查看 ' + finance.name + ' 的权限' }).click()
+    const mobileCard = mobile.getByRole('dialog', { name: '个人有效权限', exact: true })
+    await waitFor(mobileCard.locator('.personal-settings'))
+    const box = await mobileCard.boundingBox()
+    assert.ok(box.x >= 0 && box.x + box.width <= 391)
+    assert.ok(await mobileCard.evaluate(el => el.scrollWidth <= el.clientWidth + 1))
+    await mobileCard.screenshot({ path: OUT + '/screens/personal-mobile.png', animations: 'disabled' })
+
+    await card.getByText('沿用角色', { exact: true }).click()
+    const restored = page.waitForResponse(res => res.url().endsWith('/admin/users/' + finance.id + '/permissions') && res.request().method() === 'PUT')
+    await card.getByRole('button', { name: '保存此人权限' }).click()
+    assert.equal((await restored).status(), 200)
+    assert.equal((await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')).individual_permissions, null)
+  } finally {
+    const current = await call('admin', 'GET', '/admin/users/' + finance.id + '/effective-permissions')
+    await call('admin', 'PUT', '/admin/users/' + finance.id + '/permissions', {
+      role_codes: before.assigned_roles, permissions: before.individual_permissions, expected_revision: current.permission_revision,
+    })
   }
 })
 

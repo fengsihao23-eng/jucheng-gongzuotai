@@ -17,6 +17,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
+from app.core.deps import owner_scope
 from app.core.response import BizError, bad_request, not_found
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import month_range, today, utcnow, week_range
@@ -43,8 +44,7 @@ def filtered(p, *, business_line: str = "", customer: str = "", status: int | No
              keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
              region: str = "", sign_period: str = ""):
     q = select(BizContract).where(BizContract.is_deleted.is_(False))
-    if p is not None and p.data_scope == "self":
-        q = q.where(BizContract.owner_id == p.id)
+    q = q.where(owner_scope(BizContract.owner_id, p))
     if business_line:
         q = q.where(BizContract.business_line == business_line)
     if region:
@@ -233,7 +233,8 @@ def get_contract(db: Session, cid: int, p=None) -> BizContract:
     c = db.get(BizContract, cid)
     if not c or c.is_deleted:
         raise not_found("合同")
-    if p is not None and p.data_scope == "self" and c.owner_id != p.id:
+    if p is not None and not db.scalar(select(BizContract.id).where(BizContract.id == cid,
+                                                                    owner_scope(BizContract.owner_id, p))):
         raise BizError(40301, "无权查看该合同")
     return c
 

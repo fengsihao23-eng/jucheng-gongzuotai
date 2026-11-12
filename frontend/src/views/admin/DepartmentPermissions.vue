@@ -1,45 +1,65 @@
 <template>
   <el-dialog v-model="open" :title="person ? '个人有效权限' : roster?.title || '人员名单'"
-             class="department-permissions" width="min(650px, calc(100vw - 28px))" top="7vh" append-to-body
+             class="department-permissions" width="min(740px, calc(100vw - 28px))" top="7vh" append-to-body
              :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" @close="invalidate">
     <template v-if="!person && roster">
-      <div class="roster-tools">
-        <el-input v-model="keyword" clearable aria-label="搜索姓名或账号" placeholder="搜索姓名或账号" @input="scheduleSearch" />
-        <span class="jc-muted jc-small" aria-live="polite">共 {{ people.total }} 人</span>
-      </div>
-      <div v-if="roster.kind === 'department' && departmentRoles.length" class="role-filters" aria-label="按角色筛选">
-        <button type="button" :aria-pressed="!roleFilter" @click="filterRole('')">全部角色</button>
-        <button v-for="role in departmentRoles" :key="role.code" type="button" :aria-pressed="roleFilter === role.code"
-                @click="filterRole(role.code)">{{ role.name }} <span class="jc-num">{{ role.count }}</span></button>
-      </div>
-      <div v-loading="membersLoading" class="member-results">
-        <div v-if="membersError" class="read-error">{{ membersError }} <el-button link type="primary" @click="loadMembers(people.page)">重试</el-button></div>
-        <el-empty v-else-if="!people.items.length && !membersLoading" :description="keyword ? '没有匹配的人员' : '此范围暂无人员'" :image-size="54" />
-        <ul v-else class="people-list">
-          <li v-for="row in people.items" :key="row.id">
-            <button type="button" class="person-row" :aria-label="'查看 ' + row.name + ' 的权限'" @click="inspect(row)">
-              <span class="initial" aria-hidden="true">{{ row.name.slice(0, 1) }}</span>
-              <span class="person-main">
-                <span class="person-heading">
-                  <strong>{{ row.name }}</strong>
-                  <small v-if="row.status !== 1" class="inactive">停用</small>
-                  <span class="person-id">{{ row.userid }}</span>
-                </span>
-                <span v-if="row.position || roster.kind === 'role'" class="jc-muted jc-small person-meta">
-                  {{ [roster.kind === 'role' ? row.dept_name || '未分配部门' : '', row.position].filter(Boolean).join(' · ') }}
-                </span>
-                <span class="role-tags">
-                  <span v-for="code in row.roles" :key="code" class="jc-pill">{{ roleName(code) }}</span>
-                  <span v-if="!row.roles.length" class="jc-muted jc-small">未分配角色</span>
-                </span>
-              </span>
-              <span class="person-action" aria-hidden="true">查看权限 <span>›</span></span>
-            </button>
-          </li>
-        </ul>
-      </div>
-      <el-pagination v-if="people.total > pageSize" :current-page="people.page" :page-size="pageSize" :total="people.total"
-                     layout="prev, pager, next" :pager-count="5" @current-change="loadMembers" />
+      <el-tabs v-model="rosterTab" aria-label="部门权限内容">
+        <el-tab-pane label="部门人员" name="people">
+          <div class="roster-tools">
+            <el-input v-model="keyword" clearable aria-label="搜索姓名或账号" placeholder="搜索姓名或账号" @input="scheduleSearch" />
+            <span class="jc-muted jc-small" aria-live="polite">共 {{ people.total }} 人</span>
+          </div>
+          <div v-if="roster.kind === 'department' && departmentRoles.length" class="role-filters" aria-label="按角色筛选">
+            <button type="button" :aria-pressed="!roleFilter" @click="filterRole('')">全部角色</button>
+            <button v-for="role in departmentRoles" :key="role.code" type="button" :aria-pressed="roleFilter === role.code"
+                    @click="filterRole(role.code)">{{ role.name }} <span class="jc-num">{{ role.count }}</span></button>
+          </div>
+          <div v-loading="membersLoading" class="member-results">
+            <div v-if="membersError" class="read-error">{{ membersError }} <el-button link type="primary" @click="loadMembers(people.page)">重试</el-button></div>
+            <el-empty v-else-if="!people.items.length && !membersLoading" :description="keyword ? '没有匹配的人员' : '此范围暂无人员'" :image-size="54" />
+            <ul v-else class="people-list">
+              <li v-for="row in people.items" :key="row.id">
+                <button type="button" class="person-row" :aria-label="'查看 ' + row.name + ' 的权限'" @click="inspect(row)">
+                  <span class="initial" aria-hidden="true">{{ row.name.slice(0, 1) }}</span>
+                  <span class="person-main">
+                    <span class="person-heading">
+                      <strong>{{ row.name }}</strong>
+                      <small v-if="row.status !== 1" class="inactive">停用</small>
+                      <span class="person-id">{{ row.userid }}</span>
+                    </span>
+                    <span v-if="row.position || roster.kind === 'role'" class="jc-muted jc-small person-meta">
+                      {{ [roster.kind === 'role' ? row.dept_name || '未分配部门' : '', row.position].filter(Boolean).join(' · ') }}
+                    </span>
+                    <span class="role-tags">
+                      <span v-for="code in row.roles" :key="code" class="jc-pill">{{ roleName(code) }}</span>
+                      <span v-if="!row.roles.length" class="jc-muted jc-small">未分配角色</span>
+                    </span>
+                  </span>
+                  <span class="person-action" aria-hidden="true">查看权限 <span>›</span></span>
+                </button>
+              </li>
+            </ul>
+          </div>
+          <el-pagination v-if="people.total > pageSize" :current-page="people.page" :page-size="pageSize" :total="people.total"
+                         layout="prev, pager, next" :pager-count="5" @current-change="loadMembers" />
+        </el-tab-pane>
+        <el-tab-pane label="角色规则" name="rules">
+          <p class="jc-muted jc-small">本部门成员拥有的角色及默认权限。员工可在人员卡片中单独配置。</p>
+          <div class="department-rules" aria-label="本部门角色规则">
+            <article v-for="role in departmentRoles" :key="role.code" class="role-rule">
+              <header><div><b>{{ role.name }}</b><span class="jc-mono jc-muted jc-small">{{ role.code }}</span></div>
+                <el-button link type="primary" @click="rosterTab = 'people'; filterRole(role.code)">{{ role.count }} 人</el-button>
+              </header>
+              <dl><div><dt>数据范围</dt><dd>{{ SCOPE[role.data_scope] }}</dd></div>
+                <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="key in role.menus" :key="key" class="jc-pill">{{ menus[key] || key }}</span><span v-if="!role.menus.length" class="jc-muted">仅公共入口</span></dd></div>
+                <div><dt>操作权限</dt><dd class="role-tags"><span v-for="key in role.buttons" :key="key" class="jc-pill">{{ privileges[key] || key }}</span><span v-if="!role.buttons.length" class="jc-muted">仅基础操作</span></dd></div>
+              </dl>
+              <el-button v-if="canManage" link type="primary" @click="emit('edit-role', role)">调整角色规则</el-button>
+            </article>
+            <el-empty v-if="!departmentRoles.length" description="此部门尚未分配角色" :image-size="48" />
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <template v-if="person">
@@ -57,7 +77,7 @@
           </div>
 
           <section v-if="canManage" class="grant">
-            <label for="employee-role-grants">授予角色</label>
+            <label for="employee-role-grants">角色身份</label>
             <el-select id="employee-role-grants" v-model="draft" aria-label="授予角色" multiple filterable
                        placeholder="选择这个人的角色" :disabled="saving || stale" style="width: 100%">
               <el-option v-for="role in roles" :key="role.code" :label="role.name" :value="role.code">
@@ -65,17 +85,51 @@
                 <span class="option-scope jc-muted jc-small">{{ SCOPE[role.data_scope] }}</span>
               </el-option>
             </el-select>
-            <div v-if="changed" class="grant-preview jc-small">
+            <div v-if="added.length || removed.length" class="grant-preview jc-small">
               <span v-if="added.length">将新增：{{ added.map(roleName).join('、') }}</span>
               <span v-if="removed.length">将移除：{{ removed.map(roleName).join('、') }}</span>
             </div>
+
+            <div class="permission-source">
+              <b>权限配置</b>
+              <el-radio-group v-model="mode" aria-label="个人权限配置方式" :disabled="saving || stale || administrator" @change="changeMode">
+                <el-radio-button value="role">沿用角色</el-radio-button><el-radio-button value="personal">单独配置</el-radio-button>
+              </el-radio-group>
+            </div>
+            <p v-if="administrator" class="jc-muted jc-small grant-note">平台管理员保留完整管理权限。</p>
+            <p v-else class="jc-muted jc-small grant-note">{{ mode === 'personal' ? '以下设置仅作用于这个人，保存后生效。' : '使用所选角色的默认权限；需要单独调整时选择「单独配置」。' }}</p>
+
+            <el-form v-if="mode === 'personal'" :model="permissionDraft" label-position="top" :disabled="saving || stale" class="personal-settings">
+              <el-form-item label="数据范围">
+                <el-radio-group v-model="permissionDraft.data_scope" aria-label="个人数据范围">
+                  <el-radio value="self">本人</el-radio><el-radio value="dept">本部门</el-radio><el-radio value="all">全公司</el-radio>
+                </el-radio-group>
+                <span class="jc-muted jc-small scope-note">合同、商机和项目按此范围查询；运营项目仍按成员授权。</span>
+              </el-form-item>
+              <el-form-item label="可见菜单">
+                <el-checkbox-group v-model="permissionDraft.menus" aria-label="个人可见菜单" class="menu-choices">
+                  <el-checkbox v-for="(label, key) in menus" :key="key" :value="key" :disabled="key === 'portal'">{{ label }}</el-checkbox>
+                </el-checkbox-group>
+              </el-form-item>
+              <el-form-item label="操作权限">
+                <el-select v-model="permissionDraft.buttons" aria-label="个人操作权限" multiple filterable placeholder="选择允许执行的操作" style="width: 100%">
+                  <el-option v-for="(label, key) in actionOptions" :key="key" :label="label" :value="key" />
+                </el-select>
+              </el-form-item>
+              <el-button link type="primary" @click="copyRoleDefaults">重新带入角色默认权限</el-button>
+            </el-form>
+            <dl v-else class="role-defaults">
+              <div><dt>数据范围</dt><dd>{{ SCOPE[roleDefaults.data_scope] }}</dd></div>
+              <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="key in roleDefaults.menus" :key="key" class="jc-pill">{{ menus[key] || key }}</span></dd></div>
+              <div><dt>操作权限</dt><dd class="role-tags"><span v-for="key in roleDefaults.buttons" :key="key" class="jc-pill">{{ privileges[key] || key }}</span><span v-if="!roleDefaults.buttons.length" class="jc-muted">仅基础操作</span></dd></div>
+            </dl>
             <div v-if="saveError" class="read-error" role="alert">{{ saveError }}
               <el-button v-if="stale" link type="primary" @click="inspect(person)">重新查看</el-button>
             </div>
           </section>
 
           <p v-if="!effective.active" class="jc-muted">账号已停用，启用后角色权限才会生效。</p>
-          <template v-else>
+          <template v-if="!canManage && effective.active">
             <dl class="permission-sections">
               <div><dt>当前生效角色</dt><dd>{{ effective.roles.map(roleName).join('、') }}</dd></div>
               <div><dt>数据范围</dt><dd>{{ SCOPE[effective.data_scope] }}</dd></div>
@@ -101,7 +155,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
@@ -112,16 +166,19 @@ const props = defineProps({
   source: { type: String, default: '' },
   canManage: Boolean,
   privileges: { type: Object, required: true },
+  menus: { type: Object, required: true },
+  publicMenus: { type: Array, default: () => ['portal', 'kb', 'imports', 'mcp', 'operations'] },
 })
-const emit = defineEmits(['roles-changed'])
+const emit = defineEmits(['roles-changed', 'edit-role'])
 const SCOPE = { self: '本人', dept: '本部门', all: '全公司' }
 const PROJECT_ROLES = { owner: '负责人', co_owner: '联合负责人', manager: '项目管理员', member: '执行成员', reviewer: '部门审核人', viewer: '只读' }
 const pageSize = 12
-const open = ref(false), roster = ref(null), person = ref(null)
+const open = ref(false), roster = ref(null), person = ref(null), rosterTab = ref('people')
 const people = ref({ items: [], total: 0, page: 1 }), keyword = ref(''), roleFilter = ref('')
 const membersLoading = ref(false), membersError = ref('')
 const effective = ref(null), permissionLoading = ref(false), permissionError = ref('')
-const draft = ref([]), saving = ref(false), saveError = ref(''), stale = ref(false)
+const draft = ref([]), mode = ref('role'), permissionDraft = reactive({ menus: [], buttons: [], data_scope: 'self' })
+const saving = ref(false), saveError = ref(''), stale = ref(false)
 let memberRequest = 0, permissionRequest = 0, searchTimer
 const roleNames = computed(() => new Map(props.roles.map(role => [role.code, role.name])))
 const roleName = code => roleNames.value.get(code) || code
@@ -131,7 +188,33 @@ const departmentRoles = computed(() => {
 })
 const added = computed(() => draft.value.filter(code => !effective.value?.assigned_roles.includes(code)))
 const removed = computed(() => (effective.value?.assigned_roles || []).filter(code => !draft.value.includes(code)))
-const changed = computed(() => Boolean(added.value.length || removed.value.length))
+const normalized = value => value ? ({ menus: [...new Set(value.menus)].sort(), buttons: [...new Set(value.buttons)].sort(), data_scope: value.data_scope }) : null
+const administrator = computed(() => draft.value.includes('ADMIN-01'))
+watch(administrator, value => { if (value) mode.value = 'role' })
+const actionOptions = computed(() => Object.fromEntries(Object.entries(props.privileges).filter(([key]) => key !== '*')))
+const roleDefaults = computed(() => {
+  const menus = new Set(props.publicMenus.length ? props.publicMenus : ['portal', 'kb', 'imports', 'mcp', 'operations'])
+  const buttons = new Set()
+  const order = { self: 0, dept: 1, all: 2 }
+  let data_scope = 'self'
+  const codes = draft.value.length ? draft.value : ['EMP']
+  for (const code of codes) {
+    const role = props.roles.find(row => row.code === code)
+    if (!role) continue
+    role.menus.forEach(key => menus.add(key))
+    role.buttons.forEach(key => buttons.add(key))
+    if (order[role.data_scope] > order[data_scope]) data_scope = role.data_scope
+  }
+  return normalized({ menus: [...menus], buttons: [...buttons], data_scope })
+})
+const changed = computed(() => Boolean(added.value.length || removed.value.length) ||
+  Boolean(effective.value && JSON.stringify(mode.value === 'personal' ? normalized(permissionDraft) : null) !==
+    JSON.stringify(normalized(effective.value.individual_permissions))))
+function copyRoleDefaults() {
+  const value = roleDefaults.value
+  Object.assign(permissionDraft, { menus: [...value.menus], buttons: value.buttons.filter(key => key !== '*'), data_scope: value.data_scope })
+}
+function changeMode(value) { if (value === 'personal') copyRoleDefaults() }
 
 function invalidate() {
   clearTimeout(searchTimer)
@@ -145,6 +228,7 @@ function showRoster(context) {
   person.value = null
   keyword.value = ''
   roleFilter.value = ''
+  rosterTab.value = 'people'
   people.value = { items: [], total: 0, page: 1 }
   open.value = true
   loadMembers(1)
@@ -197,6 +281,9 @@ async function inspect(row) {
     if (current === permissionRequest) {
       effective.value = result
       draft.value = [...result.assigned_roles]
+      mode.value = result.individual_permissions ? 'personal' : 'role'
+      const config = result.individual_permissions || result.inherited_permissions
+      Object.assign(permissionDraft, { menus: [...config.menus], buttons: config.buttons.filter(key => key !== '*'), data_scope: config.data_scope })
     }
   } catch (error) {
     if (current === permissionRequest) permissionError.value = error.message
@@ -208,9 +295,10 @@ async function save() {
   saving.value = true
   saveError.value = ''
   try {
-    await api.put('/admin/users/' + row.id + '/roles',
-      { role_codes: draft.value, expected_role_codes: effective.value.assigned_roles }, { silent: true })
-    ElMessage.success('已更新 ' + row.name + ' 的角色')
+    await api.put('/admin/users/' + row.id + '/permissions',
+      { role_codes: draft.value, permissions: mode.value === 'personal' ? normalized(permissionDraft) : null,
+        expected_revision: effective.value.permission_revision }, { silent: true })
+    ElMessage.success('已更新 ' + row.name + ' 的权限')
     emit('roles-changed', row.id)
     if (roster.value) loadMembers(people.value.page)
     await inspect(row)
@@ -257,9 +345,27 @@ async function save() {
 .permission-sections > div { display: grid; grid-template-columns: 94px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--jc-line-2); }
 .permission-sections dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .role-tags .jc-pill { white-space: normal; }
+.permission-source { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.grant-note { margin: 0; }
+.menu-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 8px; width: 100%; }
+.menu-choices .el-checkbox { margin-right: 0; min-width: 0; }
+.menu-choices :deep(.el-checkbox__label) { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+.scope-note { width: 100%; line-height: 1.6; }
+.personal-settings .el-form-item { margin-bottom: 11px; }
+.personal-settings .el-form-item:last-of-type { margin-bottom: 6px; }
+.role-defaults, .role-rule dl { margin: 2px 0 0; }
+.role-defaults > div, .role-rule dl > div { display: grid; grid-template-columns: 78px 1fr; gap: 6px; padding: 5px 0; }
+.role-defaults dd, .role-rule dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.role-defaults dt, .role-rule dt { font-size: 12px; color: var(--jc-ink-2); }
+.department-rules { display: grid; gap: 10px; }
+.role-rule { padding: 12px; border: 1px solid var(--jc-line); border-radius: var(--jc-radius); }
+.role-rule header { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.role-rule header > div { display: grid; gap: 2px; }
+.role-rule > .el-button { margin-top: 6px; }
 .projects summary { cursor: pointer; color: var(--jc-brand); }
 .projects ul { margin: 5px 0 8px; padding-left: 20px; }
 @media (max-width: 520px) {
+  .menu-choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .person-action { font-size: 0; }
   .permission-sections > div { grid-template-columns: 78px 1fr; }
 }

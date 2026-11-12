@@ -13,6 +13,23 @@ MENUS = {
     "tender": "标书助手", "kb": "知识库", "imports": "资料导入", "clean": "数据清洗", "mcp": "WorkBuddy 接入", "admin": "系统管理",
 }
 
+# Known business actions, also used by the per-person authorization form.
+BUTTONS = {
+    "operations:manage": "管理全部运营项目", "operations:view_all": "查看全部运营项目",
+    "operations:archive": "作废与恢复运营任务", "operations:approve": "审核运营任务",
+    "project:key": "管理重点项目", "project:weekly": "导出项目周进度", "milestone:write": "维护项目节点",
+    "feedback:write": "登记项目进展", "review:write": "编辑项目复盘", "intel:write": "维护竞品情报",
+    "contracts:write": "编辑合同", "contracts:export": "导出合同", "contracts:archive": "归档合同",
+    "collections:request": "催办回款", "receivables:invoice": "登记开票", "receivables:receipt": "登记到账",
+    "receivables:correct": "更正开票与到账", "receivables:source": "核对开票与到账来源",
+    "expense:allocate": "归集项目报销", "flows:import": "导入银行流水", "flows:match": "核对银行流水",
+    "journal:write": "登记出纳日记账", "finance:sync": "同步财务数据", "tax:upload": "上传税务资料",
+    "cost:write": "登记项目成本", "report:generate": "生成报表", "board:target": "设置经营目标",
+    "opp:write": "维护商机", "submissions:remind": "催交汇报", "clean:import": "导入清洗数据",
+    "imports:handle": "处理待整理资料", "tender:write": "编辑标书资料", "kb:manage": "管理知识库",
+    "hr:write": "维护人事资料", "hr:attendance": "维护考勤", "ticket:write": "处理客服工单",
+}
+
 # 全员可见
 PUBLIC_MENUS = ["portal", "kb", "imports", "mcp", "operations"]  # 运营项目数据另按项目成员隔离
 

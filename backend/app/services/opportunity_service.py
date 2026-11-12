@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
+from app.core.deps import owner_scope
 from app.core.response import bad_request, conflict
 from app.core.timeutil import TZ, day_bounds, month_range, today, week_range
 from app.models import BizOpportunity, LogOperation, SysUser
@@ -46,8 +47,7 @@ def _filtered(p, *, stage: str = "", business_line: str = "", owner_id: int | No
               start: date | None = None, end: date | None = None, source: int | None = None, keyword: str = "",
               status: str = ""):
     q = select(BizOpportunity).where(BizOpportunity.is_deleted.is_(False))
-    if p is not None and p.data_scope == "self":
-        q = q.where(BizOpportunity.owner_id == p.id)
+    q = q.where(owner_scope(BizOpportunity.owner_id, p))
     if stage:
         q = q.where(BizOpportunity.stage.in_(stage.split(",")))
     if business_line:

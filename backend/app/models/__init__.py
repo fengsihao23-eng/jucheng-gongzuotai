@@ -11,3 +11,4 @@ from app.models.ext_operations_progress import OpsProjectProgress  # noqa: F401
 from app.models.ext_operations_delay import OpsTaskDelay  # noqa: F401
 from app.models.ext_workbench import (BizCollectionEntry, BizCollectionFollowup, BizProjectFollowSetting,  # noqa: F401
                                       OpsTaskAudience, OpsTaskPolicy)
+from app.models.ext_personal_permissions import SysUserPermission  # noqa: F401

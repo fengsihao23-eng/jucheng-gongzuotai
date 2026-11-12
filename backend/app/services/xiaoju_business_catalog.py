@@ -49,7 +49,7 @@ ROUTE_EXCLUSIONS = {
     "wecom_personal.bind_start", "wecom_personal.bind_status", "wecom_personal.bind_qr", "wecom_personal.bind_cancel",
     "wecom_console.put_credential",
     # Recent-login operations and reviewed external-source workflows stay in their own UI.
-    "admin.set_roles", "admin.set_status", "admin.update_role",
+    "admin.set_roles", "admin.set_status", "admin.update_role", "admin.set_personal_permissions",
     "operations.delete_task", "operations.archive_operation_task", "operations.restore_operation_task",
     "operations.preview_campus_income", "operations.confirm_campus_income",
     "source_checks.finance_sources", "source_checks.save_source", "source_checks.start_read", "source_checks.read_status",

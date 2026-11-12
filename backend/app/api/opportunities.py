@@ -47,7 +47,7 @@ def _filters(stage: str = "", business_line: str = "", owner_id: int | None = No
 
 def _get(db: Session, p: Principal, opp_id: int) -> BizOpportunity:
     o = get_or_404(db, BizOpportunity, opp_id, "商机")
-    if p.data_scope == "self" and o.owner_id != p.id:
+    if not db.scalar(svc._filtered(p).with_only_columns(BizOpportunity.id).where(BizOpportunity.id == o.id)):
         raise forbidden()
     return o
 

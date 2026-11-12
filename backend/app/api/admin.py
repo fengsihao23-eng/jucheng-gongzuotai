@@ -10,11 +10,11 @@ from app.core.audit import log_op
 from app.core.config import settings
 from app.core.db import get_db, get_or_404
 from app.core.deps import Principal, build_principal, client_ip, get_principal, require_menu, require_recent_login
-from app.core.permissions import MENUS, ROLE_DEFS
+from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found, ok, page_data
 from app.jobs import registry
 from app.models import LogOperation, OpsMember, OpsProject, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
-from app.services import dispatch_service, user_service
+from app.services import dispatch_service, user_service, personal_permission_service as personal
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
 Admin = Depends(require_menu("admin"))
@@ -110,6 +110,8 @@ def set_roles(user_id: int, request: Request, body: RoleAssignmentsIn, p: Princi
     if before == role_codes:
         return ok()
     _keep_admin(db, u, "ADMIN-01" not in role_codes)
+    if "ADMIN-01" in role_codes and u.permission_override:
+        db.delete(u.permission_override)
     db.query(SysUserRole).filter(SysUserRole.user_id == u.id).delete()
     for code in role_codes:
         db.add(SysUserRole(user_id=u.id, role_id=user_service.role_by_code(db, code).id))
@@ -163,7 +165,7 @@ def roles(source: AccountSource = "", p: Principal = Admin, db: Session = Depend
         out.append({"code": code, "name": d["name"], "dept": d["dept"], "menus": eff["menus"], "buttons": eff["buttons"],
                     "data_scope": eff["data_scope"], "portal": eff["portal"], "users": counts.get(code, 0),
                     "customized": bool(override)})
-    return ok({"roles": out, "menus": MENUS, "departments": departments,
+    return ok({"roles": out, "menus": MENUS, "buttons": personal.options(db), "public_menus": PUBLIC_MENUS, "departments": departments,
                "directory_total": _count_users(db, _user_query("directory"))})
 
 
@@ -196,7 +198,7 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
     last = db.scalar(select(LogOperation).where(LogOperation.user_id == u.id, LogOperation.action == "auth.login")
                      .order_by(LogOperation.id.desc()).limit(1))
     active = u.status == 1
-    return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes,
+    return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes, **personal.view(u),
                "assigned_roles": sorted(r.role_code for r in u.roles),
                "department": u.department.name if u.department else None, "position": u.position,
                "menus": [MENUS[key] for key in visible_menus(db, target)] if active else [],
@@ -206,6 +208,17 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in owned] +
                             [{"name": name, "id": pid, "role": role} for name, pid, role in joined]) if active else [],
                "last_login": {"at": last.created_at, "method": (last.after or {}).get("method")} if last else None})
+
+
+@router.put("/users/{user_id}/permissions")
+def set_personal_permissions(user_id: int, request: Request, body: personal.PersonalGrantIn,
+                             p: Principal = Admin, db: Session = Depends(get_db)):
+    _check_admin_write(request, p)
+    db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
+    user = get_or_404(db, SysUser, user_id, "用户")
+    personal.update(db, p, user, body, _keep_admin, client_ip(request))
+    db.commit()
+    return effective_permissions(user_id, p, db)
 
 
 class RolePermIn(BaseModel):

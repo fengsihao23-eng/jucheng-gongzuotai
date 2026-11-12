@@ -14,41 +14,24 @@
           <div class="jc-row"><el-button size="small" @click="connectDirectory">配置公司应用</el-button><el-button size="small" @click="copyDirectoryGuide">复制授权清单</el-button><span v-if="roles.directory_total" class="jc-muted jc-small">已建档 {{ roles.directory_total }} 名公司成员</span></div>
         </Panel>
 
-        <Panel class="mt-16 role-matrix" title="角色权限矩阵" sub="按部门查看成员，也可按角色查看授权名单。" :padding="false" :loading="matrixLoading">
+        <Panel class="mt-16 role-matrix" title="角色权限矩阵" sub="部门人员、角色规则与个人权限统一在卡片中配置。" :padding="false" :loading="matrixLoading">
           <template #extra>
             <el-select v-model="accountSource" aria-label="人员来源" size="small" style="width: 135px" :disabled="matrixLoading && !roles.roles.length" @change="changeAccountSource">
               <el-option label="公司通讯录" value="directory" /><el-option label="全部账号" value="all" /><el-option label="本地 / 演示" value="local" />
             </el-select>
           </template>
           <section class="departments" aria-label="按部门查看人员">
-            <header><h4>按部门查人员</h4><span class="jc-muted jc-small">点部门打开人员小卡，再点员工查看权限</span></header>
+            <header><h4>按部门查人员</h4><span class="jc-muted jc-small">点部门进入卡片，再点员工配置个人权限</span></header>
             <div v-if="matrixDepartments.length" class="department-grid">
               <button v-for="dept in matrixDepartments" :key="dept.code" type="button" class="department-card"
                       :aria-label="dept.displayName + '，' + dept.total + ' 人'" @click="peopleCard.openDepartment(dept)">
-                <strong>{{ dept.displayName }}</strong><span class="jc-num">{{ dept.total }} 人 <span aria-hidden="true">›</span></span>
+                <span class="department-label"><strong>{{ dept.displayName }}</strong><small>{{ Object.keys(dept.role_counts || {}).length }} 种角色</small></span>
+                <span class="jc-num">{{ dept.total }} 人 <span aria-hidden="true">›</span></span>
               </button>
             </div>
             <el-empty v-else-if="!matrixLoading && !matrixError" :image-size="44" description="所选来源暂无人员" />
             <div v-if="matrixError" class="jc-down">{{ matrixError }} <el-button link type="primary" @click="loadRoles">重试</el-button></div>
           </section>
-
-          <div class="role-heading"><h4>角色规则</h4><span class="jc-muted jc-small">角色规则对所有拥有该角色的人生效；个人授权在人员小卡中保存。</span></div>
-          <el-table :data="roles.roles">
-            <el-table-column label="角色" width="170"><template #default="{ row }"><el-button link type="primary" @click="peopleCard.openRole(row)">{{ row.name }}</el-button><div class="jc-mono jc-muted">{{ row.code }}</div></template></el-table-column>
-            <el-table-column label="人数" width="72" align="right"><template #default="{ row }"><el-button link type="primary" :aria-label="'查看' + row.name + '人员'" @click="peopleCard.openRole(row)">{{ row.users }}</el-button></template></el-table-column>
-            <el-table-column label="数据范围" width="95"><template #default="{ row }">{{ SCOPE[row.data_scope] }}</template></el-table-column>
-            <el-table-column label="可见菜单" min-width="410">
-              <template #default="{ row }">
-                <span v-for="m in row.menus" :key="m" class="jc-pill" style="margin: 2px">{{ roles.menus[m] || m }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column width="94" align="center">
-              <template #default="{ row }">
-                <el-button v-if="canManage" link type="primary" @click="editRole(row)">调整规则</el-button>
-                <StatusPill v-if="row.customized" text="已定制" tone="info" />
-              </template>
-            </el-table-column>
-          </el-table>
         </Panel>
 
         <details class="account-details jc-card mt-16" @toggle="toggleAccountDetails">
@@ -253,10 +236,11 @@
     </el-dialog>
 
     <DepartmentPermissions ref="peopleCard" :roles="roles.roles" :departments="matrixDepartments" :source="accountScope"
-                           :can-manage="canManage" :privileges="PRIVILEGES" @roles-changed="refreshPersonRoles" />
+                           :can-manage="canManage" :privileges="permissionOptions" :menus="roles.menus" :public-menus="roles.public_menus" @roles-changed="refreshPersonRoles" @edit-role="editRole" />
 
     <!-- 角色权限 -->
-    <el-dialog v-model="roleDlg" :title="`调整角色：${roleForm.name}`" width="680px">
+    <el-dialog v-model="roleDlg" :title="`调整共享角色规则：${roleForm.name}`" width="min(680px, 94vw)" append-to-body>
+      <p class="jc-muted jc-small">此处更新该角色的默认规则；已单独配置的员工继续使用个人权限。</p>
       <el-form label-width="80px">
         <el-form-item label="数据范围">
           <el-radio-group v-model="roleForm.data_scope">
@@ -322,7 +306,7 @@ const connecting = ref(false)
 const connectionResult = ref(null)
 const connectionForm = reactive({ wecom_corp_id: '', wecom_agent_id: '', wecom_secret: '' })
 const secretConfigured = ref(false)
-const roles = ref({ roles: [], menus: {}, departments: [], directory_total: 0 })
+const roles = ref({ roles: [], menus: {}, buttons: {}, public_menus: [], departments: [], directory_total: 0 })
 const matrixLoading = ref(false), matrixError = ref('')
 let matrixRequest = 0, userRequest = 0, sourceResolved = false
 const PRIVILEGES = {
@@ -341,6 +325,7 @@ const PRIVILEGES = {
   'imports:handle': '处理待整理资料', 'tender:write': '编辑标书资料', 'kb:manage': '管理知识库',
   'hr:write': '维护人事资料', 'hr:attendance': '维护考勤', 'ticket:write': '处理客服工单',
 }
+const permissionOptions = computed(() => ({ ...PRIVILEGES, ...(roles.value.buttons || {}) }))
 const matrixDepartments = computed(() => {
   const departments = roles.value.departments || []
   return departments.map(dept => {
@@ -540,8 +525,8 @@ onMounted(() => { loaders[tab.value]?.(); api.get('/admin/addressbook/status').t
 
 <style scoped>
 .departments { padding: 15px 18px 17px; border-bottom: 1px solid var(--jc-line-2); }
-.departments header, .role-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; }
-.departments h4, .role-heading h4 { margin: 0; font-size: 14px; }
+.departments header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; }
+.departments h4 { margin: 0; font-size: 14px; }
 .department-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 156px), 1fr)); gap: 8px; margin-top: 11px; }
 .department-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; min-height: 43px; padding: 7px 10px; text-align: left; background: var(--jc-surface); border: 1px solid var(--jc-line); color: var(--jc-ink); border-radius: var(--jc-radius-sm); cursor: pointer; font: inherit; font-size: 13px; }
 .department-card:hover { border-color: var(--jc-brand); background: var(--jc-brand-50); }
@@ -549,13 +534,14 @@ onMounted(() => { loaders[tab.value]?.(); api.get('/admin/addressbook/status').t
 .department-card strong { overflow-wrap: anywhere; }
 .department-card .jc-num { flex-shrink: 0; color: var(--jc-brand); font-size: 12px; }
 .department-card .jc-num span { padding-left: 2px; font-size: 15px; }
-.role-heading { padding: 12px 18px; border-bottom: 1px solid var(--jc-line-2); }
+.department-label { display: grid; gap: 3px; min-width: 0; }
+.department-label small { color: var(--jc-ink-3); font-size: 11px; }
 .account-details summary { padding: 13px 18px; cursor: pointer; font-weight: 600; }
 .account-details summary span { margin-left: 6px; font-weight: 400; }
 .account-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 18px 12px; }
 .accounts-pagination { padding: 12px 18px; }
 @media (max-width: 520px) {
-  .departments, .role-heading { padding-inline: 12px; }
+  .departments { padding-inline: 12px; }
   .department-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .role-matrix :deep(.hd) { align-items: flex-start; flex-direction: column; }
 }
