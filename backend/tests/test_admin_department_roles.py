@@ -183,3 +183,55 @@ def test_personal_department_scope_filters_contracts_and_opportunities(client, l
         "role_codes": before["assigned_roles"], "permissions": {"menus": ["contracts"], "buttons": [], "data_scope": "self"},
         "expected_revision": state["permission_revision"]}))
     assert data(client.get("/api/v1/contracts", headers=session, params={"keyword": "PRIV-DEPT"}))["total"] == 1
+
+
+def test_expired_verification_can_resume_permission_save(client, login, isolated_db, monkeypatch):
+    import time
+    from app.core.config import settings
+    from app.core.security import create_jwt, decode_jwt
+
+    db = isolated_db
+    actor = db.scalar(select(SysUser).where(SysUser.wecom_userid == "admin"))
+    target = db.scalar(select(SysUser).where(SysUser.wecom_userid == "chenjing"))
+    token, _ = create_jwt(actor.id, verified_at=int(time.time()) - 901)
+    expired = {"Authorization": "Bearer " + token}
+    path = f"/api/v1/admin/users/{target.id}"
+    state = data(client.get(path + "/effective-permissions", headers=expired))
+    desired = {"role_codes": state["assigned_roles"],
+               "permissions": {"menus": ["portal", "contracts"], "buttons": ["contracts:export"], "data_scope": "self"},
+               "expected_revision": state["permission_revision"]}
+    monkeypatch.setattr(settings, "environment", "prod")
+    refused = client.put(path + "/permissions", headers=expired, json=desired)
+    assert refused.status_code == 403
+    assert refused.json()["data"] == {"requires_reauthentication": True, "password_available": True}
+    wrong = client.post("/api/v1/auth/verify-password", headers=expired, json={"password": "incorrect-identity-test"})
+    assert wrong.status_code == 400 and "X-Refresh-Token" not in wrong.headers
+    # A verification cannot be used to switch to another account.
+    assert client.post("/api/v1/auth/verify-password", headers=expired,
+                       json={"password": settings.demo_password, "username": "other"}).status_code == 400
+    verified = client.post("/api/v1/auth/verify-password", headers=expired, json={"password": settings.demo_password})
+    data(verified)
+    fresh_token = verified.headers["X-Refresh-Token"]
+    claims = decode_jwt(fresh_token)
+    assert claims["sub"] == str(actor.id) and 0 <= time.time() - claims["verified_at"] < 5
+    saved = data(client.put(path + "/permissions", headers={"Authorization": "Bearer " + fresh_token}, json=desired))
+    assert saved["individual_permissions"] == {**desired["permissions"], "menus": ["contracts", "portal"]}
+
+
+def test_sso_only_identity_keeps_login_verification_required(client, login, isolated_db, monkeypatch):
+    import time
+    from app.core.config import settings
+    from app.core.security import create_jwt
+    db = isolated_db
+    actor = db.scalar(select(SysUser).where(SysUser.wecom_userid == "admin"))
+    target = db.scalar(select(SysUser).where(SysUser.wecom_userid == "chenjing"))
+    token, _ = create_jwt(actor.id, verified_at=int(time.time()) - 901)
+    headers = {"Authorization": "Bearer " + token}
+    state = data(client.get(f"/api/v1/admin/users/{target.id}/effective-permissions", headers=headers))
+    monkeypatch.setattr(settings, "environment", "prod")
+    monkeypatch.setattr(settings, "password_login_enabled", False)
+    response = client.put(f"/api/v1/admin/users/{target.id}/permissions", headers=headers, json={
+        "role_codes": state["assigned_roles"], "permissions": None, "expected_revision": state["permission_revision"]})
+    assert response.status_code == 403 and response.json()["data"]["password_available"] is False
+    assert client.post("/api/v1/auth/verify-password", headers=headers,
+                       json={"password": settings.demo_password}).status_code == 403

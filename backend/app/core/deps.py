@@ -131,7 +131,11 @@ def require_recent_login(request: Request) -> None:
 
     at = getattr(request.state, "identity_verified_at", None)
     if settings.environment == "prod" and (not isinstance(at, int) or not 0 <= time.time() - at <= 900):
-        raise forbidden("此操作需要本人重新验证身份，请重新登录后在 15 分钟内操作")
+        principal = getattr(request.state, "principal", None)
+        raise BizError(40301, "请先核验本人身份，再保存权限", data={
+            "requires_reauthentication": True,
+            "password_available": bool(settings.password_login_enabled and principal and principal.user.password_hash),
+        })
 
 
 def client_ip(request: Request) -> str | None:

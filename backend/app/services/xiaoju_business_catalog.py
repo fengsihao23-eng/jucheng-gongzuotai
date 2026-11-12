@@ -44,7 +44,7 @@ MODULES = {
 # registered business routes are covered automatically, using their actual guards.
 ROUTE_EXCLUSIONS = {
     "auth.login_config", "auth.login", "auth.wecom_authorize_url", "auth.wecom_oauth",
-    "auth.logout", "auth.change_password", "auth.reset_mcp_token",
+    "auth.logout", "auth.change_password", "auth.reset_mcp_token", "auth.verify_identity",
     "mcp_config.client_config", "mcp_config.self_test", "mcp_config.config_with_token",
     "wecom_personal.bind_start", "wecom_personal.bind_status", "wecom_personal.bind_qr", "wecom_personal.bind_cancel",
     "wecom_console.put_credential",

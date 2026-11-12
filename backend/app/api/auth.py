@@ -1,8 +1,9 @@
 """FR-01 统一认证：口令登录 / 企微 OAuth2（网页授权 + 扫码）/ Mock 身份选择 / MCP 个人令牌。"""
+import time
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,11 @@ class OAuthIn(BaseModel):
 class PasswordIn(BaseModel):
     old_password: str
     new_password: str = Field(min_length=8, max_length=64)
+
+
+class VerifyPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(min_length=1, max_length=128)
 
 
 class PrefsIn(BaseModel):
@@ -146,6 +152,21 @@ def wecom_oauth(body: OAuthIn, request: Request, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     return ok(profile(p, db))
+
+
+@router.post("/verify-password")
+def verify_identity(body: VerifyPasswordIn, request: Request, p: Principal = Depends(get_principal),
+                    db: Session = Depends(get_db)):
+    if not settings.password_login_enabled or not p.user.password_hash:
+        raise BizError(40301, "此账号请通过企业微信重新登录核验身份")
+    if not verify_password(body.password, p.user.password_hash):
+        log_op(db, p.id, "auth.verify_failed", "user", p.id, ip=client_ip(request))
+        db.commit()
+        raise BizError(40001, "密码不正确，请重新输入")
+    log_op(db, p.id, "auth.verify", "user", p.id, after={"method": "password"}, ip=client_ip(request))
+    db.commit()
+    token, _ = create_jwt(p.id, verified_at=int(time.time()))
+    return ok(headers={"X-Refresh-Token": token})
 
 
 @router.post("/logout")
