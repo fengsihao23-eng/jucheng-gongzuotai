@@ -30,7 +30,7 @@ SOURCE_TYPES = {1: "企微审批", 2: "人工录入", 3: "Excel 导入", 4: "企
 PAY_SOURCE = {1: "流水核对", 2: "人工登记", 3: "归档自动关联"}
 EDIT_FIELDS = ["contract_no", "name", "project_code", "customer_name", "amount", "sign_date", "business_line",
                "region", "owner_id", "status", "remark"]
-LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
+LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务", "TD": "待定"}
 
 
 # ------------------------------------------------------------------ 查询

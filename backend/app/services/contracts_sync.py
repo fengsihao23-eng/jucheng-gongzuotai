@@ -41,7 +41,7 @@ SOURCE_TYPE_WECOM = 4
 REQUIRED = ("contract_no", "customer_name", "amount", "sign_date", "business_line")
 SYNC_FIELDS = ("name", "customer_name", "amount", "sign_date", "business_line", "region", "owner_id")
 LINES_BY_LABEL = {v: k for k, v in cs.LINES.items()}
-REGIONS = {"市直", "江城", "阳春", "阳东", "阳西", "海陵湾"}
+REGIONS = {"市直", "江城", "阳春", "阳东", "阳西", "海陵湾", "待定"}
 LIMIT = 2000
 
 _DATE_PATTERNS = (
