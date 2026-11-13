@@ -5,9 +5,12 @@
 """
 import logging
 
+from sqlalchemy import select
+
 from app.core.response import BizError
 from app.jobs.registry import job
-from app.services import contracts_sync, dict_service
+from app.models import ContractWorkbook
+from app.services import contract_workbook_sync, contracts_sync, dict_service
 
 log = logging.getLogger(__name__)
 
@@ -41,3 +44,35 @@ def sync_sources(db, params):
     if not lines:
         return {"rows": 0, "message": "没有启用的合同固定来源"}
     return {"rows": 1, "message": "；".join(lines)[:1200]}
+
+
+@job(contract_workbook_sync.JOB, "企业微信合同工作簿同步", {"minute": f"2-59/{contract_workbook_sync.POLL_MINUTES}"},
+     f"每 {contract_workbook_sync.POLL_MINUTES} 分钟检查版本")
+def sync_workbooks(db, params):
+    enabled = [(key, cfg) for key, cfg in db.execute(select(ContractWorkbook.source_key, ContractWorkbook.config))
+               if cfg["enabled"]]
+    lines, rows, errors = [], 0, 0
+    for key, _ in enabled:
+        try:
+            result = contract_workbook_sync.sync(db, key)
+            if result["changed"]:
+                summary = result["summary"]
+                rows += summary.get("rows", 0)
+                lines.append(f"已更新 {summary['sheets']} 张子表、{summary.get('rows', 0)} 行；"
+                             f"待复核 {summary.get('review', 0)} 行")
+            else:
+                lines.append("企微版本未变")
+        except BizError as exc:
+            db.rollback()
+            if exc.code == 40901:
+                lines.append("该来源正在同步")
+            else:
+                errors += 1
+                lines.append("有来源读取失败，完整数据仍保留；详情见合同台账同步页面")
+        except Exception:
+            db.rollback()
+            errors += 1
+            log.exception("企业微信合同工作簿同步失败")
+            lines.append("有来源未完成，详情见合同台账同步页面")
+    return {"rows": rows, "message": "；".join(lines)[:1200] or "没有启用的合同工作簿",
+            "status": "failed" if errors else "success"}

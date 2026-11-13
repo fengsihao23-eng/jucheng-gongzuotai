@@ -55,7 +55,7 @@ def fetch_rows(db: Session, config: dict) -> list[dict]:
     """按配置读取在线表格，返回 [{列名: 值}]。凭证来自 reader 本人的企业微信绑定。"""
     user = db.get(SysUser, config["reader_id"]) if isinstance(config.get("reader_id"), int) else None
     principal = build_principal(user) if user and not user.is_deleted and user.status == 1 else None
-    if not principal or principal.data_scope != "all" or not principal.can("contracts"):
+    if not principal or principal.data_scope != "all" or not principal.has_menu("contracts") or not principal.can("contracts:write"):
         raise forbidden("同步账号不可用，或未授予合同台账的数据范围")
 
     docid, sheet_id = config.get("docid"), config.get("sheet_id")

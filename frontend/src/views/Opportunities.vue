@@ -108,6 +108,13 @@
           <dt>关联项目</dt><dd>{{ detail.project_code || '—' }}</dd>
           <dt v-if="detail.lost_reason">丢单原因</dt><dd v-if="detail.lost_reason" class="jc-down">{{ detail.lost_reason }}</dd>
           <dt>备注</dt><dd style="white-space: pre-line">{{ detail.remark || '—' }}</dd>
+          <template v-for="src in detail.workbook_sources || []" :key="src.key">
+            <dt>企微来源</dt><dd>
+              <router-link :to="{ path: '/contracts', query: { workbook: src.key, sheet: src.sheet_id, row: src.row } }">
+                {{ src.sheet_name }} · 第 {{ src.row }} 行
+              </router-link>
+            </dd>
+          </template>
         </dl>
         <div v-if="auth.hasMenu('projects')" class="jc-row wrap mt-16">
           <el-button v-if="detail.project_code" @click="$router.push('/projects/' + detail.project_code)">查看已关联项目</el-button>
@@ -471,6 +478,7 @@ onMounted(async () => {
   opts.value = await api.get('/opportunities/options')
   load()
   loadFunnel()
+  if (/^\d+$/.test(String(route.query.detail || ''))) openDetail({ id: Number(route.query.detail) }).catch(() => {})
 })
 </script>
 

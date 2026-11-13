@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session
 from app.core.response import bad_request, encode
 from app.core.storage import save_bytes
 from app.core.timeutil import last_week, month_range, prev_month, today, week_range
+from app.core.permissions import BUSINESS_LINES
 from app.models import (PROJECT_STATUS, BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting, BizProjectReview,
                         MktIntel, RptReport, SysUser)
 from app.services import project_service as ps
 
 ZERO = Decimal("0")
-LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
+LINES = BUSINESS_LINES
 KIND_TEXT = {"competitor": "竞品动态", "industry": "行业动态", "policy": "政策法规", "bid": "招标情报"}
 IMPORTANCE = {1: "一般", 2: "重要", 3: "紧急"}
 

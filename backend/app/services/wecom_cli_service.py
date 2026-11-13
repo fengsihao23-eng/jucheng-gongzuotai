@@ -140,7 +140,8 @@ def _run(user_id, args, *, workspace_id=None, binding_id=None):
 # 专用资料入口可下载微盘原件，但通用模型工具仍不能自由传入文件路径。
 IMPORT_READ_METHODS = frozenset({"disk.files.search", "disk.files.get", "disk.files.download", "doc.search",
     "doc.contents.get", "smartpage.pages.get", "smartpage.databases.get", "smartsheet.sheets.list",
-    "smartsheet.fields.list", "smartsheet.records.list", "sheet.workbook.get", "sheet.cells.get"})
+    "smartsheet.fields.list", "smartsheet.records.list", "sheet.workbook.get", "sheet.cells.get",
+    "sheet.version.get", "sheet.merge.get"})
 
 
 def import_read(user_id, method, payload, binding_id, workspace_id):

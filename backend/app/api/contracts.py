@@ -3,17 +3,18 @@ from datetime import date
 from urllib.parse import quote
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deps import Principal, client_ip, require_menu
-from app.core.response import forbidden, ok
+from app.core.response import bad_request, forbidden, ok
 from app.core.timeutil import today
 from app.services import contract_service as cs
+from app.services import contract_workbook_sync as workbook
 from app.services import contracts_sync as csync
 
 router = APIRouter(prefix="/contracts", tags=["合同台账"])
@@ -39,7 +40,7 @@ def list_contracts(page: int = 1, page_size: int = 20, f: dict = Depends(_filter
                    db: Session = Depends(get_db)):
     data = cs.list_page(db, p, page, page_size, **f)
     data["perms"] = {"write": p.can("contracts:write"), "export": p.can("contracts:export"),
-                     "archive": p.can("contracts:archive")}
+                     "archive": p.can("contracts:archive"), "workbook": workbook.has_source(db, p)}
     return ok(data)
 
 
@@ -92,7 +93,7 @@ def sync_sources(p: Principal = Menu, db: Session = Depends(get_db)):
     from app.services import dict_service
 
     items = dict_service.items(db, csync.DICT_TYPE)
-    return ok({"items": [{"key": k, **v} for k, v in items.items() if isinstance(v, dict)],
+    return ok({"items": [{"key": k, **v} for k, v in items.items() if isinstance(v, dict) and v.get("reader_id") == p.id],
                "required": list(csync.REQUIRED), "regions": sorted(csync.REGIONS),
                "business_lines": cs.LINES})
 
@@ -110,6 +111,9 @@ def save_sync_source(body: SyncSourceIn, request: Request, p: Principal = Menu,
     missing = [f for f in csync.REQUIRED if f not in fields]
     if missing:
         raise forbidden("未映射必填字段：" + "、".join(missing))
+    previous = dict_service.get(db, csync.DICT_TYPE, key)
+    if body.reader_id != p.id or (isinstance(previous, dict) and previous.get("reader_id") != p.id):
+        raise forbidden("固定来源只能使用和维护本人的企微连接")
     value = {"enabled": body.enabled, "format": "sheet", "docid": body.docid.strip(),
              "sheet_id": body.sheet_id.strip(), "reader_id": body.reader_id,
              "auto_apply": body.auto_apply, "fields": fields}
@@ -129,6 +133,8 @@ def delete_sync_source(key: str, request: Request, p: Principal = Menu, db: Sess
 
     _need(p, "contracts:write")
     row = db.scalar(select(SysDict).where(SysDict.dict_type == csync.DICT_TYPE, SysDict.dict_key == key))
+    if row and (not isinstance(row.dict_value, dict) or row.dict_value.get("reader_id") != p.id):
+        raise forbidden("固定来源只能使用和维护本人的企微连接")
     if row:
         row.status = 0
         log_op(db, p.id, "contract.sync_config_delete", "contract", None, None, {"key": key}, client_ip(request))
@@ -136,11 +142,11 @@ def delete_sync_source(key: str, request: Request, p: Principal = Menu, db: Sess
     return ok({"deleted": bool(row)})
 
 
-def _sync_config(db: Session, source: str) -> dict:
+def _sync_config(db: Session, source: str, p: Principal) -> dict:
     from app.services import dict_service
 
     config = dict_service.get(db, csync.DICT_TYPE, source) if source else None
-    if not isinstance(config, dict):
+    if not isinstance(config, dict) or config.get("reader_id") != p.id:
         raise forbidden("没有这个固定来源，请先在同步设置里配置")
     return config
 
@@ -148,7 +154,7 @@ def _sync_config(db: Session, source: str) -> dict:
 @router.get("/sync/preview")
 def sync_preview(source: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
     """读取企业微信在线表格并与台账比对，只返回差异，不改台账。"""
-    return ok({"source": source, **csync.preview(db, _sync_config(db, source), source)})
+    return ok({"source": source, **csync.preview(db, _sync_config(db, source, p), source)})
 
 
 @router.post("/sync/apply")
@@ -157,7 +163,7 @@ def sync_apply(request: Request, source: str = Body(..., embed=True),
                db: Session = Depends(get_db)):
     """确认差异后落库；只写合同主档，不碰回款、付款计划与归档原件。"""
     _need(p, "contracts:write")
-    config = _sync_config(db, source)
+    config = _sync_config(db, source, p)
     data = csync.preview(db, config, source)
     result = csync.apply(db, p, config, data, only=contract_nos, ip=client_ip(request), key=source)
     log_op(db, p.id, "contract.sync_apply", "contract", None, None,
@@ -165,6 +171,94 @@ def sync_apply(request: Request, source: str = Body(..., embed=True),
             "skipped": result["skipped"]}, client_ip(request))
     db.commit()
     return ok(result)
+
+
+class WorkbookIn(BaseModel):
+    key: str
+    title: str
+    url: str = Field(max_length=500)
+    view_department_ids: list[int] = Field(default_factory=list, max_length=50)
+    view_user_ids: list[int] = Field(default_factory=list, max_length=100)
+    enabled: bool = True
+    auto_apply: bool = False
+    auto_receipts: bool = False
+
+
+class WorkbookLinkIn(BaseModel):
+    sheet_id: str = Field(min_length=1, max_length=200)
+    row_number: int = Field(ge=1, le=20000)
+    number: str = Field(min_length=1, max_length=32)
+    revision: str = Field(min_length=1, max_length=64)
+
+
+@router.get("/workbooks")
+def workbooks(p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"items": workbook.visible_sources(db, p)}, headers={"Cache-Control": "no-store"})
+
+
+@router.put("/workbooks")
+def configure_workbook(body: WorkbookIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    if not p.is_admin:
+        raise forbidden("仅管理员可配置企业微信固定来源")
+    from sqlalchemy import select
+
+    from app.models import ContractWorkbook
+    existing = db.scalar(select(ContractWorkbook).where(ContractWorkbook.source_key == body.key))
+    if existing and existing.config["reader_id"] != p.id:
+        raise forbidden("仅绑定账号可修改此固定来源")
+    row = workbook.configure(db, body.key, title=body.title, url=body.url, reader_id=p.id,
+                             view_department_ids=body.view_department_ids, view_user_ids=body.view_user_ids,
+                             profiles=existing.config.get("profiles") if existing else None,
+                             enabled=body.enabled, auto_apply=body.auto_apply, auto_receipts=body.auto_receipts, actor_id=p.id)
+    db.commit()
+    return ok(workbook.describe(row, p), headers={"Cache-Control": "no-store"})
+
+
+@router.get("/workbooks/{key}")
+def workbook_detail(key: str, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = workbook.for_view(db, p, key)
+    return ok({**workbook.describe(row, p), "sheets": workbook.sheet_list(row)}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/workbooks/{key}/rows")
+def workbook_rows(key: str, sheet: str, page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100),
+                  keyword: str = Query("", max_length=100),
+                  state: Literal["", "business", "review", "unresolved"] = "",
+                  source_row: int | None = Query(None, ge=1),
+                  p: Principal = Menu, db: Session = Depends(get_db)):
+    row = workbook.for_view(db, p, key)
+    return ok(workbook.sheet_page(db, row, sheet, page, size, keyword, state, source_row),
+              headers={"Cache-Control": "no-store"})
+
+
+@router.get("/workbooks/{key}/export")
+def workbook_export(key: str, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = workbook.for_view(db, p, key)
+    _need(p, "contracts:export")
+    if not row.sheets:
+        raise bad_request("尚没有可导出的同步数据")
+    data = workbook.export_snapshot(row)
+    log_op(db, p.id, "contract.workbook.export", "contract_workbook", key,
+           after={"revision": row.revision}, ip=client_ip(request))
+    db.commit()
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(row.config['title'] + '.xlsx')}",
+                             "Cache-Control": "no-store"})
+
+
+@router.post("/workbooks/{key}/sync")
+def sync_workbook(key: str, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = workbook.for_view(db, p, key)
+    if not workbook.describe(row, p)["can_run"]:
+        raise forbidden("仅绑定账号可立即检查此固定来源")
+    return ok(workbook.sync(db, key, force=not row.config["enabled"]), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/workbooks/{key}/link")
+def link_workbook_row(key: str, body: WorkbookLinkIn, request: Request, p: Principal = Menu,
+                      db: Session = Depends(get_db)):
+    return ok(workbook.review_link(db, p, key, **body.model_dump(), ip=client_ip(request)),
+              headers={"Cache-Control": "no-store"})
 
 
 class ContractIn(BaseModel):
@@ -206,6 +300,7 @@ def create(body: ContractIn, request: Request, p: Principal = Menu, db: Session 
 def detail(cid: int, p: Principal = Menu, db: Session = Depends(get_db)):
     c = cs.get_contract(db, cid, p)
     d = cs.detail(db, c)
+    d["workbook_sources"] = workbook.linked_sources(db, p, "contract", c.id)
     d["perms"] = {"write": p.can("contracts:write"), "archive": p.can("contracts:archive"),
                   "payment": p.can("contracts:write") or p.can("contracts:archive")}
     return ok(d)

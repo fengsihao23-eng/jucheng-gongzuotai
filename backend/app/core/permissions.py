@@ -93,7 +93,7 @@ DEPARTMENTS = [
     ("RS", "人事部"), ("XM", "项目部"), ("KF", "客服部"), ("ADMIN", "系统管理"),
 ]
 
-BUSINESS_LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
+BUSINESS_LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务", "TD": "待定"}
 
 COMPANY = {
     "name": "广东聚成数智科技有限公司", "short": "聚成数智", "en": "Ju Cheng Technology",

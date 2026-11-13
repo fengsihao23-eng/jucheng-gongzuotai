@@ -17,6 +17,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
+from app.core.permissions import BUSINESS_LINES
 from app.core.deps import owner_scope
 from app.core.response import BizError, bad_request, not_found
 from app.core.storage import file_brief, read_bytes, save_bytes
@@ -30,7 +31,7 @@ SOURCE_TYPES = {1: "企微审批", 2: "人工录入", 3: "Excel 导入", 4: "企
 PAY_SOURCE = {1: "流水核对", 2: "人工登记", 3: "归档自动关联"}
 EDIT_FIELDS = ["contract_no", "name", "project_code", "customer_name", "amount", "sign_date", "business_line",
                "region", "owner_id", "status", "remark"]
-LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务", "TD": "待定"}
+LINES = BUSINESS_LINES
 
 
 # ------------------------------------------------------------------ 查询
@@ -339,7 +340,7 @@ def _clean(db: Session, body: dict, creating: bool) -> dict:
     return out
 
 
-def create(db: Session, p, body: dict, ip: str | None = None, source_type: int = 2) -> BizContract:
+def create(db: Session, p, body: dict, ip: str | None = None, source_type: int = 2, *, commit=True) -> BizContract:
     data = _clean(db, body, True)
     if data.get("project_code") and not data.get("business_line"):
         data["business_line"] = data["project_code"].split("-")[1]
@@ -354,12 +355,14 @@ def create(db: Session, p, body: dict, ip: str | None = None, source_type: int =
     db.add(c)
     db.flush()
     log_op(db, p.id, "contract.create", "contract", c.id, None, snapshot(c, EDIT_FIELDS + ["source_type"]), ip)
-    db.commit()
-    _invalidate()
+    if commit:
+        db.commit()
+        _invalidate()
     return c
 
 
-def update(db: Session, p, c: BizContract, body: dict, ip: str | None = None) -> BizContract:
+def update(db: Session, p, c: BizContract, body: dict, ip: str | None = None, *, commit=True,
+           reprice_plans=True) -> BizContract:
     data = _clean(db, body, False)
     if "contract_no" in data:
         if not data["contract_no"]:
@@ -373,14 +376,15 @@ def update(db: Session, p, c: BizContract, body: dict, ip: str | None = None) ->
     before = snapshot(c, changed)
     for k in changed:
         setattr(c, k, data[k])
-    if "amount" in changed and c.plans:
+    if reprice_plans and "amount" in changed and c.plans:
         for pl in c.plans:
             if pl.ratio is not None:
                 pl.amount = (c.amount * pl.ratio).quantize(Decimal("1"))
         payment_service.refresh_plan_status(c)
     log_op(db, p.id, "contract.update", "contract", c.id, before, snapshot(c, changed), ip)
-    db.commit()
-    _invalidate()
+    if commit:
+        db.commit()
+        _invalidate()
     return c
 
 

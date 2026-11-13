@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.response import encode
+from app.core.permissions import BUSINESS_LINES
 from app.core.storage import save_bytes
 from app.core.timeutil import (day_bounds, last_week, month_range, now, prev_month, today, week_no, week_range)
 from app.models import (BizContract, BizExpenseReport, BizOpportunity, BizPayment, BizPaymentPlan, BizProject,
@@ -32,7 +33,7 @@ from app.services import dict_service, profit_service
 from app.services.report_render import DocxDoc, XlsxBook, pct, wan, yuan
 
 ZERO = Decimal("0")
-LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
+LINES = BUSINESS_LINES
 OPP_STAGES = {"lead": "线索", "contact": "初步接触", "quote": "方案报价", "negotiation": "商务谈判", "won": "赢单",
               "lost": "丢单"}
 PUBLIC = "公共费用"

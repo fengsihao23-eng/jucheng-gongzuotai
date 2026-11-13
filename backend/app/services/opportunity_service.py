@@ -22,7 +22,7 @@ from app.models import BizOpportunity, LogOperation, SysUser
 from app.services import codes, dict_service
 
 ZERO = Decimal("0")
-SOURCE_NAMES = {1: "企微商机工单自动登记", 2: "人工录入", 3: "Excel 清洗导入"}
+SOURCE_NAMES = {1: "企微商机工单自动登记", 2: "人工录入", 3: "Excel 清洗导入", 4: "企微表格同步"}
 DEFAULT_STAGES = [{"key": "lead", "name": "线索"}, {"key": "contact", "name": "初步接触"},
                   {"key": "quote", "name": "方案报价"}, {"key": "negotiation", "name": "商务谈判"},
                   {"key": "won", "name": "赢单"}, {"key": "lost", "name": "丢单"}]
@@ -168,13 +168,13 @@ def create(db: Session, p, body: dict, ip: str | None = None, source_type: int =
     o = BizOpportunity(opp_no=codes.opp_no(db), source_type=source_type, amount=ZERO, name="", customer_name="",
                        business_line="XY", stage="lead")
     _apply(db, o, body)
-    if o.owner_id is None and p is not None:
+    if o.owner_id is None and p is not None and source_type != 4:
         o.owner_id = p.id
     db.add(o)
     db.flush()
     log_op(db, p.id if p else None, "opportunity.create", "opportunity", o.id, after=snapshot(o, EDIT_FIELDS), ip=ip)
     log_op(db, p.id if p else None, "opportunity.stage", "opportunity", o.id, before=None,
-           after={"stage": o.stage, "note": "人工新增" if source_type == 2 else "Excel 导入"}, ip=ip)
+           after={"stage": o.stage, "note": SOURCE_NAMES.get(source_type, "登记")}, ip=ip)
     return o
 
 

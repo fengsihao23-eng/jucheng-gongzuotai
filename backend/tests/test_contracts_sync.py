@@ -108,11 +108,14 @@ def test_preview_and_apply(db, monkeypatch):
 
 def test_sync_config_api(client, login, db):
     headers = login("songjia")
+    reader = db.scalar(select(SysUser).where(SysUser.wecom_userid == "songjia"))
     saved = data(client.put(BASE + "/sync/sources", headers=headers, json={
-        "key": "验收来源", **{k: CONFIG[k] for k in ("docid", "sheet_id", "reader_id", "fields")},
+        "key": "验收来源", **{k: CONFIG[k] for k in ("docid", "sheet_id", "fields")}, "reader_id": reader.id,
     }))
     assert saved["key"] == "验收来源" and saved["fields"]["contract_no"] == "合同编号"
 
     listing = data(client.get(BASE + "/sync/sources", headers=headers))
     assert "验收来源" in [i["key"] for i in listing["items"]]
+    assert "验收来源" not in [i["key"] for i in data(client.get(BASE + "/sync/sources", headers=login("chenjing")))["items"]]
+    assert client.get(BASE + "/sync/preview", headers=login("chenjing"), params={"source": "验收来源"}).status_code == 403
     assert set(listing["required"]) == {"contract_no", "customer_name", "amount", "sign_date", "business_line"}

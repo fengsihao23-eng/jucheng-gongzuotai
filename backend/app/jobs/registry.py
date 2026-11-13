@@ -64,7 +64,7 @@ def run_job(name: str, params: dict | None = None, trigger: str = "schedule", fo
         entry = _write(db, name, trigger, "running", key=key)
         try:
             result = jd.func(db, params) or {}
-            entry.status = "success"
+            entry.status = "failed" if result.get("status") == "failed" else "success"
             entry.rows_affected = int(result.get("rows", 0))
             entry.message = result.get("message")
         except Exception as exc:  # noqa: BLE001

@@ -63,6 +63,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 经理可以在「资料导入 → 从企业微信导入」绑定本人连接，粘贴微盘/在线文档链接，或搜索并选择资料；读取后核对正文、子表和样例，再保存到知识审核或台账清洗。保留来源及原始字段类型快照，默认仅本人可见。详见[企微资料接入](docs/WECOM_IMPORT.md)。
 
+「合同台账 → 企业微信同步」可定时读取固定的企微合同工作簿、关联合同与商机、查看每个源表单元格及回款差异。见[合同工作簿同步](docs/CONTRACT_WORKBOOK_SYNC.md)。
+
 小聚也能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，自动发现和验证企业微信、柠檬云凭证。接入范围见 [接入说明](docs/INTEGRATION_ASSISTANT.md)。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
 
 企业微信还支持按账号绑定官方 CLI 个人连接，可调用文档、表格、待办、日程等实际获授权的业务，并在缺少功能权限时提供官方授权入口。使用与账号保护说明见 [企业微信 CLI](docs/WECOM_CLI.md)。

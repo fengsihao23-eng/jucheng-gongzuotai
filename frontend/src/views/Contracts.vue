@@ -1,7 +1,8 @@
 <!-- FR-05-01 合同台账：筛选（读取 route.query 预置，支持看板下钻）+ 合计 + 导出（与筛选一致）+ 新增/编辑 + 来源标记 -->
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="台账中心" title="合同台账" desc="企微合同审批通过自动登记 / 人工录入 / Excel 导入；导出结果与当前筛选一致。">
+    <PageHeader eyebrow="台账中心" title="合同台账" desc="查看签约、回款和企微来源；导出结果与当前筛选一致。">
+      <el-button v-if="perms.workbook" @click="openWorkbook()">企业微信同步</el-button>
       <el-button v-if="perms.export" :loading="exporting" @click="doExport">导出 xlsx</el-button>
       <el-button v-if="perms.write" type="primary" @click="openNew">新增合同</el-button>
     </PageHeader>
@@ -85,6 +86,7 @@
                    layout="total, sizes, prev, pager, next" :total="total" @current-change="load" @size-change="load" />
 
     <ContractForm v-model="formOpen" :contract="editing" @saved="onSaved" />
+    <ContractWorkbook v-model="workbookOpen" :location="workbookLocation" @synced="load(true)" />
   </div>
 </template>
 
@@ -92,10 +94,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
+import ContractWorkbook from '@/components/ContractWorkbook.vue'
 import { BUSINESS_LINES, CONTRACT_STATUS, money, percent, wan } from '@/utils/format'
 import ContractForm from './contract-form.vue'
 
-const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入' }
+const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入', 4: '企微表格同步' }
 const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
 const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code', 'owner_id', 'sign_period']
 const PERIODS = { all: '累计签约', month: '本月签约', week: '本周签约', today: '今日签约' }
@@ -106,6 +109,8 @@ const f = reactive(Object.fromEntries(KEYS.map((k) => [k, ''])))
 const rows = ref([]); const total = ref(0); const sums = ref({}); const perms = ref({})
 const page = ref(1); const pageSize = ref(20); const loading = ref(false); const exporting = ref(false)
 const formOpen = ref(false); const editing = ref(null)
+const workbookOpen = ref(false); const workbookLocation = ref(null)
+function openWorkbook(location = null) { workbookLocation.value = location; workbookOpen.value = true }
 
 const extraTags = computed(() => {
   const t = []
@@ -137,6 +142,9 @@ async function load(withStats = false) {
     ])
     if (version !== loadVersion) return
     rows.value = r.items; total.value = r.total; sums.value = r.sums; perms.value = r.perms
+    if (perms.value.workbook && route.query.workbook && !workbookOpen.value) {
+      openWorkbook({ key: String(route.query.workbook), sheet_id: String(route.query.sheet || ''), row: Number(route.query.row) })
+    }
     if (board) { signing.value = board.items; signingNote.value = board.note }
   } catch {} finally { if (version === loadVersion) loading.value = false }
 }

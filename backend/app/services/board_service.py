@@ -22,15 +22,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.timeutil import TZ, month_of, month_range, now, prev_month, today, week_no, week_range
+from app.core.permissions import BUSINESS_LINES
 from app.models import (PROJECT_STATUS, BizContract, BizOpportunity, BizPayment, BizProject, BizProjectFeedback,
-                        BizProjectMilestone, SysUser)
+                        BizProjectMilestone, ContractWorkbook, SysUser)
 from app.services import dict_service
 
 ZERO = Decimal("0")
-LINES = {"XY": "数字校园", "AF": "综合智慧安防", "KP": "素质教育考评", "YW": "运维服务"}
+LINES = BUSINESS_LINES
 CACHE_TTL = 300
 _cache: dict[str, tuple[float, dict]] = {}
 _lock = threading.Lock()
+_source_synced_at = None
 
 
 # ------------------------------------------------------------------ 缓存
@@ -62,7 +64,7 @@ def _rate(a, b) -> float | None:
 
 def _line_names(db: Session) -> dict[str, str]:
     d = dict_service.items(db, "business_line")
-    return {k: (v if isinstance(v, str) else v.get("name", k)) for k, v in d.items()} or LINES
+    return {**LINES, **{k: (v if isinstance(v, str) else v.get("name", k)) for k, v in d.items()}}
 
 
 # ------------------------------------------------------------------ 基础聚合（看板/对比/晨报共用）
@@ -313,6 +315,12 @@ def _profit_block(db: Session, T: date) -> dict:
 
 
 def overview(db: Session, ref: date | None = None, refresh: bool = False) -> dict:
+    global _source_synced_at
+    source_synced_at = db.scalar(select(func.max(ContractWorkbook.synced_at)))
+    with _lock:
+        if source_synced_at != _source_synced_at:
+            _cache.clear()
+            _source_synced_at = source_synced_at
     T = ref or today()
 
     def build():

@@ -49,7 +49,7 @@ export function greeting() {
 
 export const filesize = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : (b / 1024).toFixed(0) + ' KB')
 
-export const BUSINESS_LINES = { XY: '数字校园', AF: '综合智慧安防', KP: '素质教育考评', YW: '运维服务' }
+export const BUSINESS_LINES = { XY: '数字校园', AF: '综合智慧安防', KP: '素质教育考评', YW: '运维服务', TD: '待定' }
 export const PROJECT_STATUS = { 1: '招标中', 2: '在建', 3: '已验收', 4: '运维', 5: '结项' }
 export const MILESTONE_STATUS = { 1: '未开始', 2: '进行中', 3: '已完成', 4: '延期' }
 export const CONTRACT_STATUS = { 1: '履行中', 2: '已归档', 3: '已终止' }

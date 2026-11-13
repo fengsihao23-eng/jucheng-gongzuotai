@@ -86,7 +86,11 @@ def export(request: Request, f: dict = Depends(_filters), p: Principal = Menu, d
 
 @router.get("/{opp_id}")
 def get_one(opp_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
-    return ok(svc.detail(db, _get(db, p, opp_id)))
+    from app.services.contract_workbook_sync import linked_sources
+
+    result = svc.detail(db, _get(db, p, opp_id))
+    result["workbook_sources"] = linked_sources(db, p, "opportunity", opp_id)
+    return ok(result)
 
 
 @router.post("")

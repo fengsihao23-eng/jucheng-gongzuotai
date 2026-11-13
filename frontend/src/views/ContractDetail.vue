@@ -26,6 +26,24 @@
       </div>
 
       <ProjectReportSources :contract-id="c.id" />
+      <Panel v-if="c.workbook_sources?.length" class="mt-16" title="企业微信原表对账">
+        <div v-for="src in c.workbook_sources" :key="src.key" class="jc-stack">
+          <router-link :to="{ path: '/contracts', query: { workbook: src.key, sheet: src.sheet_id, row: src.row } }">
+            {{ src.sheet_name }} · 第 {{ src.row }} 行
+          </router-link>
+          <span v-if="!src.present" class="jc-muted jc-small">该行已不在当前原表，工作台合同保留。</span>
+          <div v-else-if="src.data?.receipts" class="jc-row wrap jc-small">
+            <span>原表累计回款 {{ money(src.data.receipts.source) }}</span>
+            <span>实际已登记 {{ money(src.data.receipts.registered) }}</span>
+            <span>差额 {{ money(src.data.receipts.difference) }}</span>
+            <span v-if="src.data.record?.paid_on">原表到账日期 {{ src.data.record.paid_on }}</span>
+            <router-link v-if="auth.hasMenu('receivables')" :to="{ path: '/receivables', query: { tab: 'receipts', keyword: c.contract_no } }">
+              核对到账记录
+            </router-link>
+          </div>
+          <span v-if="src.data?.issues?.length" class="jc-warn jc-small">{{ src.data.issues.join('；') }}</span>
+        </div>
+      </Panel>
 
       <div class="jc-grid c2 mt-16">
         <Panel title="基本信息">
@@ -59,7 +77,7 @@
               <tr v-for="(v, k) in c.approval.fields" :key="k"><th>{{ k }}</th><td>{{ v || '—' }}</td></tr>
             </table>
           </template>
-          <div v-else class="jc-muted jc-small">{{ c.source_type === 2 ? '人工录入，无审批单' : c.source_type === 3 ? 'Excel 清洗导入' : '未找到审批单记录' }}</div>
+          <div v-else class="jc-muted jc-small">{{ c.source_type === 2 ? '人工录入，无审批单' : c.source_type === 3 ? 'Excel 清洗导入' : c.source_type === 4 ? '企业微信表格同步' : '未找到审批单记录' }}</div>
         </Panel>
       </div>
 
