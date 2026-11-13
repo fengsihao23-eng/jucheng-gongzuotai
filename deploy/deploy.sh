@@ -19,6 +19,16 @@ die() { printf '\033[1;31m!!  %s\033[0m\n' "$*" >&2; exit 1; }
 [[ -f "$ROOT/deploy/.env" ]] || die "缺少 deploy/.env（DB_PASSWORD）"
 [[ -f "$ROOT/deploy/app.env" ]] || die "缺少 deploy/app.env（生产环境变量）"
 [[ -f "$ROOT/deploy/certs/fullchain.pem" ]] || die "缺少 deploy/certs/fullchain.pem"
+# 2026-11-13 事故：本地 dist 停在 11-10，源码已到 11-12，部署把旧界面推上线，
+# 老板看到「工作台回退」。产物比源码旧就自动重建，构建失败直接中止。
+if [[ ! -f "$ROOT/frontend/dist/index.html" ]] \
+   || [[ -n "$(find "$ROOT/frontend/src" -newer "$ROOT/frontend/dist/index.html" -print -quit 2>/dev/null)" ]]; then
+  say "前端产物缺失或落后于源码，自动重新构建"
+  if [[ -d "$ROOT/frontend/dist" ]]; then
+    mv "$ROOT/frontend/dist" "$ROOT/frontend/dist_bak_$(date +%Y%m%d_%H%M%S)"
+  fi
+  ( cd "$ROOT/frontend" && npm run build ) || die "前端构建失败，已中止部署（避免把旧界面推上线）"
+fi
 [[ -f "$ROOT/frontend/dist/index.html" ]] || die "缺少 frontend/dist，请先 cd frontend && npm run build"
 
 say "1/6 检查服务器连通性与 Docker"
