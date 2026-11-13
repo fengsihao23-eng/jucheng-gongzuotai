@@ -206,6 +206,11 @@ def normalize(db: Session, payload: dict, owners: dict[str, list[int]]) -> tuple
             values["region"] = region
         else:
             errors.append(f"区域「{region}」不在 {('/'.join(sorted(REGIONS)))} 内")
+    else:
+        # 源表没有区域时按客户名/合同名推断，推不出归待定，不让区域空着导致业绩统计断档
+        from app.services import region_rules
+
+        values["region"] = region_rules.classify(values.get("customer_name"), values.get("name"))[0]
 
     if "owner_id" in payload:
         owner_name = _text(payload.get("owner_id"))

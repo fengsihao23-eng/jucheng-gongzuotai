@@ -78,7 +78,8 @@ def row(db: Session, o: BizOpportunity, names: dict | None = None) -> dict:
             "amount": o.amount, "expected_sign_date": o.expected_sign_date, "owner_id": o.owner_id,
             "owner_name": o.owner.name if o.owner else None, "source_type": o.source_type,
             "source_name": SOURCE_NAMES.get(o.source_type, "其他"), "source_approval_no": o.source_approval_no,
-            "status": o.status, "project_code": o.project_code, "remark": o.remark,
+            "status": o.status, "project_code": o.project_code, "contract_no": o.contract_no,
+            "remark": o.remark,
             "created_at": o.created_at, "updated_at": o.updated_at}
 
 

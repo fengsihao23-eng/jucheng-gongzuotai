@@ -179,12 +179,26 @@ class ContractIn(BaseModel):
     owner_id: int | None = None
     status: int | None = None
     remark: str | None = None
+    source_opp_id: int | None = None  # 由商机赢单转入时回填关联
 
 
 @router.post("")
 def create(body: ContractIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _need(p, "contracts:write")
-    c = cs.create(db, p, body.model_dump(exclude_unset=True), client_ip(request))
+    payload = body.model_dump(exclude_unset=True)
+    opp_id = payload.pop("source_opp_id", None)
+    c = cs.create(db, p, payload, client_ip(request))
+    if opp_id:
+        # 商机赢单转入：回填关联合同号并把商机推进到赢单，链路可反查
+        from app.models import BizOpportunity
+
+        opp = db.get(BizOpportunity, opp_id)
+        if opp and not opp.is_deleted:
+            opp.contract_no = c.contract_no
+            opp.stage, opp.status = "won", "won"
+            log_op(db, p.id, "opportunity.won", "opportunity", opp.id, None,
+                   {"contract_no": c.contract_no}, client_ip(request))
+            db.commit()
     return ok(cs.detail(db, c))
 
 

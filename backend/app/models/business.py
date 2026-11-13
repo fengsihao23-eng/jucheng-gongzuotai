@@ -158,6 +158,7 @@ class BizOpportunity(TimestampMixin, SoftDeleteMixin, Base):
     source_type: Mapped[int] = mapped_column(Integer, default=2)
     status: Mapped[str] = mapped_column(String(8), default="open")  # open|won|lost
     project_code: Mapped[str | None] = mapped_column(String(32))
+    contract_no: Mapped[str | None] = mapped_column(String(32), index=True)  # 赢单后关联的合同
     remark: Mapped[str | None] = mapped_column(Text)
     owner = relationship("SysUser", lazy="joined")
 
