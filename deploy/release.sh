@@ -21,6 +21,7 @@ if (actual.revision !== revision || actual.source_sha256 !== buildInfo().source_
 JS
 "${SSH[@]}" 'test -f /opt/jucheng/backend/.env && test -f /opt/jucheng/deploy/.env && docker info >/dev/null && test "$(df -Pk /opt/jucheng | awk '\''NR==2 {print int($4/1048576)}'\'')" -ge 8'
 "${SSH[@]}" bash -s -- "$RELEASE_DIR" "$REVISION" < "$ROOT/deploy/prepare-release.sh"
+"${SSH[@]}" "test -s '$RELEASE_DIR/database.contents' && test -s '$RELEASE_DIR/files.contents' && test -s '$RELEASE_DIR/previous-application.tar.gz' && test -s '$RELEASE_DIR/previous-image.txt' && test -s '$RELEASE_DIR/previous-revision.txt'"
 # Exclude local test data and credentials; installed production configuration remains authoritative.
 rsync -az -e 'ssh -o BatchMode=yes' --exclude '.venv' --exclude 'var' --exclude 'node_modules' --exclude '.env' --exclude '__pycache__' --exclude '.pytest_cache' --exclude '*.pyc' --exclude 'samples' "$ROOT/backend/" "$SERVER:/opt/jucheng/backend/"
 rsync -az -e 'ssh -o BatchMode=yes' --exclude '.env' --exclude 'app.env' --exclude 'certs' --exclude 'backups' --exclude 'releases' "$ROOT/deploy/" "$SERVER:/opt/jucheng/deploy/"
