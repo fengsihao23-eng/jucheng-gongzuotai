@@ -681,6 +681,12 @@ def cards(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
                "cards": out})
 
 
+@router.get("/work")
+def personal_work(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.operations_workspace import workbench
+    return ok(workbench(db, p))
+
+
 @router.get("/schemes")
 def schemes(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     """卡片目录（管理员调整 portal_cards 字典时参考）。"""

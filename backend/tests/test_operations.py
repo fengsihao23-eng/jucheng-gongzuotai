@@ -266,16 +266,17 @@ def test_mcp_reuses_feedback_validation_and_visibility(client, login, db, projec
         t_ops_status(db, build_principal(db.get(SysUser, uid(db, "caofang"))), project_id=project["id"])
 
 
-def test_deadline_reminder_is_inapp_and_idempotent(client, login, db, project):
+def test_deadline_reminder_is_inapp_and_wecom_queue_idempotent(client, login, db, project):
     from app.jobs.operations import operations_task_reminder
     t = task(client, login, db, project, due_date="2026-10-19")
     operations_task_reminder(db, {})
     q = select(SysNotify).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == f"{t['id']}:2026-10-20")
     rows = db.scalars(q).all()
     assert {r.user_id for r in rows} == {uid(db, "xiekai"), project["owner_id"]}
-    assert {r.channel for r in rows} == {"inapp"}
+    assert {r.channel for r in rows} == {"inapp", "wecom_app"}
+    assert all(r.send_status == 0 for r in rows if r.channel == "wecom_app")
     operations_task_reminder(db, {})
-    assert len(db.scalars(q).all()) == 2
+    assert len(db.scalars(q).all()) == 4
 
 
 def test_transfer_project_keeps_old_owner_task_access(client, login, db, project):

@@ -36,15 +36,17 @@
           </el-tab-pane>
           <template v-if="project.can_view_project_content">
             <template v-if="hasSchools">
-              <el-tab-pane label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
-              <el-tab-pane label="每日收入" name="income" lazy><SchoolData mode="income" :project="project" @saved="load" /></el-tab-pane>
-              <el-tab-pane label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
-              <el-tab-pane label="学校档案" name="schools" lazy><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
+              <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane v-if="canSection('income')" label="每日收入" name="income" lazy><SchoolData mode="income" :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
+              <el-tab-pane v-if="canSection('outreach')" label="学校档案" name="schools" lazy><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
             </template>
-            <el-tab-pane label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
-            <el-tab-pane label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
+            <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
+            <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
           </template>
-          <el-tab-pane label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
+          <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" /></el-tab-pane>
           <el-tab-pane v-if="project.can_archive_tasks" label="已作废任务" name="archive" lazy>
             <el-table :data="archivedTasks">
               <el-table-column label="任务" prop="title" min-width="175" />
@@ -72,7 +74,7 @@
         <p v-else class="jc-muted">暂无需要你处理的延期事项。</p>
       </el-dialog>
       <el-dialog v-model="summaryOpen" class="ops-summary-dialog" title="当前进展汇总" width="min(960px, calc(100vw - 24px))" align-center append-to-body>
-        <ProjectProgress :project="project" read-only />
+        <ProjectProgress v-if="canSection('progress')" :project="project" read-only />
         <TaskOverview :rows="project.tasks" title="项目任务概览" />
         <div v-if="project.tasks.length" class="recent">
           <h3>{{ followUps.length ? '优先跟进' : '最新进展' }}</h3>
@@ -102,6 +104,8 @@ import OpsDigest from './operations/OpsDigest.vue'
 import SchoolData from './operations/SchoolData.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
+import ProjectControls from './operations/ProjectControls.vue'
+import ProjectFunds from './operations/ProjectFunds.vue'
 import { PROJECT_STATUS, TASK_SOURCES, taskStatus } from './operations/shared'
 const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = useAssistant()
 const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
@@ -109,6 +113,7 @@ const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false)
 const popupPaused = ref(false)
 const schoolPreset = ref(null), archivedTasks = ref([]), archivedTask = ref(null), archiveOpen = ref(false)
 const hasSchools = computed(() => project.value?.category.includes('校园') || project.value?.schools.length)
+const canSection = section => (project.value?.visible_sections || []).includes(section)
 const taskView = ref('cards')
 watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
 watch(tab, value => { if (value === 'archive') loadArchive() })

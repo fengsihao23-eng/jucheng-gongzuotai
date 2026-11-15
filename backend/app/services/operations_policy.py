@@ -4,7 +4,7 @@ from sqlalchemy import delete, exists, or_, select
 from app.core.audit import log_op
 from app.core.response import bad_request, conflict, forbidden
 from app.core.timeutil import now
-from app.models import OpsMember, OpsProject, OpsTask, OpsTaskAudience, OpsTaskPolicy, SysUser
+from app.models import OpsMember, OpsMemberView, OpsProject, OpsTask, OpsTaskAudience, OpsTaskPolicy, SysUser
 
 
 def archived():
@@ -19,7 +19,7 @@ def member_clause(p):
 def task_access(p, *, archive=False):
     from app.services import operations_service as ops
 
-    base = archived() if archive else ~archived()
+    base = (archived() if archive else ~archived()) & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted"))
     if ops.can_view_all(p):
         return base
     owner_project = select(OpsProject.id).where(OpsProject.owner_id == p.id)
@@ -30,7 +30,10 @@ def task_access(p, *, archive=False):
     selected = exists().where(OpsTaskAudience.task_id == OpsTask.id, OpsTaskAudience.user_id == p.id)
     participants = or_(selected, OpsTask.creator_id == p.id, OpsTask.owner_id == p.id,
                        OpsTask.department_reviewer_id == p.id)
-    regular = belongs & or_(~restricted, OpsTask.project_id.in_(owner_project), OpsTask.project_id.in_(managed), participants)
+    self_only = exists().where(OpsMemberView.project_id == OpsTask.project_id, OpsMemberView.user_id == p.id,
+                               OpsMemberView.task_scope == "self")
+    managers = or_(OpsTask.project_id.in_(owner_project), OpsTask.project_id.in_(managed))
+    regular = belongs & or_(~restricted & ~self_only, managers, participants)
     if p.can("operations:approve"):
         return base & or_(regular, OpsTask.company_reviewer_id == p.id)
     return base & regular

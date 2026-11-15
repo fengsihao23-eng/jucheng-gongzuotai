@@ -39,6 +39,7 @@
               </details>
             </section>
             <TaskDiscussion :task="task" @saved="load(true)" />
+            <details v-if="task.notification_deliveries?.length" class="section"><summary>企业微信提醒投递情况</summary><p class="jc-small jc-muted">投递成功表示已发送到企微，不代表本人已处理任务。</p><div v-for="n in task.notification_deliveries" :key="n.id" class="node-entry"><b>{{ n.recipient }} · {{ n.status }}</b><p class="jc-small">{{ n.title }} · {{ n.sent_at ? datetime(n.sent_at) : '待发送/已停止' }}</p><p v-if="n.error" class="jc-small jc-muted">{{ n.error }}</p></div></details>
             <section class="section history">
               <h3>过程记录 <small>{{ task.updates.length }} 条</small></h3>
               <el-timeline v-if="task.updates.length"><el-timeline-item v-for="u in task.updates" :key="u.id" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">

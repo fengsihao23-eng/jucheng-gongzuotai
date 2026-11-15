@@ -1,9 +1,11 @@
 <template>
   <div>
+    <OutreachGoals v-if="mode === 'outreach'" :project="project" @saved="emit('saved')" @open-task="t => emit('open-task',t)" />
+    <IncomeOverview v-if="mode === 'income'" :project="project" @open-school="id => selectedId=id" />
     <div class="jc-grid c3">
-      <Kpi label="项目学校" :value="project.schools.length" unit="所" :hint="`高意向 ${project.schools.filter(s => s.potential === 'high' && !['lost', 'operating', 'won'].includes(s.stage)).length} 所`" />
-      <Kpi v-if="mode === 'directory' || mode === 'procurement'" label="已登记投入" :value="money(project.financials.total_investment)" unit="元" :hint="`建设清单 + 人工 + 其他 · ${project.financials.unpriced_count || 0} 条未标价`" />
-      <Kpi v-if="mode === 'directory' || mode === 'income'" label="累计登记收入" :value="money(project.financials.total_income)" unit="元" hint="学校收入及未分摊的项目公共收入" />
+      <Kpi label="项目学校" :value="project.schools.length" unit="所" :hint="can('outreach') ? `高意向 ${project.schools.filter(s => s.potential === 'high' && !['lost', 'operating', 'won'].includes(s.stage)).length} 所` : ''" />
+      <Kpi v-if="can('procurement') && (mode === 'directory' || mode === 'procurement')" label="已登记投入" :value="money(project.financials.total_investment)" unit="元" :hint="`建设清单 + 人工 + 其他 · ${project.financials.unpriced_count || 0} 条未标价`" />
+      <Kpi v-if="can('income') && (mode === 'directory' || mode === 'income')" label="全历史累计登记收入" :value="money(project.financials.total_income)" unit="元" hint="学校收入及未分摊的项目公共收入" />
     </div>
     <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
     <div v-if="mode === 'income' && project.can_manage" class="jc-row mt-8" style="margin-bottom: 12px"><IncomeFile :project-id="project.id" @saved="emit('saved')" /></div>
@@ -11,10 +13,11 @@
     <p v-if="mode === 'income'" class="jc-small jc-muted">最近登记收款日：{{ project.financials.last_income_date || '尚无记录' }}。{{ project.financials.income_note }}</p>
     <el-table :data="schools" @row-click="s => selectedId = s.id">
       <el-table-column prop="name" label="学校" min-width="190" />
+      <el-table-column prop="region" label="区域" width="100" />
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="阶段 / 意向" width="150"><template #default="{ row }">{{ STAGES[row.stage] }}<div class="jc-small jc-muted">意向 · {{ POTENTIAL[row.potential] }}</div></template></el-table-column>
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="下一步 / 跟进日期" min-width="200"><template #default="{ row }">{{ row.next_action || '待补充' }}<div class="jc-small" :class="row.next_contact_date && row.next_contact_date < project.today && !['lost', 'operating', 'won'].includes(row.stage) ? 'jc-down' : 'jc-muted'">{{ row.next_contact_date || '' }}</div></template></el-table-column>
-      <el-table-column v-if="mode === 'directory' || mode === 'procurement'" label="合计投入（元）" width="160" align="right"><template #default="{ row }">{{ money(row.total_investment) }}</template></el-table-column>
-      <el-table-column v-if="mode === 'directory' || mode === 'income'" label="收入（元）" width="150" align="right"><template #default="{ row }">{{ money(row.total_income) }}</template></el-table-column>
+      <el-table-column v-if="can('procurement') && (mode === 'directory' || mode === 'procurement')" label="合计投入（元）" width="160" align="right"><template #default="{ row }">{{ money(row.total_investment) }}</template></el-table-column>
+      <el-table-column v-if="can('income') && (mode === 'directory' || mode === 'income')" label="累计收入（元）" width="150" align="right"><template #default="{ row }">{{ money(row.total_income) }}</template></el-table-column>
       <el-table-column v-if="mode === 'outreach'" label="市场任务 / 负责人" min-width="180">
         <template #default="{ row }">
           <template v-if="marketTasks(row.id).length"><b>{{ marketTasks(row.id).length }} 项</b><div class="jc-muted jc-small">{{ [...new Set(marketTasks(row.id).map(t => t.owner_name))].join('、') }}</div></template>
@@ -32,11 +35,12 @@
 
     <el-drawer :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
       <template v-if="selected">
-        <div class="jc-row between"><p>合计投入 <b>{{ money(selected.total_investment) }} 元</b> · 累计收入 <b>{{ money(selected.total_income) }} 元</b></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
-        <p class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
+        <div class="jc-row between"><p><span v-if="can('procurement')">合计投入 <b>{{ money(selected.total_investment) }} 元</b> </span><span v-if="can('income')">· 累计收入 <b>{{ money(selected.total_income) }} 元</b></span></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
+        <p v-if="can('outreach')" class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
+        <div v-if="project.can_manage" class="jc-row"><span>学校区域</span><el-select :model-value="selected.region || '待定'" aria-label="学校区域" style="width:160px" @change="saveRegion"><el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" /></el-select></div>
         <p v-if="selected.note" class="plain">{{ selected.note }}</p>
         <el-tabs v-model="schoolTab">
-          <el-tab-pane label="客户跟进过程" name="outreach">
+          <el-tab-pane v-if="can('outreach')" label="客户跟进过程" name="outreach">
             <SchoolFollowup :project="project" :school="selected" @saved="emit('saved'); loadHistory()" />
             <div class="jc-row between"><h4>{{ mode === 'outreach' ? '关联市场开拓任务' : '关联任务' }}</h4>
               <el-button v-if="mode === 'outreach' && project.can_manage && project.status === 'active'" type="primary" link @click="assignSchool">布置市场开拓任务</el-button>
@@ -55,7 +59,7 @@
               <p v-if="h.after?.note" class="plain">{{ h.after.note }}</p>
             </el-timeline-item></el-timeline>
           </el-tab-pane>
-          <el-tab-pane label="设备建设清单" name="equipment">
+          <el-tab-pane v-if="can('procurement')" label="设备建设清单" name="equipment">
             <div class="jc-row between section-head"><span class="jc-muted jc-small">设备 {{ money(selected.equipment_cost) }} 元 · 人工 {{ money(selected.labor_cost) }} 元 · 其他 {{ money(selected.other_cost) }} 元</span><el-button v-if="project.can_manage" type="primary" @click="editEquipment()">添加设备</el-button></div>
             <el-table :data="selected.equipment">
               <el-table-column label="设备 / 品牌型号" min-width="210"><template #default="{ row }">{{ row.product_name }}<div class="jc-small jc-muted">{{ row.brand }} {{ row.model }}</div></template></el-table-column>
@@ -66,7 +70,7 @@
               <el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editEquipment(row)">编辑</el-button></template></el-table-column>
             </el-table>
           </el-tab-pane>
-          <el-tab-pane label="每日收入" name="income">
+          <el-tab-pane v-if="can('income')" label="每日收入" name="income">
             <div class="jc-row between section-head"><span class="jc-muted jc-small">每个学校每日一条合计；更正金额请编辑原记录。</span><el-button v-if="project.can_manage" type="primary" @click="editIncome()">登记收入</el-button></div>
             <el-table :data="selected.incomes"><el-table-column prop="income_date" label="收入日期" width="140" /><el-table-column label="金额（元）" width="160"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="source" label="数据来源" min-width="140" /><el-table-column prop="note" label="备注" min-width="140" /><el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editIncome(row)">编辑</el-button></template></el-table-column></el-table>
           </el-tab-pane>
@@ -107,10 +111,15 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import IncomeFile from './IncomeFile.vue'
 import SchoolFollowup from './SchoolFollowup.vue'
+import OutreachGoals from './OutreachGoals.vue'
+import IncomeOverview from './IncomeOverview.vue'
 import { money, datetime } from '@/utils/format'
 import { STAGES, POTENTIAL, TASK_STATUS, unitPrice, announceChange } from './shared'
 const props = defineProps({ project: Object, mode: { type: String, default: 'directory' } }), emit = defineEmits(['saved', 'open-task', 'assign-school'])
 const labels = { directory: '查看档案', procurement: '查看采购', income: '查看收入', outreach: '查看跟进' }
+const can = section => (props.project.visible_sections || []).includes(section)
+const REGIONS = ['市直','江城','阳春','阳东','阳西','海陵湾','其他','待定']
+async function saveRegion(region) { try { await api.put(`/operations/${props.project.id}/schools/${selectedId.value}/region`, { region }); emit('saved'); announceChange(); ElMessage.success('学校区域已保存') } catch {} }
 const search = ref(''), stage = ref(''), highOnly = ref(false), selectedId = ref(null)
 const lifecycle = ref('prospect')
 const initialTab = () => ({ procurement: 'equipment', income: 'income', outreach: 'outreach', directory: 'outreach' })[props.mode]
@@ -124,7 +133,7 @@ const history = ref([])
 let historyVersion = 0
 async function loadHistory() {
   const id = selectedId.value, version = ++historyVersion
-  if (!id) { history.value = []; return }
+  if (!id || !can('outreach')) { history.value = []; return }
   try { const r = await api.get(`/operations/${props.project.id}/schools/${id}/history`); if (version === historyVersion) history.value = r.items } catch {}
 }
 watch(selectedId, () => { schoolTab.value = initialTab(); loadHistory() })

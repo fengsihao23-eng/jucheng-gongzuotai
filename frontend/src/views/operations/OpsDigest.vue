@@ -5,7 +5,8 @@
       <el-radio-group v-model="mode" @change="period = ''; refresh()"><el-radio-button value="week">周报</el-radio-button><el-radio-button value="month">月报</el-radio-button></el-radio-group>
       <el-input v-if="mode === 'week'" v-model.trim="period" placeholder="周次，如 2026-W46" clearable aria-label="汇总周次" style="width: 160px" @keyup.enter="refresh" />
       <el-date-picker v-else v-model="period" type="month" value-format="YYYY-MM" placeholder="上一个完整月" aria-label="汇总月份" />
-      <el-checkbox v-model="mine" @change="refresh">只看我的任务</el-checkbox>
+      <el-checkbox v-model="mine" @change="ownerId=null;refresh()">只看我的任务</el-checkbox>
+      <el-select v-if="currentProject && settings?.can_manage && !mine" v-model="ownerId" clearable filterable placeholder="全部人员" aria-label="汇报人员" @change="refresh"><el-option v-for="m in members.filter(m=>m.active && m.role !== 'viewer')" :key="m.user_id" :value="m.user_id" :label="m.name" /></el-select>
       <el-button type="primary" @click="refresh">查看汇总</el-button>
     </div>
     <p class="jc-muted jc-small">文字报告保留本期各次进展和来源；完成、未完成、未反馈分别说明。</p>
@@ -45,6 +46,7 @@ import { datetime } from '@/utils/format'
 const props = defineProps({ projectId: Number, active: Boolean })
 const router = useRouter(), route = useRoute(), mode = ref('week'), period = ref(''), mine = ref(false)
 const selectedProject = ref(null), projects = ref([]), settings = ref(null), report = ref(null), savedReport = ref(null), history = ref([])
+const ownerId = ref(null), members = ref([])
 const view = ref('text'), loading = ref(false), saving = ref(false), currentProject = computed(() => props.projectId || selectedProject.value)
 let revision = 0
 async function refresh() {
@@ -55,8 +57,9 @@ async function refresh() {
     const config = pid ? await api.get(`/operations/${pid}/digest-settings`) : null
     if (version !== revision) return
     settings.value = config
+    if (config?.can_manage) { const project = await api.get(`/operations/${pid}`); if (version !== revision) return; members.value = project.members }
     if (config && !config.can_manage) mine.value = true
-    const input = { project_id: pid || undefined, mode: mode.value, period: period.value || '', mine: mine.value }
+    const input = { project_id: pid || undefined, mode: mode.value, period: period.value || '', mine: mine.value, owner_id: ownerId.value || undefined }
     const [preview, list] = await Promise.all([api.get('/operations/digest', input), api.get('/operations/digest/reports', input)])
     if (version === revision) { report.value = preview; history.value = list.items }
   } catch { if (version === revision) report.value = null } finally { if (version === revision) loading.value = false }
@@ -69,7 +72,7 @@ async function generate(newVersion) {
   if (saving.value) return
   saving.value = true
   try {
-    const data = await api.post('/operations/digest/reports', { project_id: currentProject.value, mode: mode.value, period: period.value || '', mine: mine.value, new_version: newVersion })
+    const data = await api.post('/operations/digest/reports', { project_id: currentProject.value, mode: mode.value, period: period.value || '', mine: mine.value, new_version: newVersion, owner_id: ownerId.value || null })
     await refresh(); savedReport.value = data; report.value = { ...data.facts, text: data.text }; view.value = 'text'; ElMessage.success('报告已保存')
   } catch {} finally { saving.value = false }
 }

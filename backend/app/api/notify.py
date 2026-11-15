@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok, page_data
-from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, OpsTask, SysNotify
+from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, OpsTask, OpsTaskDiscussion, OpsDigestSnapshot, SysNotify
 
 router = APIRouter(prefix="/notifications", tags=["通知"])
 
@@ -16,16 +16,29 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     from app.services.collection_service import scoped
     from app.services.operations_policy import task_access
+    from app.services import operations_scope as scope, operations_reports as reports
 
     task_notice = ("ops_task", "ops_task_reminder")
     visible_task = exists(select(OpsTask.id).where(
-        cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p)))
+        cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p))) & p.has_menu("operations")
+    discussion_types = ("ops_discussion", "ops_request_reminder")
+    visible_discussion = exists(select(OpsTaskDiscussion.id).join(OpsTask, OpsTask.id == OpsTaskDiscussion.task_id).where(
+        cast(OpsTaskDiscussion.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p))) & p.has_menu("operations")
+    report_ids = []
+    if p.has_menu("operations"):
+        own_report_notices = select(SysNotify.ref_id).where(SysNotify.user_id == p.id, SysNotify.ref_type == "ops_digest")
+        for report in db.scalars(select(OpsDigestSnapshot).where(cast(OpsDigestSnapshot.id, String).in_(own_report_notices),
+                OpsDigestSnapshot.project_id.in_(scope.content_project_ids(db, p, "reports")))):
+            if reports.can_read(db, p, report):
+                report_ids.append(str(report.id))
     visible_collection = exists(select(BizCollectionEntry.id).join(BizCollectionFollowup).where(
         cast(BizCollectionEntry.id, String) == SysNotify.ref_id,
         BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
     q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
-        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_((*task_notice, "collection_entry")),
+        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_((*task_notice, *discussion_types, "ops_digest", "collection_entry")),
             SysNotify.ref_type.in_(task_notice) & visible_task,
+            SysNotify.ref_type.in_(discussion_types) & visible_discussion,
+            (SysNotify.ref_type == "ops_digest") & SysNotify.ref_id.in_(report_ids),
             (SysNotify.ref_type == "collection_entry") & visible_collection & (p.has_menu("contracts") or p.has_menu("receivables"))))
     unread_n = db.scalar(select(func.count()).select_from(q.where(SysNotify.read_status.is_(False)).subquery()))
     if unread:

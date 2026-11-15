@@ -18,6 +18,8 @@ from app.services import operations_digest as digest, operations_policy as polic
 from app.services import campus_proposal
 from app.services import operations_followup as followups
 from app.services import operations_reports as op_reports
+from app.services import operations_scope as content_scope, operations_workspace as workspace, operations_income_feed as income_feed
+from app.schemas.operations_workspace import MemberViewIn, ProjectControlIn, OutreachGoalIn, SchoolRegionIn, IncomeFeedIn
 from app.schemas.operations import DiscussionIn, SchoolVisitIn, SchoolTransitionIn, DigestGenerateIn, DigestPreferenceIn
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -45,8 +47,8 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
 
 @router.get("/digest")
 def operation_digest(mode: Literal["week", "month"] = "week", period: str = "", project_id: int | None = None,
-                     mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
-    return ok(digest.period_summary(db, p, mode, period, project_id, mine))
+                     mine: bool = False, owner_id: int | None = None, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(digest.period_summary(db, p, mode, period, project_id, mine, owner_id))
 
 
 @router.get("/monthly")
@@ -59,8 +61,8 @@ def monthly_plan(month: Month | None = None, owner_id: int | None = None, projec
 
 @router.get("/digest/reports")
 def saved_digests(project_id: int | None = None, mode: Literal["week", "month"] | None = None,
-                  period: str = "", mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
-    return ok({"items": op_reports.listing(db, p, project_id, mode, period, mine)})
+                  period: str = "", mine: bool = False, owner_id: int | None = None, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"items": op_reports.listing(db, p, project_id, mode, period, mine, owner_id)})
 
 
 @router.post("/digest/reports")
@@ -91,7 +93,7 @@ def save_digest_settings(project_id: int, body: DigestPreferenceIn, p: Principal
 def product_library(keyword: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
     """检索可访问项目的产品库，供跨项目复用。"""
     q = select(OpsProduct, OpsProject.name).join(OpsProject, OpsProject.id == OpsProduct.project_id).where(
-        OpsProduct.project_id.in_(ops.visible_projects(p, members_only=True).with_only_columns(OpsProject.id)))
+        OpsProduct.project_id.in_(content_scope.content_project_ids(db, p, "products")))
     if keyword:
         q = q.where(OpsProduct.name.ilike(f"%{keyword}%"))
     return ok({"items": [{**ops.product_dict(r), "source_project": name} for r, name in db.execute(q.order_by(OpsProduct.id.desc()))]})
@@ -316,14 +318,92 @@ def create_school(project_id: int, body: SchoolIn, p: Principal = Menu, db: Sess
 def school_history(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     """学校阶段、跟进安排和基础资料的变更记录。"""
     project = ops.get_project(db, p, project_id)
+    content_scope.require(db, p, project, "outreach")
     if not ops.has_project_content(db, p, project):
         raise forbidden("仅项目成员可查看学校资料")
     ops.school(db, project_id, school_id)
     rows = db.execute(select(LogOperation, SysUser.name).outerjoin(SysUser, SysUser.id == LogOperation.user_id)
         .where(LogOperation.target_type == "ops_school", LogOperation.target_id == str(school_id))
         .order_by(LogOperation.id.desc())).all()
+    def permitted(value):
+        if not value:
+            return value
+        return value if content_scope.can(db, p, project, "procurement") else {k: v for k, v in value.items() if k not in {"labor_cost", "other_cost"}}
     return ok({"items": [{"id": row.id, "author": name or "系统", "at": row.created_at,
-                          "before": row.before, "after": row.after} for row, name in rows]})
+                          "before": permitted(row.before), "after": permitted(row.after)} for row, name in rows]})
+
+
+@router.get("/{project_id}/member-visibility")
+def member_visibility(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(content_scope.members_config(db, p, ops.get_project(db, p, project_id)))
+
+
+@router.put("/{project_id}/member-visibility/{user_id}")
+def save_member_visibility(project_id: int, user_id: int, body: MemberViewIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    content_scope.save_member_view(db, p, project_id, user_id, body)
+    db.commit()
+    return ok(content_scope.members_config(db, p, ops.get_project(db, p, project_id)))
+
+
+@router.get("/{project_id}/controls")
+def project_controls(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    project = ops.get_project(db, p, project_id)
+    ops.manage(db, p, project)
+    from app.services import project_service
+    projects = list(db.scalars(project_service.visible_query(p))) if p.has_menu("projects") else []
+    return ok({**content_scope.controls(db, project_id), "members": ops.members(db, project),
+        "business_projects": [{"code": x.project_code, "name": x.name} for x in projects]})
+
+
+@router.put("/{project_id}/controls")
+def save_project_controls(project_id: int, body: ProjectControlIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    content_scope.save_controls(db, p, project_id, body)
+    db.commit()
+    return ok(content_scope.controls(db, project_id))
+
+
+@router.get("/{project_id}/outreach-goals")
+def outreach_goals(project_id: int, year: int | None = Query(None, ge=2000, le=2100), region: str = "", owner_id: int | None = None,
+                   p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(workspace.outreach(db, p, project_id, year, region, owner_id))
+
+
+@router.post("/{project_id}/outreach-goals")
+def save_outreach_goal(project_id: int, body: OutreachGoalIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = workspace.save_goal(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.put("/{project_id}/schools/{school_id}/region")
+def save_school_region(project_id: int, school_id: int, body: SchoolRegionIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    workspace.region_update(db, p, project_id, school_id, body.region)
+    db.commit()
+    return ok()
+
+
+@router.get("/{project_id}/income-board")
+def income_board(project_id: int, year: int | None = Query(None, ge=2000, le=2100), region: str = "", period: str = "all",
+                 p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(workspace.income_board(db, p, project_id, year, region, period))
+
+
+@router.post("/{project_id}/income-feed/preview")
+def preview_income_feed(project_id: int, body: IncomeFeedIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    report, _, _ = income_feed.prepare(db, p, project_id, body)
+    return ok(report)
+
+
+@router.post("/{project_id}/income-feed/confirm")
+def confirm_income_feed(project_id: int, body: IncomeFeedIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = income_feed.confirm(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.get("/{project_id}/funds")
+def project_funds(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(workspace.funds(db, p, project_id))
 
 
 @router.put("/{project_id}/schools/{school_id}")

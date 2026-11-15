@@ -1,0 +1,29 @@
+<template>
+  <section class="goals" v-loading="loading">
+    <div class="toolbar"><h3>年度学校开拓目标</h3><el-select v-model="year" aria-label="开拓目标年度" @change="load"><el-option v-for="y in years" :key="y" :value="y" :label="`${y} 年`" /></el-select><el-select v-model="region" clearable placeholder="全部区域" aria-label="开拓区域" @change="load"><el-option v-for="r in REGIONS" :key="r" :value="r" :label="r" /></el-select><el-button v-if="project.can_manage" type="primary" @click="edit()">安排年度开拓目标</el-button></div>
+    <p v-if="data" class="jc-muted jc-small">本次筛选 {{ data.stats.targets }} 所目标学校 · 已完成 {{ data.stats.done }} · 逾期 {{ data.stats.overdue }} · 未反馈 {{ data.stats.unreported }}<span v-if="data.stats.expected_annual_income != null"> · {{ data.stats.targets === data.stats.unestimated ? '预计年收入待估算' : '已估算年收入合计 ' + money(data.stats.expected_annual_income) + ' 元' }}（{{ data.stats.unestimated }} 所未估算）</span></p>
+    <div class="goal-grid"><article v-for="g in data?.items || []" :key="g.goal_id"><div class="jc-row between"><h4>{{ g.school_name }}</h4><StatusPill :text="g.status === 'done' ? '已完成' : g.overdue ? '逾期未完成' : '推进中'" :tone="g.overdue ? 'warn' : 'brand'" /></div><p class="jc-small jc-muted">{{ g.region }} · {{ g.owner_name }}负责 · {{ g.due_date }}前</p><p>{{ g.description }}</p><p class="latest">{{ g.latest_feedback || '尚未反馈进展' }}</p><p v-if="g.next_step" class="jc-small">下一步：{{ g.next_step }}</p><el-button link type="primary" @click="emit('open-task',g)">查看过程 / 反馈</el-button><el-button v-if="project.can_manage && g.status !== 'done'" link @click="edit(g)">调整目标</el-button></article></div>
+    <p v-if="!data?.items.length && !loading" class="jc-muted jc-small">该年度暂无已安排目标。将目标学校对应到负责人后，从同一任务持续反馈。</p>
+    <p class="jc-muted jc-small">{{ data?.note }}</p>
+    <el-dialog v-model="open" :title="editing ? '调整年度开拓目标' : '安排年度开拓目标'" width="min(620px,94vw)" append-to-body>
+      <el-form label-position="top"><el-form-item label="目标学校"><el-select v-model="form.school_id" :disabled="!!editing" filterable aria-label="年度目标学校"><el-option v-for="s in project.schools" :key="s.id" :value="s.id" :label="s.name" /></el-select></el-form-item><el-form-item label="目标年度"><el-input-number v-model="form.year" :min="2000" :max="2100" :disabled="!!editing" /></el-form-item><el-form-item label="负责人"><el-select v-model="form.owner_id" filterable aria-label="开拓负责人"><el-option v-for="m in project.members.filter(m=>m.active && m.role !== 'viewer')" :key="m.user_id" :value="m.user_id" :label="m.name" /></el-select></el-form-item><el-form-item label="目标完成日期"><el-date-picker v-model="form.target_date" type="date" value-format="YYYY-MM-DD" aria-label="开拓目标日期" /></el-form-item><el-form-item label="本年要达成什么"><el-input v-model="form.objective" type="textarea" maxlength="6000" aria-label="年度开拓要求" /></el-form-item><el-form-item label="预计年收入（可选，计划值）"><el-input-number v-model="form.expected_annual_income" :min="0" :precision="2" :max="999999999999.99" /></el-form-item><el-form-item label="反馈周期"><el-select v-model="form.cadence"><el-option v-for="(label,value) in CADENCES" :key="value" :value="value" :label="label" /></el-select></el-form-item></el-form>
+      <template #footer><el-button @click="open=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!form.school_id || !form.owner_id || !form.target_date || !form.objective?.trim()" @click="save">保存并关联任务</el-button></template>
+    </el-dialog>
+  </section>
+</template>
+<script setup>
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import api from '@/api/client'
+import { money } from '@/utils/format'
+import { CADENCES, announceChange } from './shared'
+const props=defineProps({project:Object}),emit=defineEmits(['saved','open-task'])
+const REGIONS=['市直','江城','阳春','阳东','阳西','海陵湾','其他','待定'],year=ref(Number(props.project.today.slice(0,4))),region=ref(''),data=ref(null),loading=ref(false),open=ref(false),saving=ref(false),editing=ref(null),form=reactive({})
+const years=computed(()=>[...new Set([year.value,Number(props.project.today.slice(0,4))+1,...(data.value?.years || [])])].sort((a,b)=>b-a))
+let request=0
+async function load(){const version=++request;loading.value=true;try{const r=await api.get(`/operations/${props.project.id}/outreach-goals`,{year:year.value,region:region.value});if(version===request)data.value=r}catch{}finally{if(version===request)loading.value=false}}
+function edit(g=null){editing.value=g;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,{school_id:g?.school_id || null,year:g?.year || year.value,owner_id:g?.owner_id || null,target_date:g?.due_date || null,objective:g?.description || '',expected_annual_income:g?.expected_annual_income == null ? null : Number(g.expected_annual_income),cadence:g?.cadence || 'weekly',...(g?{expected_revision:g.revision}:{})});open.value=true}
+async function save(){saving.value=true;try{await api.post(`/operations/${props.project.id}/outreach-goals`,form);open.value=false;await load();emit('saved');announceChange();ElMessage.success('年度目标已关联到开拓任务')}catch{}finally{saving.value=false}}
+watch(()=>props.project,load,{immediate:true})
+</script>
+<style scoped>.goals { padding: 16px 0; border-bottom: 1px solid var(--jc-line); margin-bottom: 20px; }.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }.toolbar h3 { margin: 0 15px 0 0; }.toolbar .el-select { width: 140px; }.goal-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(270px,1fr)); gap: 12px; }.goal-grid article { padding: 15px; border: 1px solid var(--jc-line); border-radius: 7px; }.goal-grid h4 { margin: 0; }.goal-grid p { white-space: pre-wrap; overflow-wrap: anywhere; }.latest { background: var(--jc-bg); padding: 10px; font-size: 13px; }.el-form .el-select { width: 100%; }</style>

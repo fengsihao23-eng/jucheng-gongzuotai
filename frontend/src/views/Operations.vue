@@ -85,7 +85,7 @@ const menu = reactive({ open: false, x: 0, y: 0, project: null })
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
-const todoFilter = ref('all'), mine = ref(false)
+const todoFilter = ref('all'), mine = ref(route.query.mine === '1')
 const todos = computed(() => {
   const filter = todoFilter.value
   if (filter === 'delay_review') return data.delay_review_inbox
@@ -148,6 +148,7 @@ async function editTask(task) {
 }
 useBusinessRefresh(() => load(true), { interval: 12000 })
 onMounted(async () => {
+  if (route.query.view === 'todos') tab.value = 'todos'
   await load()
   try { categories.value = (await api.get('/operations/options')).categories } catch {}
 })

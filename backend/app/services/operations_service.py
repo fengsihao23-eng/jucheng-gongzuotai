@@ -11,6 +11,7 @@ from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsP
                         OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
 from app.services import operations_followup as followups
+from app.services import operations_scope as content_scope
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date", "task_id"]
@@ -158,6 +159,7 @@ def progress_dict(row):
 
 def project_progress(db, p, project_id, before_id=None):
     project = get_project(db, p, project_id)
+    content_scope.require(db, p, project, "progress")
     if not has_project_content(db, p, project):
         raise forbidden("仅项目成员可查看项目进度")
     query = select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id,
@@ -294,7 +296,7 @@ def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
     school(db, project.id, school_id)
     # 产品可以复用本人有权查看的其他运营项目，但不能借 ID 读取未授权产品。
     product = db.scalar(select(OpsProduct).where(OpsProduct.id == body.product_id,
-        OpsProduct.project_id.in_(visible_projects(p).with_only_columns(OpsProject.id))))
+        OpsProduct.project_id.in_(content_scope.content_project_ids(db, p, "products"))))
     if not product:
         raise not_found("可用产品")
     if body.unit_price is not None and body.unit_price * body.quantity >= Decimal("1000000000000"):
@@ -322,9 +324,10 @@ def save_income(db, p, project_id, school_id, body, income_id=None):
 
 
 def school_data(db, project):
-    from app.models import OpsSchoolVisit
+    from app.models import OpsSchoolVisit, OpsSchoolRegion
     rows = db.scalars(select(OpsSchool).where(OpsSchool.project_id == project.id).order_by(OpsSchool.id)).all()
     ids = [r.id for r in rows]
+    regions = dict(db.execute(select(OpsSchoolRegion.school_id, OpsSchoolRegion.region).where(OpsSchoolRegion.school_id.in_(ids))).all())
     visits = {}
     for visit, name in db.execute(select(OpsSchoolVisit, SysUser.name).join(SysUser, SysUser.id == OpsSchoolVisit.author_id)
             .where(OpsSchoolVisit.school_id.in_(ids)).order_by(OpsSchoolVisit.school_id, OpsSchoolVisit.occurred_on.desc(), OpsSchoolVisit.id.desc())):
@@ -344,6 +347,7 @@ def school_data(db, project):
         cost = sum((e["amount"] for e in equipment[s.id] if e["amount"] is not None), ZERO)
         income = sum((Decimal(i["amount"]) for i in incomes[s.id]), ZERO)
         result.append({"id": s.id, **snapshot(s, SCHOOL_FIELDS), "equipment": equipment[s.id], "incomes": incomes[s.id],
+                       "region": regions.get(s.id, "待定"),
                        "latest_visit": visits.get(s.id),
                        "equipment_cost": cost, "total_investment": cost + s.labor_cost + s.other_cost, "total_income": income,
                        "unpriced_count": sum(e["amount"] is None for e in equipment[s.id]),
@@ -381,7 +385,7 @@ def _notify(db, recipients, project, task, title, content, *, assignment=False):
              if db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(u))))]
     notify_service.send(db, users, "operations_assignment" if assignment else "operations_task", title, content,
                         link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id),
-                        wecom=assignment, defer=assignment,
+                        wecom=assignment and content_scope.controls(db, project.id)["wecom_reminders"], defer=assignment,
                         wecom_content="你有一项新的运营任务安排，请进入工作台查看。")
 
 
@@ -588,6 +592,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
 
 
 def task_detail(db, p, task_id, *, archived=False):
+    from app.services.operations_notifications import delivery_status
     task = get_task(db, p, task_id, archived=archived)
     project = get_project(db, p, task.project_id)
     if archived and not policy.can_archive(db, p, project):
@@ -607,6 +612,7 @@ def task_detail(db, p, task_id, *, archived=False):
             "reviews": reviews, "delay_history": [deadlines.reason_dict(row) for row in delay_records],
             "plan_context": progress_dict(plan) if plan else None, "today": today(),
             "discussions": followups.discussions(db, p, task),
+            "notification_deliveries": delivery_status(db, p, project, task),
             "can_discuss": not archived and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
             "can_request": not archived and project.status == "active" and task.status != "done" and task.approval_status == "approved" and role(db, p, project) == "manager",
             "participants": followups.participants(db, p, project, task) if not archived else []}
@@ -678,35 +684,39 @@ def project_detail(db, p, project_id):
     project = get_project(db, p, project_id)
     rows = tasks(db, p, project_id)
     shared = has_project_content(db, p, project)
+    sections = set(content_scope.view(db, p, project)["sections"])
+    can_income, can_procurement = "income" in sections, "procurement" in sections
     progress = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.project_id == project.id,
         or_(OpsProjectProgress.task_id.is_(None), OpsProjectProgress.task_id.in_([t["id"] for t in rows])))
-        .order_by(OpsProjectProgress.id.desc()).limit(1)) if shared else None
-    schools = school_data(db, project) if shared else []
-    products = db.scalars(select(OpsProduct).where(OpsProduct.project_id == project.id).order_by(OpsProduct.id)).all() if shared else []
+        .order_by(OpsProjectProgress.id.desc()).limit(1)) if shared and "progress" in sections else None
+    schools = school_data(db, project) if shared and sections & {"outreach", "income", "procurement"} else []
+    products = db.scalars(select(OpsProduct).where(OpsProduct.project_id == project.id).order_by(OpsProduct.id)).all() if shared and "products" in sections else []
     daily = defaultdict(lambda: ZERO)
     for s in schools:
-        for i in s["incomes"]:
+        for i in s["incomes"] if can_income else []:
             daily[i["income_date"]] += Decimal(i["amount"])
     unassigned = [{"id": r.id, **snapshot(r, ["income_date", "amount", "source", "note"])} for r in db.scalars(
-        select(OpsProjectIncome).where(OpsProjectIncome.project_id == project.id).order_by(OpsProjectIncome.income_date.desc()))] if shared else []
+        select(OpsProjectIncome).where(OpsProjectIncome.project_id == project.id).order_by(OpsProjectIncome.income_date.desc()))] if shared and can_income else []
     unassigned_total = sum((Decimal(r["amount"]) for r in unassigned), ZERO)
     for r in unassigned:
         daily[r["income_date"]] += Decimal(r["amount"])
     batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
-        select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))] if shared else []
+        select(OpsImportBatch).where(OpsImportBatch.project_id == project.id, OpsImportBatch.kind.in_(
+            (["income"] if can_income else []) + (["equipment"] if can_procurement else []))).order_by(OpsImportBatch.id.desc()))] if shared else []
     return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
-            "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared else [],
-            "can_record_visits": project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
+            "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],
+            "can_record_visits": "outreach" in sections and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
+            "visible_sections": sorted(sections), "task_scope": content_scope.view(db, p, project)["task_scope"],
             "can_archive_tasks": policy.can_archive(db, p, project), "can_view_project_content": shared, "tasks": rows, "stats": task_stats(rows),
-            "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
+            "schools": content_scope.redact_schools(schools, sections), "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,
-            "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),
-                           "total_income": sum((s["total_income"] for s in schools), ZERO) + unassigned_total,
-                           "unassigned_income": unassigned_total,
+            "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO) if can_procurement else None,
+                           "total_income": sum((s["total_income"] for s in schools), ZERO) + unassigned_total if can_income else None,
+                           "unassigned_income": unassigned_total if can_income else None,
                            "last_income_date": max(daily, default=None),
                            "income_note": "按已登记的实际收款日汇总；未登记不代表零收入，最近收款日不代表已完整对账。",
-                           "unpriced_count": sum(s["unpriced_count"] for s in schools),
-                           "review_count": sum(s["review_count"] for s in schools),
+                           "unpriced_count": sum(s["unpriced_count"] for s in schools) if can_procurement else None,
+                           "review_count": sum(s["review_count"] for s in schools) if can_procurement else None,
                            "daily": [{"date": k, "amount": v} for k, v in sorted(daily.items())],
                            "note": "已登记投入按清单金额（有填写时）或数量 × 单价汇总，加人工及其他投入；未标价不计入已知金额。利旧、拆回、调拨及折扣请结合备注核对。收入按实际收款日期登记，不等同于财务利润。"}}
 

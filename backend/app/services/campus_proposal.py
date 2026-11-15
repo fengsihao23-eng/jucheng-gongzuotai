@@ -8,6 +8,7 @@ from app.core.response import bad_request, forbidden
 from app.models import OpsProduct, OpsProject
 from app.schemas.operations import Id, Input, Name
 from app.services import kb_service, operations_service as ops
+from app.services import operations_scope as scope
 
 
 class ProductQuantity(Input):
@@ -23,13 +24,15 @@ class ProposalIn(Input):
 
 def draft(db, p, project_id, body):
     project = ops.get_project(db, p, project_id)
+    scope.require(db, p, project, "products")
+    scope.require(db, p, project, "outreach")
     if not ops.has_project_content(db, p, project):
         raise forbidden("仅项目成员可使用项目产品库")
     school = ops.school(db, project_id, body.school_id)
     ids = {r.product_id for r in body.products}
     if len(ids) != len(body.products):
         raise bad_request("同一产品请合计数量后再选")
-    visible = ops.visible_projects(p, members_only=True).with_only_columns(OpsProject.id)
+    visible = scope.content_project_ids(db, p, "products")
     by_id = {r.id: r for r in db.scalars(select(OpsProduct).where(
         OpsProduct.id.in_(ids), OpsProduct.project_id.in_(visible)))}
     if by_id.keys() != ids:

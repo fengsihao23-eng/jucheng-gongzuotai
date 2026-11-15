@@ -8,7 +8,7 @@ from app.core.deps import build_principal
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import OpsSchoolVisit, OpsTask, OpsTaskDiscussion, OpsTaskNodeUpdate, SysUser
-from app.services import operations_service as ops, operations_policy as policy
+from app.services import operations_service as ops, operations_policy as policy, operations_scope as scope
 
 CADENCES = {"daily": "每天反馈", "every_2_days": "每 2 天反馈", "every_3_days": "每 3 天反馈", "weekly": "每周反馈", "node": "按节点反馈"}
 
@@ -99,8 +99,13 @@ def add_discussion(db, p, task_id, body):
     db.flush()
     # Intentionally do not modify task status, revision or last_feedback_at.
     if target and target != p.id:
-        ops._notify(db, [target], project, task, "任务有待回复要求" if body.kind == "request" else "任务讨论有新回复",
-                    f"{p.user.name}：{body.content[:500]}")
+        from app.services import notify_service
+        recipient = db.get(SysUser, target)
+        if recipient and db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(recipient)))):
+            notify_service.send(db, [recipient], "operations_discussion", "任务有待回复要求" if body.kind == "request" else "任务讨论有新消息",
+                f"{p.user.name}：{body.content[:500]}", link=f"/operations/{project.id}?task={task.id}",
+                ref_type="ops_discussion", ref_id=str(record.id), wecom=scope.controls(db, project.id)["wecom_reminders"],
+                defer=True, wecom_content="你有一条运营任务要求或回复，请打开工作台查看。")
     log_op(db, p.id, "operations.task.discuss", "ops_task_discussion", record.id,
            after={"task_id": task.id, "kind": body.kind, "recipient_id": body.recipient_id})
     return record
@@ -118,6 +123,7 @@ def pending_by_task(db, p, task_ids):
 
 def school_access(db, p, project_id, school_id, write=False):
     project = ops.get_project(db, p, project_id, lock=write)
+    scope.require(db, p, project, "outreach")
     if not ops.has_project_content(db, p, project):
         raise forbidden("无学校资料权限")
     if write:

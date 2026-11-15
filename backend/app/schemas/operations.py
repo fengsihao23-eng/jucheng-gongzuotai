@@ -217,6 +217,7 @@ class SchoolTransitionIn(Input):
 
 
 class DigestGenerateIn(Input):
+    owner_id: Id | None = None
     project_id: Id
     mode: Literal["week", "month"] = "week"
     period: str = ""

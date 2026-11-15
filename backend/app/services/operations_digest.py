@@ -9,9 +9,10 @@ from app.core.timeutil import TZ, day_bounds, last_week, month_range, now, prev_
 from app.models import OpsTaskUpdate, OpsSchoolVisit, OpsSchool, SysUser
 from app.services import operations_service as ops
 from app.services import operations_followup as followups
+from app.services import operations_scope as scope
 
 
-def period_summary(db, p, mode, period, project_id=None, mine=False):
+def period_summary(db, p, mode, period, project_id=None, mine=False, owner_id=None):
     if not period:
         period = last_week() if mode == "week" else prev_month(today().strftime("%Y-%m"))
     pattern = r"20\d{2}-W\d{2}" if mode == "week" else r"20\d{2}-(0[1-9]|1[0-2])"
@@ -25,8 +26,14 @@ def period_summary(db, p, mode, period, project_id=None, mine=False):
         raise bad_request("不能汇总未来期间")
     end = min(end, today())
     if project_id is not None:
-        ops.get_project(db, p, project_id)
-    rows = [r for r in ops.tasks(db, p, project_id, mine) if r["approval_status"] == "approved"]
+        scope.require(db, p, ops.get_project(db, p, project_id), "reports")
+    permitted_report_projects = scope.content_project_ids(db, p, "reports")
+    if owner_id and owner_id != p.id:
+        if project_id is None:
+            raise bad_request("查看指定人员汇报时请先选择项目")
+        ops.manage(db, p, ops.get_project(db, p, project_id))
+    rows = [r for r in ops.tasks(db, p, project_id, mine) if r["approval_status"] == "approved"
+            and r["project_id"] in permitted_report_projects and (not owner_id or r["owner_id"] == owner_id)]
     end_exclusive = day_bounds(end)[1]
     start_at = day_bounds(start)[0]
     events = {}
@@ -81,13 +88,15 @@ def period_summary(db, p, mode, period, project_id=None, mine=False):
     for row in result:
         for event in row["feedback_events"]:
             event["node_id"] = links.get(event["id"])
-    permitted_projects = [x.id for x in db.scalars(ops.visible_projects(p)) if ops.has_project_content(db, p, x)]
+    permitted_projects = [i for i in scope.content_project_ids(db, p, "outreach") if i in permitted_report_projects]
     project_ids = [i for i in permitted_projects if project_id is None or i == project_id]
     visits_q = select(OpsSchoolVisit, OpsSchool.name, OpsSchool.project_id, SysUser.name).join(
         OpsSchool, OpsSchool.id == OpsSchoolVisit.school_id).join(SysUser, SysUser.id == OpsSchoolVisit.author_id).where(
         OpsSchool.project_id.in_(project_ids), OpsSchoolVisit.occurred_on >= start, OpsSchoolVisit.occurred_on <= end)
     if mine:
         visits_q = visits_q.where(OpsSchoolVisit.author_id == p.id)
+    elif owner_id:
+        visits_q = visits_q.where(OpsSchoolVisit.author_id == owner_id)
     visits = [{"id": v.id, "school_id": v.school_id, "school_name": name, "project_id": pid, "author": author,
                "author_id": v.author_id, "occurred_on": v.occurred_on, "content": v.content,
                "next_action": v.next_action, "next_contact_date": v.next_contact_date}
@@ -97,7 +106,7 @@ def period_summary(db, p, mode, period, project_id=None, mine=False):
              "blocked": sum(r["status"] == "blocked" for r in result),
              "unreported": sum(not r["feedback"] for r in result)}
     report = {"period": period, "mode": mode, "start": start, "end": end, "items": result, "stats": stats, "visits": visits,
-              "generated_at": now(), "person": p.user.name if mine else "项目团队",
+              "generated_at": now(), "person": p.user.name if mine else ops.user(db, owner_id).name if owner_id else "项目团队",
               "note": "预览按当前权限和归属展示，反馈按所选期间登记记录统计；保存后保留当时的报告版本。未反馈不推测进展。"}
     report["text"] = render_text(report)
     return report

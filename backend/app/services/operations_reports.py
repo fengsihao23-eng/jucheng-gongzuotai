@@ -5,11 +5,12 @@ from app.core.audit import log_op
 from app.core.response import encode, forbidden, not_found
 from app.core.timeutil import now
 from app.models import OpsDigestPreference, OpsDigestSnapshot, OpsTask, OpsProject
-from app.services import operations_service as ops, operations_digest as digest, operations_policy as policy
+from app.services import operations_service as ops, operations_digest as digest, operations_policy as policy, operations_scope as scope
 
 
 def preferences(db, p, project_id):
     project = ops.get_project(db, p, project_id)
+    scope.require(db, p, project, "reports")
     row = db.get(OpsDigestPreference, project_id)
     return {"weekly": row.weekly if row else True, "monthly": row.monthly if row else True,
             "can_manage": ops.role(db, p, project) == "manager",
@@ -27,6 +28,8 @@ def set_preferences(db, p, project_id, body):
 
 def can_read(db, p, row):
     project = ops.get_project(db, p, row.project_id)
+    if not scope.can(db, p, project, "reports"):
+        return False
     manager = ops.role(db, p, project) == "manager"
     if row.audience == "project" and not manager:
         return False
@@ -36,7 +39,7 @@ def can_read(db, p, row):
     allowed = set(db.scalars(select(OpsTask.id).where(OpsTask.id.in_(ids), policy.task_access(p))))
     if ids != allowed:
         return False
-    if row.facts.get("visits") and not ops.has_project_content(db, p, project):
+    if row.facts.get("visits") and not scope.can(db, p, project, "outreach"):
         return False
     return True
 
@@ -56,7 +59,7 @@ def get(db, p, report_id):
     return {**brief(row), "text": row.text, "facts": row.facts}
 
 
-def listing(db, p, project_id=None, mode=None, period="", mine=False):
+def listing(db, p, project_id=None, mode=None, period="", mine=False, owner_id=None):
     if project_id:
         ops.get_project(db, p, project_id)
     q = select(OpsDigestSnapshot).where(OpsDigestSnapshot.project_id.in_(ops.visible_projects(p).with_only_columns(OpsProject.id)))
@@ -68,16 +71,32 @@ def listing(db, p, project_id=None, mode=None, period="", mine=False):
         q = q.where(OpsDigestSnapshot.period == period)
     if mine:
         q = q.where(OpsDigestSnapshot.owner_id == p.id, OpsDigestSnapshot.audience == "personal")
+    elif owner_id:
+        q = q.where(OpsDigestSnapshot.owner_id == owner_id, OpsDigestSnapshot.audience == "personal")
     return [brief(row) for row in db.scalars(q.order_by(OpsDigestSnapshot.id.desc()).limit(300)) if can_read(db, p, row)]
 
 
-def generate(db, p, project_id, mode, period="", mine=False, new_version=False, automatic=False):
+def generate(db, p, project_id, mode, period="", mine=False, new_version=False, automatic=False, owner_id=None):
     project = ops.get_project(db, p, project_id, lock=True)
+    scope.require(db, p, project, "reports")
+    actor_id = p.id
+    subject = p
+    if owner_id:
+        if owner_id != p.id:
+            ops.manage(db, p, project)
+            from app.core.deps import build_principal
+            if owner_id not in {m["user_id"] for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"}:
+                raise forbidden("个人报告对象须为本项目有效执行成员")
+            subject = build_principal(ops.user(db, owner_id))
+            if not subject.has_menu("operations"):
+                raise forbidden("该成员未开通运营项目")
+            scope.require(db, subject, project, "reports")
+        mine = True
     if not mine:
         ops.manage(db, p, project)
     audience = "personal" if mine else "project"
-    owner_id = p.id if mine else project.owner_id
-    facts = digest.period_summary(db, p, mode, period, project_id, mine)
+    owner_id = subject.id if mine else project.owner_id
+    facts = digest.period_summary(db, subject, mode, period, project_id, mine)
     previous = db.scalar(select(OpsDigestSnapshot).where(OpsDigestSnapshot.project_id == project_id,
         OpsDigestSnapshot.owner_id == owner_id, OpsDigestSnapshot.audience == audience, OpsDigestSnapshot.mode == mode,
         OpsDigestSnapshot.period == facts["period"]).order_by(OpsDigestSnapshot.version.desc()).limit(1))
@@ -89,7 +108,7 @@ def generate(db, p, project_id, mode, period="", mine=False, new_version=False, 
     facts["project_name"] = project.name
     facts["text"] = digest.render_text(facts)
     row = OpsDigestSnapshot(project_id=project_id, owner_id=owner_id, audience=audience, mode=mode,
-        period=facts["period"], version=previous.version + 1 if previous else 1, generated_by=p.id,
+        period=facts["period"], version=previous.version + 1 if previous else 1, generated_by=actor_id,
         automatic=automatic, facts=encode(facts), text=facts["text"], created_at=now())
     db.add(row)
     db.flush()

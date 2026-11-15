@@ -56,20 +56,17 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
         if not rows:
             db.flush()
             return
-    if any(r.msg_type == "operations_assignment" for r in rows):
+    from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
+    if any(r.msg_type in OPS_TYPES for r in rows):
         from app.core.deps import build_principal
         from app.models import OpsProject, OpsTask
         from app.services.operations_policy import task_access
 
         allowed = []
         for r in rows:
-            if r.msg_type == "operations_assignment":
+            if r.msg_type in OPS_TYPES:
                 u = by_user.get(r.user_id)
-                can_receive = u and u.status == 1 and not u.is_deleted and r.ref_id and r.ref_id.isdigit() and db.scalar(
-                    select(OpsTask.id).where(OpsTask.id == int(r.ref_id), OpsTask.owner_id == r.user_id,
-                                             OpsTask.status != "done", OpsTask.approval_status == "approved",
-                                             OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status == "active")),
-                                             task_access(build_principal(u))))
+                can_receive = u and u.status == 1 and not u.is_deleted and ops_eligible(db, build_principal(u), r)
                 if not can_receive:
                     r.send_status, r.error_msg, r.retry_count = 2, "任务已完成、暂停、转交、作废或收件人不再有权限", MAX_RETRY
                     continue

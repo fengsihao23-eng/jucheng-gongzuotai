@@ -15,6 +15,7 @@
       </template>
     </PageHeader>
 
+    <MyWork v-if="!editing" />
     <!-- 编辑布局 -->
     <Panel v-if="editing" title="卡片布局" sub="顺序自上而下对应首页从左到右、从上到下">
       <div v-for="(c, i) in draft" :key="c.key" class="edit-row" :class="{ off: c.hidden }">
@@ -103,6 +104,7 @@ import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import MyWork from './operations/MyWork.vue'
 import { useAuth } from '@/store/auth'
 import { greeting, money, num, percent, wan, datetime, date as fmtDate } from '@/utils/format'
 import { PALETTE, baseGrid, wanAxis } from '@/utils/chart'

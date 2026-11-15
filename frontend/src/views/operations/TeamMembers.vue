@@ -34,6 +34,7 @@
       <el-table-column label="项目权限" min-width="150"><template #default="{ row }">{{ ROLES[row.role] }}</template></el-table-column>
       <el-table-column v-if="project.can_manage" width="140"><template #default="{ row }"><template v-if="!row.is_owner"><el-button link type="primary" @click="userId = row.user_id; memberRole = row.role">调整</el-button><el-button link type="danger" :disabled="saving" @click="remove(row)">移除</el-button></template></template></el-table-column>
     </el-table>
+    <MemberVisibility v-if="project.can_manage" :project-id="project.id" @saved="emit('saved')" />
   </div>
 </template>
 <script setup>
@@ -41,6 +42,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { ROLES, announceChange } from './shared'
+import MemberVisibility from './MemberVisibility.vue'
 const props = defineProps({ project: Object }), emit = defineEmits(['saved', 'settings'])
 const users = ref([]), userId = ref(null), memberRole = ref('member'), saving = ref(false)
 const batchOpen = ref(false), batchIds = ref([]), batchDept = ref(''), batchRole = ref('member')

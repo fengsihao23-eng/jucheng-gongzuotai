@@ -8,6 +8,7 @@ from app.models import OpsProject, OpsTask, OpsTaskDiscussion, SysNotify, SysUse
 from app.services import notify_service, operations_service as ops
 from app.services.operations_policy import archived
 from app.services import operations_policy as policy
+from app.services import operations_scope as scope
 
 
 @job("operations_task_reminder", "运营任务进展提醒", {"hour": 16, "minute": 0}, "每日 16:00",
@@ -38,8 +39,10 @@ def operations_task_reminder(db, params):
                          OpsTask.id == task.id, policy.task_access(build_principal(u))))]
             rows = notify_service.send(db, users, "operations_reminder", "运营任务进展提醒",
                 f"{project.name} · {task.title}\n{'、'.join(reasons)}；负责人：{owner.name}；截止：{task.due_date}。请反馈已完成的工作和下一步安排。",
-                link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task_reminder", ref_id=reference, wecom=False)
-            sent += len(rows)
+                link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task_reminder", ref_id=reference,
+                wecom=scope.controls(db, project.id)["wecom_reminders"], defer=True,
+                wecom_content="你有待跟进的运营事项，请打开工作台反馈进展。")
+            sent += sum(r.channel == "inapp" for r in rows)
         requests = db.scalars(select(OpsTaskDiscussion).join(OpsTask, OpsTask.id == OpsTaskDiscussion.task_id).where(
             OpsTask.project_id == project.id, OpsTask.status != "done", ~archived(), OpsTask.approval_status == "approved",
             OpsTaskDiscussion.kind == "request", OpsTaskDiscussion.resolved_at.is_(None))).all()
@@ -57,8 +60,10 @@ def operations_task_reminder(db, params):
                 continue
             rows = notify_service.send(db, [recipient], "operations_request", "还有一条任务要求待回复",
                 "请打开原任务查看要求并回复。已读通知不会结束待回复事项。",
-                link=f"/operations/{project.id}?task={request.task_id}", ref_type="ops_request_reminder", ref_id=reference, wecom=False)
-            sent += len(rows)
+                link=f"/operations/{project.id}?task={request.task_id}", ref_type="ops_request_reminder", ref_id=reference,
+                wecom=scope.controls(db, project.id)["wecom_reminders"], defer=True,
+                wecom_content="你有一条运营任务要求待回复，请打开工作台查看。")
+            sent += sum(r.channel == "inapp" for r in rows)
     db.commit()
     return {"rows": sent, "message": f"已生成 {sent} 条运营任务站内提醒"}
 
@@ -77,12 +82,15 @@ def generate_period_reports(db, mode):
         if not owner or owner.status != 1 or owner.is_deleted or not build_principal(owner).has_menu("operations"):
             continue
         users = {m["user_id"] for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"}
+        control = scope.controls(db, project.id)
+        if control["report_audience"] == "selected":
+            users &= set(control["report_user_ids"])
         for user_id, mine in [(owner.id, False), *[(uid, True) for uid in sorted(users)]]:
             user = db.get(SysUser, user_id)
             if not user or user.status != 1 or user.is_deleted:
                 continue
             principal = build_principal(user)
-            if not principal.has_menu("operations"):
+            if not principal.has_menu("operations") or not scope.can(db, principal, project, "reports"):
                 continue
             audience = "personal" if mine else "project"
             exists = db.scalar(select(OpsDigestSnapshot.id).where(OpsDigestSnapshot.project_id == project.id,
