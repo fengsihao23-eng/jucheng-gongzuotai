@@ -14,6 +14,7 @@ Month = Annotated[str, StringConstraints(pattern=r"^20\d{2}-(0[1-9]|1[0-2])$")]
 TaskSource = Literal["company", "self", "project_plan"]
 Visibility = Literal["team", "selected"]
 TaskKind = Literal["general", "outreach"]
+Cadence = Literal["daily", "every_2_days", "every_3_days", "weekly", "node"]
 
 
 class Input(BaseModel):
@@ -116,7 +117,7 @@ class TaskIn(Input):
     school_id: Id | None = None
     due_date: date
     priority: Literal["key", "normal"] = "key"
-    cadence: Literal["daily", "node"] = "daily"
+    cadence: Cadence = "daily"
     plan_month: Month | None = None
     source: Literal["company", "self"] = "company"
     department_reviewer_id: Id | None = None
@@ -134,12 +135,14 @@ class TaskIn(Input):
 
 
 class TaskPatch(Input):
+    expected_revision: Annotated[int, Field(ge=1)] | None = None
+    description: Note | None = None
     title: Annotated[str, StringConstraints(min_length=1, max_length=160)] | None = None
     description: Note | None = None
     owner_id: Id | None = None
     due_date: date | None = None
     priority: Literal["key", "normal"] | None = None
-    cadence: Literal["daily", "node"] | None = None
+    cadence: Cadence | None = None
     plan_month: Month | None = None
     department_reviewer_id: Id | None = None
     company_reviewer_id: Id | None = None
@@ -152,6 +155,7 @@ class TaskPatch(Input):
 
 
 class FeedbackIn(Input):
+    node_id: Id | None = None
     content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
     next_step: Note = ""
     status: Literal["todo", "doing", "blocked", "done"]
@@ -189,3 +193,37 @@ class DelayReviewIn(Input):
 
 class DraftIn(Input):
     text: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
+
+
+class DiscussionIn(Input):
+    kind: Literal["note", "request", "reply"] = "note"
+    content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
+    node_id: Id | None = None
+    recipient_id: Id | None = None
+    reply_to_id: Id | None = None
+
+
+class SchoolVisitIn(Input):
+    occurred_on: date
+    content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
+    next_action: Note = ""
+    next_contact_date: date | None = None
+
+
+class SchoolTransitionIn(Input):
+    stage: Literal["won", "operating"]
+    expected_stage: str
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=1000)]
+
+
+class DigestGenerateIn(Input):
+    project_id: Id
+    mode: Literal["week", "month"] = "week"
+    period: str = ""
+    mine: bool = False
+    new_version: bool = False
+
+
+class DigestPreferenceIn(Input):
+    weekly: bool = True
+    monthly: bool = True

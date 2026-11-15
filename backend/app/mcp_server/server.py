@@ -442,11 +442,13 @@ def t_ops_status(db, p, project_id: int | None = None, task_id: int | None = Non
 
 
 def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int | None = None,
-                   next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = ""):
+                   next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = "",
+                   node_id: int | None = None, expected_revision: int | None = None):
     from app.schemas.operations import FeedbackIn
     from app.services import operations_service as ops
     body = FeedbackIn(content=content, status=status, progress=progress, next_step=next_step,
-                      completed_node_ids=completed_node_ids or [], incomplete_reason=incomplete_reason)
+                      completed_node_ids=completed_node_ids or [], incomplete_reason=incomplete_reason,
+                      node_id=node_id, expected_revision=expected_revision)
     ops.feedback(db, p, task_id, body)
     db.commit()
     return {"data": ops.task_detail(db, p, task_id), "summary": "进展反馈已保存。"}
@@ -479,7 +481,7 @@ def _register():
                               source: str = "company", plan_month: str | None = None, description: str = "",
                               cadence: str = "daily", department_reviewer_id: int | None = None,
                               company_reviewer_id: int | None = None, nodes: list[dict] | None = None) -> str:
-        """用户明确要求安排任务后执行。先查询项目、团队与真实ID。source=company|self，due_date=YYYY-MM-DD，plan_month=YYYY-MM，cadence=daily|node；self需两位不同审核人。节点格式{name,due_date}。"""
+        """用户明确要求安排任务后执行。先查询项目、团队与真实ID。source=company|self，due_date=YYYY-MM-DD，plan_month=YYYY-MM，cadence=daily|every_2_days|every_3_days|weekly|node，按自然日；self需两位不同审核人。节点格式{name,due_date}。"""
         params = {"project_id": project_id, "title": title, "owner_id": owner_id, "due_date": due_date, "source": source,
                   "plan_month": plan_month, "description": description, "cadence": cadence,
                   "department_reviewer_id": department_reviewer_id, "company_reviewer_id": company_reviewer_id, "nodes": nodes}
@@ -495,10 +497,12 @@ def _register():
         return await anyio.to_thread.run_sync(lambda: _run("ops.project_status", ctx, {"project_id": project_id, "task_id": task_id, "month": month, "owner_id": owner_id}, t_ops_status))
 
     async def ops_task_feedback(ctx: Context, task_id: int, content: str, status: str, progress: int | None = None,
-                                next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = "") -> str:
+                                next_step: str = "", completed_node_ids: list[int] | None = None, incomplete_reason: str = "",
+                                node_id: int | None = None, expected_revision: int | None = None) -> str:
         """仅在用户要求汇报时提交。先查询任务确认 ID、审核状态和节点；status: todo/doing/blocked/done。progress 可省略，按已完成节点更新。受阻或逾期未完成须提供 incomplete_reason。不得推断完成节点。"""
         return await anyio.to_thread.run_sync(lambda: _run("ops.task_feedback", ctx, {"task_id": task_id, "content": content,
-            "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids, "incomplete_reason": incomplete_reason}, t_ops_feedback))
+            "status": status, "progress": progress, "next_step": next_step, "completed_node_ids": completed_node_ids,
+            "incomplete_reason": incomplete_reason, "node_id": node_id, "expected_revision": expected_revision}, t_ops_feedback))
 
     async def fin_daily_expense_report(ctx: Context, date: str | None = None, project_code: str | None = None) -> str:
         """每日支出报表。date: YYYY-MM-DD（默认昨日）；project_code: 项目编码（可选，如 JC-XY-2026-001）"""

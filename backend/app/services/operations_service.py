@@ -10,6 +10,7 @@ from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsProjectProgress, OpsSchool,
                         OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
+from app.services import operations_followup as followups
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date", "task_id"]
@@ -298,8 +299,13 @@ def save_income(db, p, project_id, school_id, body, income_id=None):
 
 
 def school_data(db, project):
+    from app.models import OpsSchoolVisit
     rows = db.scalars(select(OpsSchool).where(OpsSchool.project_id == project.id).order_by(OpsSchool.id)).all()
     ids = [r.id for r in rows]
+    visits = {}
+    for visit, name in db.execute(select(OpsSchoolVisit, SysUser.name).join(SysUser, SysUser.id == OpsSchoolVisit.author_id)
+            .where(OpsSchoolVisit.school_id.in_(ids)).order_by(OpsSchoolVisit.school_id, OpsSchoolVisit.occurred_on.desc(), OpsSchoolVisit.id.desc())):
+        visits.setdefault(visit.school_id, {"occurred_on": visit.occurred_on, "author": name, "content": visit.content})
     equipment, incomes = defaultdict(list), defaultdict(list)
     for e in db.scalars(select(OpsEquipment).where(OpsEquipment.school_id.in_(ids)).order_by(OpsEquipment.id)):
         calculated = e.unit_price * e.quantity if e.unit_price is not None else None
@@ -315,6 +321,7 @@ def school_data(db, project):
         cost = sum((e["amount"] for e in equipment[s.id] if e["amount"] is not None), ZERO)
         income = sum((Decimal(i["amount"]) for i in incomes[s.id]), ZERO)
         result.append({"id": s.id, **snapshot(s, SCHOOL_FIELDS), "equipment": equipment[s.id], "incomes": incomes[s.id],
+                       "latest_visit": visits.get(s.id),
                        "equipment_cost": cost, "total_investment": cost + s.labor_cost + s.other_cost, "total_income": income,
                        "unpriced_count": sum(e["amount"] is None for e in equipment[s.id]),
                        "review_count": sum(bool(e["review_note"]) for e in equipment[s.id])})
@@ -337,8 +344,10 @@ def can_feedback(db, p, project, task):
 
 
 def _event(db, p, task, kind, content, next_step=""):
-    db.add(OpsTaskUpdate(task_id=task.id, author_id=p.id, kind=kind, content=content, next_step=next_step,
-                         status=task.status, progress=task.progress, created_at=now()))
+    event = OpsTaskUpdate(task_id=task.id, author_id=p.id, kind=kind, content=content, next_step=next_step,
+                         status=task.status, progress=task.progress, created_at=now())
+    db.add(event)
+    return event
 
 
 def _notify(db, recipients, project, task, title, content, *, assignment=False):
@@ -415,6 +424,9 @@ def edit_task(db, p, task_id, body):
     if task.status == "done":
         raise conflict("已完成任务保留历史安排；新工作请另建任务")
     values = body.model_dump(exclude_unset=True)
+    expected_revision = values.pop("expected_revision", None)
+    if expected_revision is not None and expected_revision != task.revision:
+        raise conflict("任务安排已更新，请刷新后核对再保存")
     if not values or any(v is None for v in values.values()):
         raise bad_request("请提供有效的任务修改内容")
     policy_values = {k: values.pop(k) for k in tuple(values) if k in POLICY_FIELDS}
@@ -473,6 +485,7 @@ def feedback(db, p, task_id, body):
         raise conflict("任务在反馈期间已更新，请核对最新进展后再提交")
     if task.status == "done":
         raise conflict("任务已完成，历史反馈予以保留；新的工作请另建任务")
+    followups.validate_node(task, body.node_id)
     if body.status != "done" and (body.status == "blocked" or task.due_date < today() or
                                   any(not n.completed_at and n.due_date < today() and n.id not in body.completed_node_ids for n in task.nodes)) and not body.incomplete_reason:
         raise bad_request("受阻或逾期任务请填写未完成原因")
@@ -501,7 +514,11 @@ def feedback(db, p, task_id, body):
     content = body.content + ("\n完成节点：" + "、".join(completed) if completed else "")
     if task.incomplete_reason:
         content += "\n未完成原因：" + task.incomplete_reason
-    _event(db, p, task, "feedback", content, body.next_step)
+    event = _event(db, p, task, "feedback", content, body.next_step)
+    if body.node_id:
+        from app.models import OpsTaskNodeUpdate
+        db.flush()
+        db.add(OpsTaskNodeUpdate(update_id=event.id, node_id=body.node_id))
     log_op(db, p.id, "operations.task.feedback", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     recipients = {project.owner_id, task.creator_id}
     # 撤销的项目成员不再收到新的反馈内容。
@@ -523,10 +540,11 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
     if not access:
         access = {"kind": "general", "visibility": "team", "viewer_ids": [], "archived_at": None, "archive_reason": ""}
     archived = bool(access["archived_at"])
-    finished = archived or task.status == "done" or task.approval_status != "approved"
+    finished = archived or task.status == "done" or task.approval_status != "approved" or project.status != "active"
     day = today()
     overdue = not finished and (task.due_date < day or any(not n.completed_at and n.due_date < day for n in task.nodes))
-    stale = not finished and task.cadence == "daily" and (not task.last_feedback_at or task.last_feedback_at.astimezone(TZ).date() < day)
+    cadence = followups.cadence_view(task)
+    stale = not finished and task.cadence != "node" and cadence["next_feedback_on"] <= day
     my_role = viewer_role or role(db, p, project)
     stage = plans.review_stage(db, p, project, task)
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
@@ -535,7 +553,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
             "can_archive": (p.is_admin or p.can("operations:archive")) and my_role == "manager",
             "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
-            "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale,
+            "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale, **cadence,
             "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role in {"member", "reviewer"} and task.owner_id == p.id)),
             "can_edit": not archived and project.status == "active" and task.status != "done" and (my_role == "manager" or (task.source == "self" and task.creator_id == p.id and my_role in {"member", "reviewer"})),
             "can_review": not archived and project.status == "active" and stage is not None, "review_stage": stage,
@@ -554,6 +572,9 @@ def task_detail(db, p, task_id, *, archived=False):
     updates = [{"id": u.id, "kind": u.kind, "author_name": u.author.name, "created_at": u.created_at,
                 **snapshot(u, ["content", "next_step", "status", "progress"])} for u in db.scalars(
                     select(OpsTaskUpdate).where(OpsTaskUpdate.task_id == task.id).order_by(OpsTaskUpdate.id.desc()))]
+    links = followups.node_links(db, [u["id"] for u in updates])
+    for u in updates:
+        u["node_id"] = links.get(u["id"])
     reviews = [{"id": r.id, "reviewer_name": r.reviewer.name, "created_at": r.created_at,
                 **snapshot(r, ["stage", "decision", "comment", "task_revision"])} for r in db.scalars(
                     select(OpsTaskReview).where(OpsTaskReview.task_id == task_id).order_by(OpsTaskReview.id))]
@@ -561,7 +582,11 @@ def task_detail(db, p, task_id, *, archived=False):
     plan = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.task_id == task.id)) if task.source == "project_plan" else None
     return {**task_dict(db, p, project, task, updates, delay=delay_records[0] if delay_records else None),
             "reviews": reviews, "delay_history": [deadlines.reason_dict(row) for row in delay_records],
-            "plan_context": progress_dict(plan) if plan else None, "today": today()}
+            "plan_context": progress_dict(plan) if plan else None, "today": today(),
+            "discussions": followups.discussions(db, p, task),
+            "can_discuss": not archived and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
+            "can_request": not archived and project.status == "active" and task.status != "done" and task.approval_status == "approved" and role(db, p, project) == "manager",
+            "participants": followups.participants(db, p, project, task) if not archived else []}
 
 
 def tasks(db, p, project_id=None, mine=False, *, archived=False):
@@ -574,6 +599,7 @@ def tasks(db, p, project_id=None, mine=False, *, archived=False):
         q = q.where(OpsTask.owner_id == p.id)
     task_rows = db.scalars(q).all()
     task_ids = [t.id for t in task_rows]
+    pending_replies = followups.pending_by_task(db, p, task_ids)
     delays = deadlines.latest_by_task(db, task_ids)
     plan_ids = [t.id for t in task_rows if t.source == "project_plan"]
     contexts = {row.task_id: progress_dict(row) for row in db.scalars(
@@ -585,7 +611,8 @@ def tasks(db, p, project_id=None, mine=False, *, archived=False):
     access = policy.batch_details(db, task_ids)
     roles = {id: role(db, p, project) for id, project in by_id.items()}
     rows = [{**task_dict(db, p, by_id[t.project_id], t, viewer_role=roles[t.project_id], delay=delays.get(t.id), access=access.get(t.id, {})),
-             "latest_feedback": latest.get(t.id, ""), "plan_context": contexts.get(t.id)} for t in task_rows]
+             "latest_feedback": latest.get(t.id, ""), "plan_context": contexts.get(t.id),
+             "pending_replies": pending_replies.get(t.id, 0)} for t in task_rows]
     return sorted(rows, key=lambda t: (t["status"] == "done", not t["overdue"], t["status"] != "blocked", t["priority"] != "key", t["due_date"], t["id"]))
 
 
@@ -597,6 +624,7 @@ def task_stats(rows):
     return {"total": len(rows), "pending": len(pending), "done": len(rows) - len(pending),
             "overdue": sum(t["overdue"] for t in pending), "blocked": sum(t["status"] == "blocked" for t in pending),
             "needs_update": sum(t["needs_update"] for t in pending), "awaiting_approval": awaiting, "rejected": rejected,
+            "pending_replies": sum(t.get("pending_replies", 0) for t in pending),
             "on_time": sum(t["deadline_status"] == "on_time" for t in rows),
             "late_done": sum(t["deadline_status"] == "late_done" for t in rows),
             "unknown_done": sum(t["deadline_status"] == "unknown_done" for t in rows),
@@ -618,7 +646,7 @@ def list_projects(db, p, keyword="", category="", key_only=False):
     active_ids = {r.id for r in db.scalars(visible_projects(p).where(OpsProject.status == "active"))}
     active_tasks = [t for t in all_tasks if t["project_id"] in active_ids]
     return {"items": items, "can_create": can_create(p), "stats": task_stats(active_tasks),
-            "todos": [t for t in active_tasks if t["status"] != "done" and t["approval_status"] == "approved"],
+            "todos": [t for t in active_tasks if (t["status"] != "done" and t["approval_status"] == "approved") or t.get("pending_replies")],
             "delay_review_inbox": [t for t in all_tasks if t["can_review_delay"]], "today": today()}
 
 
@@ -644,12 +672,15 @@ def project_detail(db, p, project_id):
         select(OpsImportBatch).where(OpsImportBatch.project_id == project.id).order_by(OpsImportBatch.id.desc()))] if shared else []
     return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared else [],
+            "can_record_visits": project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
             "can_archive_tasks": policy.can_archive(db, p, project), "can_view_project_content": shared, "tasks": rows, "stats": task_stats(rows),
             "schools": schools, "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,
             "financials": {"total_investment": sum((s["total_investment"] for s in schools), ZERO),
                            "total_income": sum((s["total_income"] for s in schools), ZERO) + unassigned_total,
                            "unassigned_income": unassigned_total,
+                           "last_income_date": max(daily, default=None),
+                           "income_note": "按已登记的实际收款日汇总；未登记不代表零收入，最近收款日不代表已完整对账。",
                            "unpriced_count": sum(s["unpriced_count"] for s in schools),
                            "review_count": sum(s["review_count"] for s in schools),
                            "daily": [{"date": k, "amount": v} for k, v in sorted(daily.items())],

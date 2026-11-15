@@ -16,6 +16,9 @@ from app.services import operations_service as ops
 from app.services import operations_plans as plans
 from app.services import operations_digest as digest, operations_policy as policy, campus_income_file as income_file
 from app.services import campus_proposal
+from app.services import operations_followup as followups
+from app.services import operations_reports as op_reports
+from app.schemas.operations import DiscussionIn, SchoolVisitIn, SchoolTransitionIn, DigestGenerateIn, DigestPreferenceIn
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
@@ -52,6 +55,36 @@ def monthly_plan(month: Month | None = None, owner_id: int | None = None, projec
                  review_mine: bool = False, delay_review_mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
     """按月查询负责人计划、公司安排及自行安排；stats 和 owner_stats 含按时、逾期完成和未完成数。"""
     return ok(plans.monthly(db, p, month, owner_id, project_id, mine, source, review_mine, delay_review_mine))
+
+
+@router.get("/digest/reports")
+def saved_digests(project_id: int | None = None, mode: Literal["week", "month"] | None = None,
+                  period: str = "", mine: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"items": op_reports.listing(db, p, project_id, mode, period, mine)})
+
+
+@router.post("/digest/reports")
+def generate_digest(body: DigestGenerateIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = op_reports.generate(db, p, **body.model_dump())
+    db.commit()
+    return ok(op_reports.get(db, p, row.id))
+
+
+@router.get("/digest/reports/{report_id}")
+def saved_digest(report_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(op_reports.get(db, p, report_id))
+
+
+@router.get("/{project_id}/digest-settings")
+def digest_settings(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(op_reports.preferences(db, p, project_id))
+
+
+@router.put("/{project_id}/digest-settings")
+def save_digest_settings(project_id: int, body: DigestPreferenceIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    op_reports.set_preferences(db, p, project_id, body)
+    db.commit()
+    return ok(op_reports.preferences(db, p, project_id))
 
 
 @router.get("/products")
@@ -127,6 +160,13 @@ def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: 
 def review_operation_task(task_id: int, body: ReviewIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """指定审核人对最新任务版本完成当前级别审核；部门通过后才能进入公司审核。"""
     plans.review_task(db, p, task_id, body)
+    db.commit()
+    return ok(ops.task_detail(db, p, task_id))
+
+
+@router.post("/tasks/{task_id}/discussions")
+def discuss_task(task_id: int, body: DiscussionIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    followups.add_discussion(db, p, task_id, body)
     db.commit()
     return ok(ops.task_detail(db, p, task_id))
 
@@ -284,6 +324,25 @@ def edit_school(project_id: int, school_id: int, body: SchoolIn, p: Principal = 
     row = ops.save_school(db, p, project_id, body, school_id)
     db.commit()
     return ok({"id": row.id})
+
+
+@router.get("/{project_id}/schools/{school_id}/visits")
+def visits(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"items": followups.school_visits(db, p, project_id, school_id)})
+
+
+@router.post("/{project_id}/schools/{school_id}/visits")
+def add_visit(project_id: int, school_id: int, body: SchoolVisitIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = followups.add_visit(db, p, project_id, school_id, body)
+    db.commit()
+    return ok({"id": row.id})
+
+
+@router.post("/{project_id}/schools/{school_id}/transition")
+def transition_school(project_id: int, school_id: int, body: SchoolTransitionIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = followups.transition(db, p, project_id, school_id, body)
+    db.commit()
+    return ok({"id": row.id, "stage": row.stage})
 
 
 @router.post("/{project_id}/products")

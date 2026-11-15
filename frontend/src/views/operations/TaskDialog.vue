@@ -13,7 +13,7 @@
         </header>
         <dl class="facts">
           <div><dt>负责人</dt><dd>{{ task.owner_name }}</dd></div><div><dt>截止日期</dt><dd>{{ task.due_date }}</dd><small v-if="task.deadline_basis && task.deadline_basis !== task.due_date">原定 {{ task.deadline_basis }}</small></div>
-          <div><dt>反馈频率</dt><dd>{{ task.cadence === 'daily' ? '每天反馈' : '按节点反馈' }}</dd></div>
+          <div><dt>反馈频率</dt><dd>{{ task.cadence_label }}</dd><small v-if="task.can_feedback">下次反馈 {{ task.next_feedback_on }}</small></div>
           <div v-if="task.approval_status === 'approved'"><dt>任务进度</dt><dd aria-live="polite"><el-progress v-if="progress.percent !== null" aria-label="任务进度" :percentage="progress.percent" :color="task.status === 'blocked' ? 'var(--jc-down)' : task.status === 'done' ? 'var(--jc-up)' : 'var(--jc-brand)'" /><span v-else>{{ progress.label }}</span></dd></div>
           <div v-else><dt>任务审核</dt><dd>{{ statusLabel(task) }}</dd></div>
         </dl>
@@ -31,12 +31,18 @@
             <TaskDelayPanel v-if="!archived && task.delay_status" class="section" :task="task" :save="save" :busy="saving" />
             <section v-if="task.nodes.length" class="section">
               <h3>阶段节点 <small>{{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }} 已完成</small></h3>
-              <ol class="nodes"><li v-for="(node, index) in task.nodes" :key="node.id" :class="{ complete: node.completed_at, overdue: node.overdue && !node.completed_at }"><i aria-hidden="true">{{ index + 1 }}</i><span>{{ node.name }}</span><small>{{ node.completed_at ? '已完成' : node.overdue ? `逾期 · ${node.due_date}` : node.due_date }}</small></li></ol>
+              <details v-for="(node, index) in task.nodes" :key="node.id" class="node-detail">
+                <summary>{{ index + 1 }}. {{ node.name }} <small>{{ node.completed_at ? '已完成 · ' + datetime(node.completed_at) : (node.overdue ? '逾期 · ' : '') + node.due_date }}</small></summary>
+                <div v-for="u in task.updates.filter(u => u.node_id === node.id)" :key="u.id" class="node-entry"><small>{{ datetime(u.created_at) }} · {{ u.author_name }}</small><p class="plain">{{ u.content }}</p></div>
+                <p v-if="!task.updates.some(u => u.node_id === node.id)" class="jc-muted jc-small">暂无单独登记的节点进展；原有记录仍保留在任务过程记录中。</p>
+                <el-button v-if="task.can_feedback" link type="primary" @click="form.node_id = node.id">反馈此节点</el-button>
+              </details>
             </section>
+            <TaskDiscussion :task="task" @saved="load(true)" />
             <section class="section history">
               <h3>过程记录 <small>{{ task.updates.length }} 条</small></h3>
               <el-timeline v-if="task.updates.length"><el-timeline-item v-for="u in task.updates" :key="u.id" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">
-                <b>{{ updateTitle(u) }}</b><p class="plain">{{ u.content }}</p><p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
+                <b>{{ updateTitle(u) }}{{ u.node_id ? ' · ' + task.nodes.find(n => n.id === u.node_id)?.name : '' }}</b><p class="plain">{{ u.content }}</p><p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
               </el-timeline-item></el-timeline>
               <p v-else class="jc-muted">暂无过程记录</p>
             </section>
@@ -50,6 +56,7 @@
             <section v-if="task.can_feedback" class="section feedback-box">
               <h3>任务反馈</h3>
               <el-form ref="formRef" :model="form" label-position="top">
+                <el-form-item v-if="task.nodes.length" label="本次反馈位置"><el-select v-model="form.node_id" clearable placeholder="整个任务" aria-label="本次反馈位置"><el-option v-for="n in task.nodes" :key="n.id" :label="n.name" :value="n.id" /></el-select></el-form-item>
                 <el-form-item label="完成情况" class="result-choice">
                   <el-radio-group v-model="outcome" aria-label="完成情况"><el-radio-button value="done">已完成</el-radio-button><el-radio-button value="pending">未完成</el-radio-button></el-radio-group>
                 </el-form-item>
@@ -90,13 +97,14 @@ import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
 import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, taskProgress, tone, announceChange } from './shared'
 import TaskDelayPanel from './TaskDelayPanel.vue'
+import TaskDiscussion from './TaskDiscussion.vue'
 
 const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean, showArchive: Boolean })
 const emit = defineEmits(['update:modelValue', 'edit', 'archive'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assistant = useAssistant(), task = ref(null), loading = ref(false), unavailable = ref(false), saving = ref(false)
 const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
-const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '' })
+const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '', node_id: null })
 const blocked = computed({ get: () => form.status === 'blocked', set: value => { form.status = value ? 'blocked' : 'doing' } })
 let beforeComplete = 'doing'
 const outcome = computed({
@@ -120,7 +128,7 @@ let version = 0, baseline = ''
 
 function resetForm(row) {
   Object.assign(form, { content: '', next_step: row.next_step || '', status: row.status === 'todo' ? 'doing' : row.status,
-    completed_node_ids: [], incomplete_reason: row.incomplete_reason || '' })
+    completed_node_ids: [], incomplete_reason: row.incomplete_reason || '', node_id: null })
   formRevision.value = row.revision; baseline = JSON.stringify(form); draftText.value = ''; reviewComment.value = ''
   formRef.value?.clearValidate()
 }
@@ -198,6 +206,7 @@ function review(decision) {
 </script>
 
 <style scoped>
+.node-detail { border: 1px solid var(--jc-line); padding: 12px; margin: 8px 0; border-radius: 6px; }.node-detail summary { cursor: pointer; line-height: 1.8; }.node-detail summary small { display: block; color: var(--jc-ink-3); }.node-entry { border-top: 1px solid var(--jc-line); padding-top: 10px; margin-top: 10px; }
 :global(.ops-task-dialog.el-dialog) { display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 13px; }
 :global(.ops-task-dialog > .el-dialog__header) { padding: 15px 23px 13px; border-bottom: 1px solid var(--jc-line); margin: 0; }
 :global(.ops-task-dialog > .el-dialog__header .el-dialog__title) { font-size: 14px; font-weight: 600; }

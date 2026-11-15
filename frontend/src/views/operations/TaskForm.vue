@@ -38,8 +38,9 @@
       </template>
       <div class="two">
         <el-form-item label="重点程度"><el-radio-group v-model="form.priority"><el-radio-button value="key">重点任务</el-radio-button><el-radio-button value="normal">一般任务</el-radio-button></el-radio-group></el-form-item>
-        <el-form-item label="反馈频率"><el-radio-group v-model="form.cadence"><el-radio-button value="daily">每天反馈</el-radio-button><el-radio-button value="node">按节点反馈</el-radio-button></el-radio-group></el-form-item>
+        <el-form-item label="反馈频率"><el-select v-model="form.cadence" aria-label="反馈频率"><el-option v-for="(label, value) in CADENCES" :key="value" :value="value" :label="label" /></el-select></el-form-item>
       </div>
+      <p class="jc-small jc-muted">按自然日计算，进展反馈后重新起算。每天 16:00 汇总到期、逾期及待回复事项；已读通知不结束任务。</p>
       <template v-if="!initial?.id">
         <div class="jc-row between"><b>阶段节点 <span class="jc-muted jc-small">可选，适合分阶段完成的任务</span></b><el-button link type="primary" :disabled="form.nodes.length >= 30" @click="form.nodes.push({ name: '', due_date: form.due_date })">添加节点</el-button></div>
         <div v-for="(n, i) in form.nodes" :key="i" class="node">
@@ -57,7 +58,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
-import { announceChange } from './shared'
+import { announceChange, CADENCES } from './shared'
 const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, schoolPreset: Number, mode: {type:String,default:'company'} })
 const emit = defineEmits(['update:modelValue', 'saved', 'closed'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
@@ -87,7 +88,7 @@ async function save() {
     if (form.source !== 'self') {delete body.department_reviewer_id;delete body.company_reviewer_id}
     if (!props.project.can_manage || form.source !== 'company') { delete body.visibility; delete body.viewer_ids }
     else if (form.visibility !== 'selected') body.viewer_ids = []
-    if (props.initial?.id) { delete body.nodes; if (!body.school_id) delete body.school_id; delete body.source }
+    if (props.initial?.id) { delete body.nodes; if (!body.school_id) delete body.school_id; delete body.source; body.expected_revision = props.initial.revision }
     const result = props.initial?.id ? await api.put(`/operations/tasks/${props.initial.id}`, body) : await api.post(`/operations/${props.project.id}/tasks`, body)
     visible.value = false; ElMessage.success('任务安排已保存'); emit('saved', result); announceChange()
   } catch {} finally { saving.value = false }

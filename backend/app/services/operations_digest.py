@@ -6,8 +6,9 @@ from sqlalchemy import select
 
 from app.core.response import bad_request
 from app.core.timeutil import TZ, day_bounds, last_week, month_range, now, prev_month, today, week_range
-from app.models import OpsTaskUpdate
+from app.models import OpsTaskUpdate, OpsSchoolVisit, OpsSchool, SysUser
 from app.services import operations_service as ops
+from app.services import operations_followup as followups
 
 
 def period_summary(db, p, mode, period, project_id=None, mine=False):
@@ -39,6 +40,7 @@ def period_summary(db, p, mode, period, project_id=None, mine=False):
             entry["last"] = event
             if event.created_at >= start_at:
                 entry["in_period"] = event
+                entry.setdefault("all_feedback", []).append(event)
     result = []
     for row in rows:
         event = events.get(row["id"], {})
@@ -61,13 +63,79 @@ def period_summary(db, p, mode, period, project_id=None, mine=False):
             label = "逾期未完成"
         else:
             label = ops.STATUS_LABELS[status]
+        deadline = row.get("deadline_basis") or row.get("original_due_date") or row["due_date"]
+        late_done = bool(done and completed_on and deadline and str(completed_on) > str(deadline))
+        if late_done:
+            label = "延期完成"
         result.append({k: row[k] for k in ("id", "project_id", "project_name", "title", "owner_id", "owner_name", "due_date")} |
                       {"status": status, "status_label": label, "done": done, "feedback": feedback.content if feedback else "",
                        "feedback_at": feedback.created_at if feedback else None, "next_step": last.next_step if last else "",
                        "completed_on": completed_on if done else None,
+                       "late_done": late_done, "original_due_date": deadline,
+                       "incomplete_reason": row.get("incomplete_reason", ""),
+                       "feedback_events": [{"id": e.id, "author_id": e.author_id, "author": e.author.name,
+                                            "at": e.created_at, "content": e.content, "next_step": e.next_step}
+                                           for e in event.get("all_feedback", [])],
                        "link": f"/operations/{row['project_id']}?task={row['id']}"})
+    links = followups.node_links(db, [e["id"] for row in result for e in row["feedback_events"]])
+    for row in result:
+        for event in row["feedback_events"]:
+            event["node_id"] = links.get(event["id"])
+    permitted_projects = [x.id for x in db.scalars(ops.visible_projects(p)) if ops.has_project_content(db, p, x)]
+    project_ids = [i for i in permitted_projects if project_id is None or i == project_id]
+    visits_q = select(OpsSchoolVisit, OpsSchool.name, OpsSchool.project_id, SysUser.name).join(
+        OpsSchool, OpsSchool.id == OpsSchoolVisit.school_id).join(SysUser, SysUser.id == OpsSchoolVisit.author_id).where(
+        OpsSchool.project_id.in_(project_ids), OpsSchoolVisit.occurred_on >= start, OpsSchoolVisit.occurred_on <= end)
+    if mine:
+        visits_q = visits_q.where(OpsSchoolVisit.author_id == p.id)
+    visits = [{"id": v.id, "school_id": v.school_id, "school_name": name, "project_id": pid, "author": author,
+               "author_id": v.author_id, "occurred_on": v.occurred_on, "content": v.content,
+               "next_action": v.next_action, "next_contact_date": v.next_contact_date}
+              for v, name, pid, author in db.execute(visits_q.order_by(OpsSchoolVisit.occurred_on, OpsSchoolVisit.id))]
     stats = {"total": len(result), "done": sum(r["done"] for r in result),
+             "late_done": sum(r["late_done"] for r in result),
              "blocked": sum(r["status"] == "blocked" for r in result),
              "unreported": sum(not r["feedback"] for r in result)}
-    return {"period": period, "start": start, "end": end, "items": result, "stats": stats, "generated_at": now(),
-            "note": "任务按当前权限和归属展示；反馈及完成按所选期间的已登记记录统计，未反馈不推测进展。"}
+    report = {"period": period, "mode": mode, "start": start, "end": end, "items": result, "stats": stats, "visits": visits,
+              "generated_at": now(), "person": p.user.name if mine else "项目团队",
+              "note": "预览按当前权限和归属展示，反馈按所选期间登记记录统计；保存后保留当时的报告版本。未反馈不推测进展。"}
+    report["text"] = render_text(report)
+    return report
+
+
+def render_text(report):
+    stats = report["stats"]
+    lines = [f"{report.get('person', '项目团队')} · {report['period']} {'周报' if report.get('mode') == 'week' else '月报'}",
+             f"统计期间：{report['start']} 至 {report['end']}",
+             f"本期纳入 {stats['total']} 项任务，完成 {stats['done']} 项（其中延期完成 {stats.get('late_done', 0)} 项），受阻 {stats['blocked']} 项，未反馈 {stats['unreported']} 项。"]
+    for title, predicate in (("一、完成事项", lambda r: r["done"]), ("二、进行中与未完成", lambda r: not r["done"])):
+        lines.extend(["", title])
+        selected = [r for r in report["items"] if predicate(r)]
+        if not selected:
+            lines.append("本期暂无已登记事项。")
+        for row in selected:
+            lines.append(f"• {row['owner_name']}｜{row['project_name']} / {row['title']}：{row['status_label']}，截止 {row['due_date']}。" +
+                         (f"实际完成 {row['completed_on']}；原定 {row['original_due_date']}。" if row.get("completed_on") else ""))
+            for event in row.get("feedback_events", []):
+                at = str(event["at"])[:16].replace("T", " ")
+                node = f"，节点 {event['node_id']}" if event.get("node_id") else ""
+                lines.append(f"  {at} {event['author']}{node}：{event['content']}")
+            if not row.get("feedback_events"):
+                lines.append("  本期未反馈，不推测实际进展。")
+            if row.get("next_step"):
+                lines.append("  下一步：" + row["next_step"])
+            lines.append(f"  来源：任务 #{row['id']} {row['link']}")
+    lines.extend(["", "三、学校开拓与跟进"])
+    for visit in report.get("visits", []):
+        lines.append(f"• {visit['occurred_on']} {visit['author']}跟进{visit['school_name']}：{visit['content']}" +
+                     (f"；下一步：{visit['next_action']}" if visit['next_action'] else "") + f"（跟进记录 #{visit['id']}）")
+    if not report.get("visits"):
+        lines.append("本期暂无已登记的学校跟进记录。")
+    lines.extend(["", "四、需协调与下一步"])
+    pending = [r for r in report["items"] if not r["done"] and (r["status"] == "blocked" or r["status_label"] == "逾期未完成")]
+    for row in pending:
+        lines.append(f"• {row['owner_name']}：{row['title']}，{row['status_label']}；请结合上述原反馈核对原因与下一步。")
+    if not pending:
+        lines.append("已登记任务中暂无受阻或逾期未完成事项；其他协调需求请补充到原任务。")
+    lines.extend(["", report["note"]])
+    return "\n".join(lines)

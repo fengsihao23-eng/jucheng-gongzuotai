@@ -43,3 +43,4 @@ export function taskSummary(rows) {
 }
 
 export { announceBusinessChange as announceChange } from '@/composables/useBusinessRefresh'
+export const CADENCES = { daily: '每天反馈', every_2_days: '每 2 天反馈', every_3_days: '每 3 天反馈', weekly: '每周反馈', node: '按节点反馈' }

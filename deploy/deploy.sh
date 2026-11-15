@@ -5,6 +5,12 @@
 #   SERVER=root@1.2.3.4 ./deploy/deploy.sh --seed     # 首次部署并写入演示数据（会清空业务表）
 set -euo pipefail
 
+# Existing installations use the verified release path. Keep the explicit first-install
+# --seed workflow separate so updates cannot reset business records.
+if [[ "${1:-}" != "--seed" ]]; then
+  exec bash "$(cd "$(dirname "$0")" && pwd)/release.sh" "$@"
+fi
+
 SERVER="${SERVER:?用法: SERVER=root@<ECS公网IP> $0 [--seed]}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/jucheng}"
 SEED="${1:-}"

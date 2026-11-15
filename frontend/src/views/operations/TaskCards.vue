@@ -22,6 +22,7 @@
         下一节点：{{ task.nodes.find(n => !n.completed_at).name }} · {{ task.nodes.find(n => !n.completed_at).due_date }}
       </span>
       <span class="node-caption">{{ task.last_feedback_at ? '反馈 ' + datetime(task.last_feedback_at) : '尚未反馈' }}</span>
+      <span v-if="task.pending_replies" class="jc-down">{{ task.pending_replies }} 条要求待我回复</span>
       <span v-if="task.carryover" class="carryover">从 {{ task.plan_month }} 延续</span>
       <div class="card-foot"><span class="owner">{{ task.owner_name }}<small>截止 {{ task.due_date }}</small><small v-if="task.completed_on">完成 {{ task.completed_on }}</small></span><span class="action">{{ task.can_review_delay ? '复核延期' : task.can_review ? '处理审核' : task.can_feedback ? '反馈进展' : '查看详情' }} <span aria-hidden="true">→</span></span></div>
     </button>

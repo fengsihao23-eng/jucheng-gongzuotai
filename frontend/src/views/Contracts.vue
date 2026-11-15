@@ -3,18 +3,20 @@
   <div class="jc-page">
     <PageHeader eyebrow="台账中心" title="合同台账" desc="查看签约、回款和企微来源；导出结果与当前筛选一致。">
       <el-button v-if="perms.workbook" @click="openWorkbook()">企业微信同步</el-button>
+      <el-button v-if="perms.workbook" @click="reconciliationOpen = true">来源对账</el-button>
       <el-button v-if="perms.export" :loading="exporting" @click="doExport">导出 xlsx</el-button>
       <el-button v-if="perms.write" type="primary" @click="openNew">新增合同</el-button>
     </PageHeader>
 
     <div class="jc-grid c4 signing-cards" aria-label="签约统计">
       <button v-for="item in signing" :key="item.key" type="button" :aria-pressed="f.sign_period === item.key" @click="choosePeriod(item.key)">
-        <span>{{ PERIODS[item.key] }}</span><b class="jc-num">{{ money(item.amount) }}</b><small>{{ item.count }} 份合同</small>
+        <span>{{ periodLabel(item.key) }}</span><b class="jc-num">{{ money(item.amount) }}</b><small>{{ item.count }} 份合同 · 元</small><small>{{ item.start || '历史起始' }} 至 {{ item.end }}</small>
       </button>
     </div>
     <p v-if="signing.length" class="jc-muted jc-small">{{ signingNote }}</p>
     <Panel>
       <div class="filters">
+        <el-select v-model="f.sign_year" aria-label="签订年份" placeholder="全部年份" style="width: 145px" @change="changeYear"><el-option :value="''" label="全部年份" /><el-option v-for="year in years" :key="year" :value="year" :label="`${year} 年`" /></el-select>
         <el-input v-model="f.keyword" placeholder="合同号 / 名称 / 客户 / 项目 / 审批单号" clearable style="width: 260px" @keyup.enter="search" @clear="search" />
         <el-select v-model="f.business_line" placeholder="业务线" clearable style="width: 140px" @change="search">
           <el-option v-for="(n, k) in BUSINESS_LINES" :key="k" :label="n" :value="k" />
@@ -29,7 +31,7 @@
         <el-select v-model="f.owner_id" clearable filterable placeholder="负责人" style="width: 134px" @change="search">
           <el-option v-for="u in owners" :key="u.id" :label="u.name" :value="u.id" />
         </el-select>
-        <el-date-picker v-model="f.sign_month" type="month" value-format="YYYY-MM" placeholder="签订月份" style="width: 130px" @change="f.sign_period = ''; search()" />
+        <el-date-picker v-model="f.sign_month" type="month" value-format="YYYY-MM" placeholder="签订月份" style="width: 130px" @change="v => { if (v) f.sign_year = Number(v.slice(0, 4)); f.sign_period = 'all'; search() }" />
         <el-select v-model="f.source_type" placeholder="来源" clearable style="width: 120px" @change="search">
           <el-option v-for="(n, k) in SOURCES" :key="k" :label="n" :value="Number(k)" />
         </el-select>
@@ -87,6 +89,7 @@
 
     <ContractForm v-model="formOpen" :contract="editing" @saved="onSaved" />
     <ContractWorkbook v-model="workbookOpen" :location="workbookLocation" @synced="load(true)" />
+    <ContractReconciliation v-model="reconciliationOpen" />
   </div>
 </template>
 
@@ -95,14 +98,17 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
 import ContractWorkbook from '@/components/ContractWorkbook.vue'
+import ContractReconciliation from '@/components/ContractReconciliation.vue'
 import { BUSINESS_LINES, CONTRACT_STATUS, money, percent, wan } from '@/utils/format'
 import ContractForm from './contract-form.vue'
 
 const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入', 4: '企微表格同步' }
 const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
-const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code', 'owner_id', 'sign_period']
+const KEYS = ['keyword', 'business_line', 'region', 'customer', 'status', 'sign_month', 'source_type', 'sign_from', 'sign_to', 'paid_month', 'project_code', 'owner_id', 'sign_period', 'sign_year']
 const PERIODS = { all: '累计签约', month: '本月签约', week: '本周签约', today: '今日签约' }
 const signing = ref([]), signingNote = ref(''), owners = ref([])
+const years = ref([]), currentYear = ref(new Date().getFullYear())
+function periodLabel(key) { return key === 'all' && f.sign_year ? `${f.sign_year} 年签约` : PERIODS[key] }
 const route = useRoute()
 const router = useRouter()
 const f = reactive(Object.fromEntries(KEYS.map((k) => [k, ''])))
@@ -110,11 +116,12 @@ const rows = ref([]); const total = ref(0); const sums = ref({}); const perms = 
 const page = ref(1); const pageSize = ref(20); const loading = ref(false); const exporting = ref(false)
 const formOpen = ref(false); const editing = ref(null)
 const workbookOpen = ref(false); const workbookLocation = ref(null)
+const reconciliationOpen = ref(false)
 function openWorkbook(location = null) { workbookLocation.value = location; workbookOpen.value = true }
 
 const extraTags = computed(() => {
   const t = []
-  if (f.sign_period) t.push({ key: 'sign_period', label: PERIODS[f.sign_period] })
+  if (f.sign_period) t.push({ key: 'sign_period', label: periodLabel(f.sign_period) })
   if (f.paid_month) t.push({ key: 'paid_month', label: `${f.paid_month} 有回款` })
   if (f.sign_from || f.sign_to) t.push({ key: 'sign_range', label: `签订 ${f.sign_from || '…'} ~ ${f.sign_to || '…'}` })
   if (f.project_code) t.push({ key: 'project_code', label: `项目 ${f.project_code}` })
@@ -124,7 +131,7 @@ const extraTags = computed(() => {
 function fromQuery() {
   for (const k of KEYS) {
     const v = route.query[k]
-    f[k] = v === undefined ? '' : ['status', 'source_type', 'owner_id'].includes(k) ? Number(v) : String(v)
+    f[k] = v === undefined || v === '' ? '' : ['status', 'source_type', 'owner_id', 'sign_year'].includes(k) ? Number(v) : String(v)
   }
 }
 function params() {
@@ -154,10 +161,11 @@ function search() {
   load(true)
 }
 function choosePeriod(key) {
-  f.sign_month = ''; f.sign_from = ''; f.sign_to = ''; f.sign_period = f.sign_period === key ? '' : key
+  f.sign_period = key
   search()
 }
-function reset() { KEYS.forEach((k) => (f[k] = '')); search() }
+function changeYear() { f.sign_period = 'all'; f.sign_month = ''; f.sign_from = ''; f.sign_to = ''; search() }
+function reset() { KEYS.forEach((k) => (f[k] = '')); f.sign_year = currentYear.value; f.sign_period = 'all'; search() }
 function dropExtra(key) {
   if (key === 'sign_range') { f.sign_from = ''; f.sign_to = '' } else f[key] = ''
   search()
@@ -173,10 +181,11 @@ function onSaved(c) {
   else load(true)
 }
 
-onMounted(() => {
+onMounted(async () => {
   fromQuery()
-  load(true)
-  api.get('/contracts/options').then(result => owners.value = result.owners).catch(() => {})
+  try { const result = await api.get('/contracts/options'); owners.value = result.owners; years.value = result.years; currentYear.value = result.current_year } catch {}
+  if (!Object.keys(route.query).some(k => KEYS.includes(k))) { f.sign_year = currentYear.value; f.sign_period = 'all' }
+  await load(true)
   if (route.query.new) openNew()
 })
 </script>

@@ -39,7 +39,8 @@
         <el-tab-pane label="当前需要做什么" name="todos">
           <div class="filters">
             <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button><el-radio-button v-if="data.delay_review_inbox.length || todoFilter === 'delay_review'" value="delay_review">待我复核延期</el-radio-button></el-radio-group>
-            <el-checkbox v-if="todoFilter !== 'delay_review'" v-model="mine">只看我负责的</el-checkbox>
+            <el-button :type="todoFilter === 'pending_replies' ? 'primary' : 'default'" @click="todoFilter = todoFilter === 'pending_replies' ? 'all' : 'pending_replies'">待我回复（{{ data.todos.filter(t => t.pending_replies).length }}）</el-button>
+            <el-checkbox v-if="!['delay_review', 'pending_replies'].includes(todoFilter)" v-model="mine">只看我负责的</el-checkbox>
           </div>
           <el-table :data="todos" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-click="openTask">
             <el-table-column label="任务 / 项目" min-width="260"><template #default="{ row }"><b>{{ row.title }}</b><div class="jc-small jc-muted">{{ row.project_name }}{{ row.school_name ? ` · ${row.school_name}` : '' }}</div></template></el-table-column>
@@ -80,6 +81,7 @@ const todoFilter = ref('all'), mine = ref(false)
 const todos = computed(() => {
   const filter = todoFilter.value
   if (filter === 'delay_review') return data.delay_review_inbox
+  if (filter === 'pending_replies') return data.todos.filter(t => t.pending_replies)
   const tasks = filter === 'all' ? [...new Map([...data.todos, ...data.delay_review_inbox].map(task => [task.id, task])).values()] : data.todos
   return tasks.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
     (filter === 'all' || (filter === 'blocked' ? t.status === 'blocked' : t[filter])))

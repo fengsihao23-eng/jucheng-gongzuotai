@@ -13,6 +13,7 @@
               <el-input v-model="query" placeholder="搜索任务 / 学校 / 负责人" clearable style="width: 240px" />
               <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="keyOnly">仅重点</el-checkbox><el-checkbox v-model="attention">需要关注</el-checkbox>
               <span class="jc-spacer" />
+              <el-radio-group v-model="taskView" size="small" aria-label="任务显示方式"><el-radio-button value="cards">任务卡</el-radio-button><el-radio-button value="table">进度表</el-radio-button></el-radio-group>
               <el-button v-if="delayRows.length" size="small" @click="delayOpen = true">待处理延期（{{ delayRows.length }}）</el-button>
               <el-button v-if="project.can_propose && project.status === 'active'" link type="primary" @click="newSelfTask">自行安排</el-button>
               <el-button link @click="summary">进展汇总</el-button>
@@ -20,7 +21,13 @@
             <div class="board-status" role="group" aria-label="按任务状态筛选">
               <button v-for="(label, value) in statuses" :key="value" type="button" :aria-pressed="status === value" :data-status="value" :title="value === 'ongoing' ? '包含待开始、受阻、待审核和已退回的任务' : undefined" @click="status = value"><i /><span>{{ label }}</span><b class="jc-num">{{ taskGroups[value].length }}</b></button>
             </div>
-            <TaskCards v-if="filteredTasks.length" :rows="filteredTasks" @open-task="openTask" @menu="openMenu" />
+            <TaskCards v-if="filteredTasks.length && taskView === 'cards'" :rows="filteredTasks" @open-task="openTask" @menu="openMenu" />
+            <el-table v-else-if="filteredTasks.length" :data="filteredTasks" @row-click="openTask" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''">
+              <el-table-column prop="title" label="事项" min-width="190" /><el-table-column prop="owner_name" label="负责人" width="100" /><el-table-column prop="due_date" label="截止" width="115" />
+              <el-table-column prop="latest_feedback" label="最近进展" min-width="230" show-overflow-tooltip /><el-table-column prop="next_step" label="下一步 / 协调" min-width="180" show-overflow-tooltip />
+              <el-table-column label="状态" width="110"><template #default="{ row }">{{ row.status === 'done' ? '已完成' : row.overdue ? '逾期未完成' : row.status === 'blocked' ? '受阻' : '进行中' }}</template></el-table-column>
+              <el-table-column width="100"><template #default="{ row }"><el-button link @click.stop="openTask(row)">查看 / 反馈</el-button></template></el-table-column>
+            </el-table>
             <ul v-if="menu.open" class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
               <li class="jc-down" @click="removeTask(menu.task)">作废任务</li>
             </ul>
@@ -102,6 +109,8 @@ const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false)
 const popupPaused = ref(false)
 const schoolPreset = ref(null), archivedTasks = ref([]), archivedTask = ref(null), archiveOpen = ref(false)
 const hasSchools = computed(() => project.value?.category.includes('校园') || project.value?.schools.length)
+const taskView = ref('cards')
+watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
 watch(tab, value => { if (value === 'archive') loadArchive() })
 async function loadArchive() {
   if (!project.value?.can_archive_tasks) return

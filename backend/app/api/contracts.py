@@ -24,10 +24,11 @@ Menu = Depends(require_menu("contracts"))
 def _filters(business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
              keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
-             region: str = "", sign_period: Literal["", "all", "month", "week", "today"] = "") -> dict:
+             region: str = "", sign_period: Literal["", "all", "month", "week", "today"] = "",
+             sign_year: int | None = Query(None, ge=1990, le=2100)) -> dict:
     return {"business_line": business_line, "customer": customer, "status": status, "sign_month": sign_month,
             "sign_from": sign_from, "sign_to": sign_to, "source_type": source_type, "keyword": keyword.strip(),
-            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id, "region": region, "sign_period": sign_period}
+            "project_code": project_code, "paid_month": paid_month, "owner_id": owner_id, "region": region, "sign_period": sign_period, "sign_year": sign_year}
 
 
 def _need(p: Principal, button: str):
@@ -52,12 +53,16 @@ def signing(f: dict = Depends(_filters), p: Principal = Menu, db: Session = Depe
 
 @router.get("/options")
 def options(p: Principal = Menu, db: Session = Depends(get_db)):
-    from sqlalchemy import select
+    from sqlalchemy import select, extract
 
-    from app.models import CONTRACT_STATUS, BizProject, SysUser
+    from app.models import CONTRACT_STATUS, BizContract, BizProject, SysUser
+    from app.core.deps import owner_scope
     projects = db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False)).order_by(BizProject.project_code)).unique().all()
     owners = db.scalars(select(SysUser).where(SysUser.status == 1).order_by(SysUser.department_id, SysUser.id)).all()
+    years = sorted({today().year, *[int(y) for y in db.scalars(select(extract("year", BizContract.sign_date)).where(
+        BizContract.is_deleted.is_(False), owner_scope(BizContract.owner_id, p)).distinct()) if y is not None]}, reverse=True)
     return ok({"business_lines": cs.LINES, "status": CONTRACT_STATUS, "source_types": cs.SOURCE_TYPES,
+               "years": years, "current_year": today().year,
                "projects": [{"code": x.project_code, "name": x.name, "business_line": x.business_line,
                              "customer_name": x.customer_name} for x in projects],
                "owners": [{"id": u.id, "name": u.name, "dept_code": u.dept_code} for u in owners
@@ -75,6 +80,12 @@ def export(request: Request, f: dict = Depends(_filters), p: Principal = Menu, d
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
                              "X-Export-Rows": str(n)})
+
+
+@router.get("/reconciliation")
+def source_reconciliation(p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services.contract_reconciliation import reconcile
+    return ok(reconcile(db, p))
 
 
 class SyncSourceIn(BaseModel):

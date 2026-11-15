@@ -43,7 +43,7 @@ def _received_sq():
 def filtered(p, *, business_line: str = "", customer: str = "", status: int | None = None, sign_month: str = "",
              sign_from: date | None = None, sign_to: date | None = None, source_type: int | None = None,
              keyword: str = "", project_code: str = "", paid_month: str = "", owner_id: int | None = None,
-             region: str = "", sign_period: str = ""):
+             region: str = "", sign_period: str = "", sign_year: int | None = None):
     q = select(BizContract).where(BizContract.is_deleted.is_(False))
     q = q.where(owner_scope(BizContract.owner_id, p))
     if business_line:
@@ -54,15 +54,19 @@ def filtered(p, *, business_line: str = "", customer: str = "", status: int | No
         q = q.where(BizContract.customer_name.contains(customer))
     if status:
         q = q.where(BizContract.status == status)
+    if sign_year is not None:
+        if not 1990 <= sign_year <= 2100:
+            raise bad_request("签订年份须在 1990 至 2100 年之间")
+        q = q.where(BizContract.sign_date >= date(sign_year, 1, 1),
+                    BizContract.sign_date <= min(date(sign_year, 12, 31), today()))
     if sign_period:
-        bounds = signing_periods().get(sign_period)
+        bounds = signing_periods(sign_year).get(sign_period)
         if bounds is None:
             raise bad_request("无效的签约统计期间")
         start, end = bounds
         q = q.where(BizContract.status.in_((1, 2)), BizContract.sign_date <= end)
         if start:
             q = q.where(BizContract.sign_date >= start)
-        sign_month, sign_from, sign_to = "", None, None
     if sign_month:
         s, e = month_range(sign_month)
         q = q.where(BizContract.sign_date >= s, BizContract.sign_date <= e)
@@ -88,20 +92,24 @@ def filtered(p, *, business_line: str = "", customer: str = "", status: int | No
     return q
 
 
-def signing_periods():
+def signing_periods(sign_year=None):
     day = today()
+    if sign_year is not None and sign_year != day.year:
+        return {"all": (date(sign_year, 1, 1), min(date(sign_year, 12, 31), day))}
+    if sign_year is not None:
+        start = date(sign_year, 1, 1)
+        return {"all": (start, day), "month": (month_range(ref=day)[0], day),
+                "week": (max(start, week_range(ref=day)[0]), day), "today": (day, day)}
     return {"all": (None, day), "month": (month_range(ref=day)[0], day),
             "week": (week_range(ref=day)[0], day), "today": (day, day)}
 
 
 def signing_board(db, p, **filters):
-    base = filtered(p, **{k: v for k, v in filters.items() if k not in {
-        "sign_month", "sign_from", "sign_to", "sign_period"}}).where(BizContract.status.in_((1, 2))).subquery()
     result = []
-    for key, (start, end) in signing_periods().items():
-        q = select(func.count(base.c.id), func.coalesce(func.sum(base.c.amount), 0)).where(base.c.sign_date <= end)
-        if start:
-            q = q.where(base.c.sign_date >= start)
+    for key, (start, end) in signing_periods(filters.get("sign_year")).items():
+        # Each card's drilldown uses exactly this filter, including selected year/range.
+        base = filtered(p, **{**filters, "sign_period": key}).subquery()
+        q = select(func.count(base.c.id), func.coalesce(func.sum(base.c.amount), 0))
         count, amount = db.execute(q).one()
         result.append({"key": key, "start": start, "end": end, "count": count, "amount": amount})
     return result
@@ -209,7 +217,7 @@ def export_xlsx(db: Session, p, **f) -> tuple[bytes, int]:
     if rows:
         n = len(rows) + 1
         ws.append([])
-        ws.append(["合计", f"{len(rows)} 份"] + [None] * 3 + [f"=SUM(F2:F{n})"])
+        ws.append(["合计", f"{len(rows)} 份"] + [None] * 4 + [f"=SUM(G2:G{n})"])
     ws.freeze_panes = "A2"
     cal = wb.create_sheet("口径说明")
     cond = {k: str(v) for k, v in f.items() if v not in (None, "", 0)}
@@ -217,10 +225,10 @@ def export_xlsx(db: Session, p, **f) -> tuple[bytes, int]:
                  ["数据范围", "合同台账（biz_contract）中未删除的合同；与页面列表使用同一筛选条件"],
                  ["筛选条件", "；".join(f"{k}={v}" for k, v in cond.items()) or "无（全部）"],
                  ["合同金额", "合同签订金额（元，含税）"],
-                 ["签订日期", "企微合同审批通过日 / 人工录入日期（PRD 3.4 当月合同签订额口径）"],
+                 ["签订日期", "按台账登记的实际签订日期统计；年份、期间、状态及其他筛选与页面一致"],
                  ["已回款", "biz_payment 合计；回款日期以银行流水到账日为准（PRD 3.4）"],
                  ["回款率", "已回款 ÷ 合同金额"],
-                 ["来源", "企微审批=审批通过自动登记；人工录入；Excel 导入=数据清洗导入"],
+                 ["来源", "企微审批、人工录入、Excel 导入、企微固定工作簿同步；来源不改变业务去重规则"],
                  ["导出时间", f"{utcnow():%Y-%m-%d %H:%M} UTC"], ["导出行数", str(len(rows))]]:
         cal.append(line)
     cal.column_dimensions["A"].width = 14

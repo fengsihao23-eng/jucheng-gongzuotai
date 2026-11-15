@@ -1,5 +1,5 @@
 """缺少流程节点的项目补标准节点（合同导入建档的项目默认没有节点）。"""
-from datetime import date
+from app.core.timeutil import today
 
 from app.models import BizProject
 from app.services import project_service
@@ -18,7 +18,7 @@ def test_ensure_nodes_schedules_forward_without_fake_delay(db):
     nodes = project_service.ensure_nodes(db, p)
     assert len(nodes) == 5
     assert [n.node_name for n in nodes][:2] == ["深化设计", "进度管理"]
-    assert all(n.status == 1 and n.plan_date and n.plan_date >= date.today() for n in nodes)
+    assert all(n.status == 1 and n.plan_date and n.plan_date >= today() for n in nodes)
     assert p.plan_end_date == nodes[-1].plan_date
     stats = project_service.progress_stats(p)
     assert stats["current_node"] == "深化设计" and stats["done_nodes"] == 0 and stats["delayed_nodes"] == 0

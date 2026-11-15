@@ -7,6 +7,8 @@
     </div>
     <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
     <div v-if="mode === 'income' && project.can_manage" class="jc-row mt-8" style="margin-bottom: 12px"><IncomeFile :project-id="project.id" @saved="emit('saved')" /></div>
+    <div v-if="mode === 'outreach'" class="toolbar"><el-radio-group v-model="lifecycle" aria-label="学校阶段分组"><el-radio-button value="prospect">待开拓学校</el-radio-button><el-radio-button value="existing">存量学校</el-radio-button><el-radio-button value="all">全部学校</el-radio-button></el-radio-group></div>
+    <p v-if="mode === 'income'" class="jc-small jc-muted">最近登记收款日：{{ project.financials.last_income_date || '尚无记录' }}。{{ project.financials.income_note }}</p>
     <el-table :data="schools" @row-click="s => selectedId = s.id">
       <el-table-column prop="name" label="学校" min-width="190" />
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="阶段 / 意向" width="150"><template #default="{ row }">{{ STAGES[row.stage] }}<div class="jc-small jc-muted">意向 · {{ POTENTIAL[row.potential] }}</div></template></el-table-column>
@@ -19,6 +21,7 @@
           <span v-else class="jc-muted">待安排</span>
         </template>
       </el-table-column>
+      <el-table-column v-if="mode === 'outreach'" label="最近实际跟进" min-width="200"><template #default="{ row }"><template v-if="row.latest_visit">{{ row.latest_visit.occurred_on }} · {{ row.latest_visit.author }}<p class="jc-small">{{ row.latest_visit.content }}</p></template><span v-else class="jc-muted">尚未登记</span></template></el-table-column>
       <el-table-column width="105"><template #default="{ row }"><el-button link type="primary" @click.stop="selectedId = row.id">{{ labels[mode] }}</el-button></template></el-table-column>
     </el-table>
     <p v-if="mode !== 'outreach'" class="jc-muted jc-small">{{ project.financials.note }}</p>
@@ -34,6 +37,7 @@
         <p v-if="selected.note" class="plain">{{ selected.note }}</p>
         <el-tabs v-model="schoolTab">
           <el-tab-pane label="客户跟进过程" name="outreach">
+            <SchoolFollowup :project="project" :school="selected" @saved="emit('saved'); loadHistory()" />
             <div class="jc-row between"><h4>{{ mode === 'outreach' ? '关联市场开拓任务' : '关联任务' }}</h4>
               <el-button v-if="mode === 'outreach' && project.can_manage && project.status === 'active'" type="primary" link @click="assignSchool">布置市场开拓任务</el-button>
             </div>
@@ -102,14 +106,16 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import IncomeFile from './IncomeFile.vue'
+import SchoolFollowup from './SchoolFollowup.vue'
 import { money, datetime } from '@/utils/format'
 import { STAGES, POTENTIAL, TASK_STATUS, unitPrice, announceChange } from './shared'
 const props = defineProps({ project: Object, mode: { type: String, default: 'directory' } }), emit = defineEmits(['saved', 'open-task', 'assign-school'])
 const labels = { directory: '查看档案', procurement: '查看采购', income: '查看收入', outreach: '查看跟进' }
 const search = ref(''), stage = ref(''), highOnly = ref(false), selectedId = ref(null)
+const lifecycle = ref('prospect')
 const initialTab = () => ({ procurement: 'equipment', income: 'income', outreach: 'outreach', directory: 'outreach' })[props.mode]
 const schoolTab = ref(initialTab())
-const schools = computed(() => props.project.schools.filter(s => s.name.includes(search.value) && (!stage.value || stage.value === s.stage) && (!highOnly.value || s.potential === 'high')))
+const schools = computed(() => props.project.schools.filter(s => s.name.includes(search.value) && (!stage.value || stage.value === s.stage) && (!highOnly.value || s.potential === 'high') && (props.mode !== 'outreach' || lifecycle.value === 'all' || (lifecycle.value === 'existing' ? ['won', 'operating'].includes(s.stage) : !['won', 'operating', 'lost'].includes(s.stage)))))
 const selected = computed(() => props.project.schools.find(s => s.id === selectedId.value))
 const marketTasks = id => props.project.tasks.filter(t => t.school_id === id && t.kind === 'outreach')
 const schoolTasks = computed(() => props.mode === 'outreach' ? marketTasks(selectedId.value) : props.project.tasks.filter(t => t.school_id === selectedId.value))

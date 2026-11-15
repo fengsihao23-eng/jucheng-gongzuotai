@@ -13,3 +13,4 @@ from app.models.ext_workbench import (BizCollectionEntry, BizCollectionFollowup,
                                       OpsTaskAudience, OpsTaskPolicy)
 from app.models.ext_personal_permissions import SysUserPermission  # noqa: F401
 from app.models.ext_contract_workbook import ContractWorkbook, ContractWorkbookLink  # noqa: F401
+from app.models.ext_operations_iteration import *  # noqa: F401,F403
