@@ -29,12 +29,35 @@ def can_create(p):
     return p.is_admin or p.can("operations:manage")
 
 
+# 删除运营项目是点名授权（2026-11-16 需求）：只给这三个人，不走角色。
+PROJECT_DELETE_USERIDS = {"ken", "FengSiHao", "SZGLY"}
+PROJECT_DELETE_NAMES = {"梁道灿", "冯思皓", "聚成数智管理员"}
+
+
+def can_delete_project(p) -> bool:
+    return p.user.wecom_userid in PROJECT_DELETE_USERIDS or p.user.name in PROJECT_DELETE_NAMES
+
+
+def delete_project(db, p, project):
+    """软删除运营项目：状态置 deleted，数据保留可追溯，列表与详情不再出现。"""
+    if not can_delete_project(p):
+        raise forbidden("只有梁道灿、冯思皓、聚成数智管理员可以删除运营项目")
+    if project.status == "deleted":
+        raise conflict("该项目已删除")
+    before = snapshot(project, PROJECT_FIELDS)
+    project.status = "deleted"
+    log_op(db, p.id, "operations.project_delete", "ops_project", project.id, before,
+           {**before, "status": "deleted"}, None)
+    db.commit()
+    return {"deleted": True, "id": project.id, "name": project.name}
+
+
 def can_view_all(p):
     return can_create(p) or p.can("operations:view_all")
 
 
 def visible_projects(p, *, members_only=False):
-    q = select(OpsProject)
+    q = select(OpsProject).where(OpsProject.status != "deleted")
     if not can_view_all(p):
         conditions = [policy.member_clause(p)]
         if not members_only and p.can("operations:approve"):
@@ -645,7 +668,8 @@ def list_projects(db, p, keyword="", category="", key_only=False):
              for r in db.scalars(q.order_by(OpsProject.is_key.desc(), OpsProject.id.desc()))]
     active_ids = {r.id for r in db.scalars(visible_projects(p).where(OpsProject.status == "active"))}
     active_tasks = [t for t in all_tasks if t["project_id"] in active_ids]
-    return {"items": items, "can_create": can_create(p), "stats": task_stats(active_tasks),
+    return {"items": items, "can_create": can_create(p), "can_delete": can_delete_project(p),
+            "stats": task_stats(active_tasks),
             "todos": [t for t in active_tasks if (t["status"] != "done" and t["approval_status"] == "approved") or t.get("pending_replies")],
             "delay_review_inbox": [t for t in all_tasks if t["can_review_delay"]], "today": today()}
 

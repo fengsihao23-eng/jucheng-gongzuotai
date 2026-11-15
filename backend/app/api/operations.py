@@ -104,6 +104,13 @@ def create_operation(body: ProjectIn, p: Principal = Menu, db: Session = Depends
     return ok(ops.project_dict(db, p, project))
 
 
+@router.delete("/{project_id}")
+def delete_operation(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    """删除运营项目：仅梁道灿、冯思皓、聚成数智管理员，软删除并留审计。"""
+    project = ops.get_project(db, p, project_id)
+    return ok(ops.delete_project(db, p, project))
+
+
 @router.get("/tasks")
 def operation_tasks(project_id: int | None = None, mine: bool = False, archived: bool = False,
                     p: Principal = Menu, db: Session = Depends(get_db)):

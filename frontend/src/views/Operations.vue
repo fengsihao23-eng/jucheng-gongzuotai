@@ -23,7 +23,7 @@
             <el-checkbox v-model="query.key_only" @change="load">仅重点项目</el-checkbox>
           </div>
           <div class="project-grid">
-            <button v-for="p in data.items" :key="p.id" class="project-card" @click="router.push(`/operations/${p.id}`)">
+            <button v-for="p in data.items" :key="p.id" class="project-card" @click="router.push(`/operations/${p.id}`)" @contextmenu.prevent="openMenu($event, p)">
               <div class="jc-row between"><span class="jc-small jc-muted">{{ p.category }}</span><StatusPill v-if="p.is_key" text="重点项目" tone="brand" /></div>
               <h3>{{ p.name }}</h3>
               <p class="objective">{{ p.objective || '目标待补充，进入项目安排首批重点工作。' }}</p>
@@ -56,12 +56,19 @@
     <ProjectForm v-model="createOpen" @saved="p => router.push(`/operations/${p.id}`)" />
     <TaskDialog v-model="taskOpen" :task-id="selectedTask" @edit="editTask" />
     <TaskForm v-if="editProject" v-model="editOpen" :project="editProject" :initial="editingTask" @closed="popupPaused = false" />
+    <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false">
+      <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+        <div class="ctx-title">{{ menu.project?.name }}</div>
+        <button type="button" class="ctx-item danger" @click="removeProject">删除项目</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
@@ -73,7 +80,8 @@ import TaskForm from './operations/TaskForm.vue'
 import { PROJECT_STATUS, TASK_STATUS, completionLabel, deadlineTone, tone } from './operations/shared'
 const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
-const data = reactive({ items: [], todos: [], delay_review_inbox: [], can_create: false })
+const data = reactive({ items: [], todos: [], delay_review_inbox: [], can_create: false, can_delete: false })
+const menu = reactive({ open: false, x: 0, y: 0, project: null })
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
@@ -106,6 +114,29 @@ async function load(background = false) {
   catch {} finally { if (current === version) loading.value = false }
 }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
+function openMenu(event, project) {
+  if (!data.can_delete) return
+  menu.project = project
+  menu.x = Math.min(event.clientX, window.innerWidth - 190)
+  menu.y = Math.min(event.clientY, window.innerHeight - 80)
+  menu.open = true
+}
+async function removeProject() {
+  const project = menu.project
+  menu.open = false
+  if (!project) return
+  try {
+    await ElMessageBox.confirm(
+      `「${project.name}」将从运营项目列表移除。项目下的任务与数据不会物理删除，管理员可追溯恢复。`,
+      '删除运营项目', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
+  try {
+    await api.del(`/operations/${project.id}`)
+    ElMessage.success('已删除')
+    if (project.id === Number(route.params.id)) router.push('/operations')
+    await load()
+  } catch {}
+}
 function showTodos(filter = 'all') { todoFilter.value = filter; mine.value = false; tab.value = 'todos' }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 async function editTask(task) {
@@ -135,5 +166,11 @@ onMounted(async () => {
 .objective { color: var(--jc-ink-2); font-size: 13px; line-height: 1.7; min-height: 44px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0 0 24px; }
 .progress-line { height: 4px; background: var(--jc-line-2); margin: 18px 0 10px; border-radius: 4px; overflow: hidden; }
 .progress-line i { height: 100%; display: block; background: var(--jc-brand); }
+.ctx-mask { position: fixed; inset: 0; z-index: 3000; }
+.ctx-menu { position: fixed; min-width: 160px; padding: 6px; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, .16); }
+.ctx-title { padding: 6px 10px 8px; font-size: 12px; color: var(--jc-ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 220px; border-bottom: 1px solid var(--jc-line-2); margin-bottom: 4px; }
+.ctx-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--jc-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ctx-item:hover { background: var(--jc-surface-2); }
+.ctx-item.danger { color: var(--el-color-danger, #d9534f); }
 @media(max-width: 560px) { .attention-line { gap: 6px; padding-inline: 7px; }.attention-task { gap: 6px; }.attention-project { display: none; } }
 </style>
