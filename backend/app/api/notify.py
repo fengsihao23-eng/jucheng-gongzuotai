@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok, page_data
-from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, OpsTask, OpsTaskDiscussion, OpsDigestSnapshot, SysNotify
+from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, OpsProject, OpsTask, OpsTaskDiscussion, OpsDigestSnapshot, SysNotify
 
 router = APIRouter(prefix="/notifications", tags=["通知"])
 
@@ -15,10 +15,13 @@ router = APIRouter(prefix="/notifications", tags=["通知"])
 def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     from app.services.collection_service import scoped
+    from app.services.operations_notifications import project_assignment_access
     from app.services.operations_policy import task_access
     from app.services import operations_scope as scope, operations_reports as reports
 
     task_notice = ("ops_task", "ops_task_reminder")
+    visible_project = exists(select(OpsProject.id).where(
+        cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))
     visible_task = exists(select(OpsTask.id).where(
         cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p))) & p.has_menu("operations")
     discussion_types = ("ops_discussion", "ops_request_reminder")
@@ -35,7 +38,8 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
         cast(BizCollectionEntry.id, String) == SysNotify.ref_id,
         BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
     q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
-        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_((*task_notice, *discussion_types, "ops_digest", "collection_entry")),
+        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_(("ops_project", *task_notice, *discussion_types, "ops_digest", "collection_entry")),
+            (SysNotify.ref_type == "ops_project") & visible_project,
             SysNotify.ref_type.in_(task_notice) & visible_task,
             SysNotify.ref_type.in_(discussion_types) & visible_discussion,
             (SysNotify.ref_type == "ops_digest") & SysNotify.ref_id.in_(report_ids),

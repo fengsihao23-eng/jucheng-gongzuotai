@@ -59,8 +59,6 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
     if any(r.msg_type in OPS_TYPES for r in rows):
         from app.core.deps import build_principal
-        from app.models import OpsProject, OpsTask
-        from app.services.operations_policy import task_access
 
         allowed = []
         for r in rows:
@@ -68,7 +66,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
                 u = by_user.get(r.user_id)
                 can_receive = u and u.status == 1 and not u.is_deleted and ops_eligible(db, build_principal(u), r)
                 if not can_receive:
-                    r.send_status, r.error_msg, r.retry_count = 2, "任务已完成、暂停、转交、作废或收件人不再有权限", MAX_RETRY
+                    r.send_status, r.error_msg, r.retry_count = 2, "事项状态、负责人、权限或项目提醒设置已变更", MAX_RETRY
                     continue
             allowed.append(r)
         rows = allowed
@@ -104,12 +102,21 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     db.flush()
 
 
-def retry_failed(db: Session) -> int:
-    rows = db.scalars(select(SysNotify).where(SysNotify.channel == "wecom_app", SysNotify.send_status.in_([0, 2]),
-                                              SysNotify.retry_count < MAX_RETRY).order_by(SysNotify.id).limit(500).with_for_update(skip_locked=True)).all()
+def _deliver_queue(db: Session, *conditions) -> int:
+    rows = db.scalars(select(SysNotify).where(SysNotify.channel == "wecom_app", SysNotify.retry_count < MAX_RETRY,
+        *conditions).order_by(SysNotify.id).limit(500).with_for_update(skip_locked=True)).all()
     if rows:
         _deliver(db, list(rows))
     return len(rows)
+
+
+def deliver_pending(db: Session, ids: list[int]) -> int:
+    """Try newly committed notifications without racing the periodic retry worker."""
+    return _deliver_queue(db, SysNotify.id.in_(ids), SysNotify.send_status == 0) if ids else 0
+
+
+def retry_failed(db: Session) -> int:
+    return _deliver_queue(db, SysNotify.send_status.in_([0, 2]))
 
 
 def users_by_roles(db: Session, role_codes: Iterable[str]) -> list[SysUser]:

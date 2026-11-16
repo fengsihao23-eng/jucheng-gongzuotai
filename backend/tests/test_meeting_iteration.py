@@ -101,10 +101,11 @@ def test_reminders_dedupe_pause_completion_and_request_reply(client, login, db, 
     data(client.post(path + "/discussions", headers=login("admin"), json={"kind": "request", "content": "回复确认",
         "recipient_id": uid(db, "xuhao")}))
     operations_task_reminder(db, {})
-    before = list(db.scalars(select(SysNotify.id).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == f"{task['id']}:{today()}")))
+    reminders = select(SysNotify.id).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id.startswith(f"{task['id']}:{today()}:"))
+    before = list(db.scalars(reminders))
     assert before
     operations_task_reminder(db, {})
-    assert list(db.scalars(select(SysNotify.id).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == f"{task['id']}:{today()}"))) == before
+    assert list(db.scalars(reminders)) == before
     from app.models import OpsProject
     db.get(OpsProject, project["id"]).status = "paused"
     db.commit()

@@ -122,7 +122,7 @@ def test_filter_scope_month_validation_and_pending_reminders(client,login,db,pro
     from app.jobs.operations import operations_task_reminder
     t=data(propose(client,login,db,project,due_date="2026-10-19"))
     operations_task_reminder(db,{})
-    assert not db.scalar(select(SysNotify.id).where(SysNotify.ref_type=="ops_task_reminder",SysNotify.ref_id==f"{t['id']}:2026-10-20"))
+    assert not db.scalar(select(SysNotify.id).where(SysNotify.ref_type=="ops_task_reminder",SysNotify.ref_id.startswith(f"{t['id']}:")))
     assert client.get(f"{BASE}/monthly",params={"project_id":project["id"]},headers=login("caofang")).status_code==404
     assert client.get(f"{BASE}/monthly",params={"month":"2026-13"},headers=login("admin")).status_code==400
     assert monthly(client,login,project,owner_id=uid(db,"xuhao"))["items"]==[]

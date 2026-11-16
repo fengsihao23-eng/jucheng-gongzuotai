@@ -2,7 +2,7 @@
   <div v-if="form" v-loading="loading" class="controls">
     <h3>提醒与汇报对象</h3>
     <el-form label-position="top">
-      <el-form-item label="提醒方式"><el-switch v-model="form.wecom_reminders" active-text="同时提醒企业微信对应账号" /><p class="jc-small jc-muted">派单、定向要求、周期催办进入发送队列；站内提醒始终保留。可在任务详情查看投递情况。</p></el-form-item>
+      <el-form-item label="提醒方式"><el-switch v-model="form.wecom_reminders" active-text="同时发送企业微信通知" /><p class="jc-small jc-muted">新建项目或交接时通知项目负责人。未完成的任务和阶段节点每天 09:00、15:00（北京时间）提醒任务负责人。关闭企业微信后仍有站内通知；可在任务详情查看企业微信投递情况。</p></el-form-item>
       <el-form-item label="自动个人周报/月报对象"><el-radio-group v-model="form.report_audience"><el-radio value="all">全部执行成员</el-radio><el-radio value="selected">指定关键成员</el-radio></el-radio-group></el-form-item>
       <el-form-item v-if="form.report_audience === 'selected'" label="关键成员"><el-select v-model="form.report_user_ids" multiple filterable aria-label="关键汇报成员"><el-option v-for="m in members.filter(m => m.active && m.role !== 'viewer')" :key="m.user_id" :value="m.user_id" :label="m.name" /></el-select></el-form-item>
       <p class="jc-muted jc-small">项目总报告仍生成；成员需具有本项目报告可见权限。生成周期在“周报/月报 → 自动生成安排”管理。</p>
