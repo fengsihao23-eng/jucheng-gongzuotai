@@ -9,7 +9,7 @@
             <h2>{{ task.title }}</h2>
             <p class="context">{{ [task.project_name, task.school_name].filter(Boolean).join(' · ') }}</p>
           </div>
-          <div v-if="!archived" class="actions"><el-button plain @click="withXiaoju">用小聚办理</el-button><el-button v-if="task.can_edit" plain @click="emit('edit', task)">调整安排</el-button><el-button v-if="task.can_archive && showArchive" link type="danger" @click="emit('archive', task)">作废任务</el-button></div>
+          <div v-if="!archived" class="actions"><el-button plain @click="withXiaoju">用小聚办理</el-button><el-button v-if="task.can_edit" plain @click="emit('edit', task)">调整安排</el-button><el-button v-if="task.updates?.length" plain @click="historyOpen = true">过程记录</el-button></div>
         </header>
         <dl class="facts">
           <div><dt>负责人</dt><dd>{{ task.owner_name }}</dd></div><div><dt>截止日期</dt><dd>{{ task.due_date }}</dd><small v-if="task.deadline_basis && task.deadline_basis !== task.due_date">原定 {{ task.deadline_basis }}</small></div>
@@ -39,7 +39,7 @@
               </details>
             </section>
             <TaskDiscussion :task="task" @saved="load(true)" />
-            <details v-if="task.notification_deliveries?.length" class="section"><summary>企业微信提醒投递情况</summary><p class="jc-small jc-muted">投递成功表示已发送到企微，不代表本人已处理任务。</p><div v-for="n in task.notification_deliveries" :key="n.id" class="node-entry"><b>{{ n.recipient }} · {{ n.status }}</b><p class="jc-small">{{ n.title }} · {{ n.sent_at ? datetime(n.sent_at) : '待发送/已停止' }}</p><p v-if="n.error" class="jc-small jc-muted">{{ n.error }}</p></div></details>
+            <details v-if="task.notification_deliveries?.length" class="section"><summary>企业微信提醒投递情况</summary><p class="jc-small jc-muted">企微已受理表示发送请求成功。请在企业微信「消息」里的「聚成工作台」会话查看。</p><div v-for="n in task.notification_deliveries" :key="n.id" class="node-entry"><b>{{ n.recipient }} · {{ n.status }}</b><p class="jc-small">{{ n.title }} · {{ n.sent_at ? datetime(n.sent_at) : '待发送/已停止' }}</p><p v-if="n.error" class="jc-small jc-muted">{{ n.error }}</p></div></details>
             <section class="section history">
               <h3>过程记录 <small>{{ task.updates.length }} 条</small></h3>
               <el-timeline v-if="task.updates.length"><el-timeline-item v-for="u in task.updates" :key="u.id" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">
@@ -79,6 +79,17 @@
         </div>
       </template>
     </div>
+    <el-dialog v-model="historyOpen" title="过程记录" width="min(720px, calc(100vw - 24px))" align-center append-to-body class="task-history-dialog">
+      <h3 v-if="task" class="history-count">过程记录 <small>{{ task.updates.length }} 条</small></h3>
+      <el-timeline v-if="task?.updates.length" class="history-timeline">
+        <el-timeline-item v-for="u in task.updates" :key="u.id" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">
+          <b>{{ updateTitle(u) }}{{ u.node_id ? ' · ' + task.nodes.find(n => n.id === u.node_id)?.name : '' }}</b>
+          <p class="plain">{{ u.content }}</p>
+          <p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
+        </el-timeline-item>
+      </el-timeline>
+      <p v-else class="jc-muted">暂无过程记录</p>
+    </el-dialog>
     <template v-if="!archived && !unavailable && (task?.can_feedback || task?.can_review || task?.delay_status)" #footer>
       <div class="task-footer"><el-button @click="visible = false">关闭</el-button>
         <el-button v-if="task.can_review" type="danger" plain :disabled="saving || draftStale" @click="review('reject')">退回修改</el-button>
@@ -100,8 +111,9 @@ import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, 
 import TaskDelayPanel from './TaskDelayPanel.vue'
 import TaskDiscussion from './TaskDiscussion.vue'
 
-const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean, showArchive: Boolean })
-const emit = defineEmits(['update:modelValue', 'edit', 'archive'])
+const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean })
+const emit = defineEmits(['update:modelValue', 'edit'])
+const historyOpen = ref(false)
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assistant = useAssistant(), task = ref(null), loading = ref(false), unavailable = ref(false), saving = ref(false)
 const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
@@ -225,7 +237,9 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 .facts small { display: block; color: var(--jc-ink-3); margin-top: 3px; }
 .section { border: 1px solid var(--jc-line); border-radius: 8px; padding: 14px; }.section + .section { margin-top: 10px; }.section h3 { font-size: 15px; margin: 0 0 10px; color: var(--jc-ink); }.section h3 small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }.section p { margin: 0; }.plain { white-space: pre-wrap; line-height: 1.7; overflow-wrap: anywhere; }
 .nodes { list-style: none; margin: 0; padding: 0; }.nodes li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 6px 0; overflow-wrap: anywhere; }.nodes li + li { border-top: 1px solid var(--jc-line-2); }.nodes li i { background: var(--jc-bg); border: 1px solid var(--jc-line); color: var(--jc-ink-2); border-radius: 50%; display: inline-grid; width: 19px; height: 19px; place-items: center; font-style: normal; font-size: 10px; }.nodes li.complete i { border-color: var(--jc-up); color: var(--jc-up); }.nodes li small { color: var(--jc-ink-3); }.nodes li.complete small { color: var(--jc-up); }.nodes li.overdue small { color: var(--jc-down); }
-.history :deep(.el-timeline) { padding-left: 2px; }.history :deep(.el-timeline-item:last-child) { padding-bottom: 0; }.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
+.history :deep(.el-timeline) { padding-left: 2px; }.history :deep(.el-timeline-item:last-child) { padding-bottom: 0; }
+.history-count { font-size: 15px; margin: 0 0 14px; color: var(--jc-ink); }.history-count small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }
+.history-timeline { max-height: 62dvh; overflow: auto; padding-right: 4px; }.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
 .result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.result-choice :deep(.el-radio-button__inner) { width: 100%; }
 .node-hint { flex: 0 0 100%; color: var(--jc-ink-3); font-size: 12px; line-height: 1.5; }
 @media (max-width: 740px) { .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }.work { grid-row: 1; }.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

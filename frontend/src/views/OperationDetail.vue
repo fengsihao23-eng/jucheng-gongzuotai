@@ -21,17 +21,13 @@
             <div class="board-status" role="group" aria-label="按任务状态筛选">
               <button v-for="(label, value) in statuses" :key="value" type="button" :aria-pressed="status === value" :data-status="value" :title="value === 'ongoing' ? '包含待开始、受阻、待审核和已退回的任务' : undefined" @click="status = value"><i /><span>{{ label }}</span><b class="jc-num">{{ taskGroups[value].length }}</b></button>
             </div>
-            <TaskCards v-if="filteredTasks.length && taskView === 'cards'" :rows="filteredTasks" @open-task="openTask" @menu="openMenu" />
+            <TaskCards v-if="filteredTasks.length && taskView === 'cards'" :rows="filteredTasks" @open-task="openTask" />
             <el-table v-else-if="filteredTasks.length" :data="filteredTasks" @row-click="openTask" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''">
               <el-table-column prop="title" label="事项" min-width="190" /><el-table-column prop="owner_name" label="负责人" width="100" /><el-table-column prop="due_date" label="截止" width="115" />
               <el-table-column prop="latest_feedback" label="最近进展" min-width="230" show-overflow-tooltip /><el-table-column prop="next_step" label="下一步 / 协调" min-width="180" show-overflow-tooltip />
               <el-table-column label="状态" width="110"><template #default="{ row }">{{ row.status === 'done' ? '已完成' : row.overdue ? '逾期未完成' : row.status === 'blocked' ? '受阻' : '进行中' }}</template></el-table-column>
               <el-table-column width="100"><template #default="{ row }"><el-button link @click.stop="openTask(row)">查看 / 反馈</el-button></template></el-table-column>
             </el-table>
-            <ul v-if="menu.open" class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
-              <li class="jc-down" @click="removeTask(menu.task)">作废任务</li>
-            </ul>
-            <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false" />
             <el-empty v-if="!filteredTasks.length" :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
           </el-tab-pane>
           <template v-if="project.can_view_project_content">
@@ -39,7 +35,6 @@
               <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
               <el-tab-pane v-if="canSection('income')" label="每日收入" name="income" lazy><SchoolData mode="income" :project="project" @saved="load" /></el-tab-pane>
               <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
-              <el-tab-pane v-if="canSection('outreach')" label="学校档案" name="schools" lazy><SchoolData :project="project" @saved="load" @open-task="openTask" /></el-tab-pane>
             </template>
             <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
             <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
@@ -47,23 +42,11 @@
           <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
           <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" /></el-tab-pane>
-          <el-tab-pane v-if="project.can_archive_tasks" label="已作废任务" name="archive" lazy>
-            <el-table :data="archivedTasks">
-              <el-table-column label="任务" prop="title" min-width="175" />
-              <el-table-column label="负责人" prop="owner_name" min-width="100" />
-              <el-table-column label="作废说明" prop="archive_reason" min-width="175" />
-              <el-table-column label="操作" width="165"><template #default="{ row }">
-                <el-button link type="primary" @click="archivedTask = row.id; archiveOpen = true">查看记录</el-button>
-                <el-button link type="primary" @click="restore(row)">恢复</el-button>
-              </template></el-table-column>
-            </el-table>
-          </el-tab-pane>
         </el-tabs>
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
       <TaskForm v-model="taskForm" :project="project" :initial="editingTask" :mode="taskMode" :school-preset="schoolPreset" @saved="t => pendingTask = t" @closed="taskFormClosed" />
-      <TaskDialog v-model="archiveOpen" :task-id="archivedTask" :project-id="project.id" archived />
-      <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" show-archive @archive="removeTask" />
+      <TaskDialog v-model="taskOpen" :task-id="selectedTask" :project-id="project.id" @edit="editTask" />
       <el-dialog v-model="delayOpen" title="待处理延期" width="min(660px, calc(100vw - 24px))" align-center append-to-body @closed="delayClosed">
         <ul v-if="delayRows.length" class="delay-list">
           <li v-for="row in delayRows" :key="row.id">
@@ -89,7 +72,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useAssistant } from '@/store/assistant'
@@ -111,29 +94,12 @@ const route = useRoute(), router = useRouter(), auth = useAuth(), assistant = us
 const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref(''), status = ref('ongoing'), mine = ref(false), keyOnly = ref(false), attention = ref(false)
 const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
 const popupPaused = ref(false)
-const schoolPreset = ref(null), archivedTasks = ref([]), archivedTask = ref(null), archiveOpen = ref(false)
+const schoolPreset = ref(null)
 const hasSchools = computed(() => project.value?.category.includes('校园') || project.value?.schools.length)
 const canSection = section => (project.value?.visible_sections || []).includes(section)
 const taskView = ref('cards')
 watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
-watch(tab, value => { if (value === 'archive') loadArchive() })
-async function loadArchive() {
-  if (!project.value?.can_archive_tasks) return
-  const id = project.value.id
-  try {
-    const result = await api.get('/operations/tasks', { project_id: id, archived: true })
-    if (project.value?.id === id) archivedTasks.value = result.items
-  } catch {}
-}
-async function restore(row) {
-  try {
-    await ElMessageBox.confirm('恢复「' + row.title + '」为可见任务？', '恢复任务')
-    await api.post('/operations/tasks/' + row.id + '/restore')
-    ElMessage.success('任务已恢复'); loadArchive(); load()
-  } catch {}
-}
 const delayOpen = ref(false), pendingDelay = ref(null)
-const menu = ref({ open: false, x: 0, y: 0, task: null })
 const statuses = { ongoing: '进行中', done: '已完成' }
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
@@ -166,23 +132,6 @@ function newSelfTask() {schoolPreset.value = null; taskMode.value='self';editing
 function editTask(task) { schoolPreset.value = null; editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
-function openMenu(task, event) {
-  if (!task.can_archive) return
-  menu.value = { open: true, x: event.clientX, y: event.clientY, task }
-}
-async function removeTask(task) {
-  menu.value.open = false
-  if (!task) return
-  try {
-    const result = await ElMessageBox.prompt('作废后从任务、汇总和提醒中移除，过程记录可查、可恢复。', '作废「' + task.title + '」', {
-      inputPlaceholder: '填写作废原因', inputValidator: value => Boolean(value?.trim()) || '请填写原因',
-      confirmButtonText: '作废', cancelButtonText: '取消', type: 'warning',
-    })
-    await api.post('/operations/tasks/' + task.id + '/archive', { reason: result.value.trim() })
-    if (selectedTask.value === task.id) closeTask()
-    ElMessage.success('任务已作废'); load()
-  } catch {}
-}
 function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
 function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }
 function taskFormClosed() { popupPaused.value = false; if (pendingTask.value) { openTask(pendingTask.value); pendingTask.value = null } }
@@ -198,10 +147,6 @@ useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => Boolean(r
 onBeforeUnmount(() => { version++ })
 </script>
 <style scoped>
-.ctx-mask { position: fixed; inset: 0; z-index: 2000; }
-.ctx-menu { position: fixed; z-index: 2001; min-width: 132px; margin: 0; padding: 4px; list-style: none; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: var(--jc-shadow-pop); }
-.ctx-menu li { padding: 7px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; }
-.ctx-menu li:hover { background: var(--jc-bg-2, #f9f8f5); }
 .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
 .board-status { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 15px; }
 .board-status button { --tone: var(--jc-brand); display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--jc-line); border-radius: 7px; padding: 7px 10px; font: inherit; font-size: 12px; color: var(--jc-ink-2); background: var(--jc-bg-2, #f9f8f5); cursor: pointer; }
