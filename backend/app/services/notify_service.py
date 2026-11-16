@@ -76,18 +76,20 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     # 同一内容批量发送（企微 touser 支持 | 分隔，最多 1000 人）
     groups: dict[tuple, list[SysNotify]] = {}
     for r in rows:
-        groups.setdefault((r.title, r.content, r.link), []).append(r)
+        # 运营通知统一发为带入口的文本卡片，定时投递和重试使用同一格式。
+        delivery_type = "textcard" if r.msg_type in OPS_TYPES and r.link else msg_type
+        groups.setdefault((delivery_type, r.title, r.content, r.link), []).append(r)
     try:
         provider = get_wecom()
     except Exception as exc:  # noqa: BLE001  凭证未配置等
         for r in rows:
             r.send_status, r.error_msg, r.retry_count = 2, str(exc)[:500], r.retry_count + 1
         return
-    for (title, content, link), grp in groups.items():
+    for (delivery_type, title, content, link), grp in groups.items():
         ids = [by_user[r.user_id].wecom_userid for r in grp]
         err = ""
         try:
-            res = provider.send_app_message(ids, MessageDto(msg_type, title, content, _abs(link)))
+            res = provider.send_app_message(ids, MessageDto(delivery_type, title, content, _abs(link)))
         except Exception as exc:  # noqa: BLE001
             res = None
             err = str(exc)

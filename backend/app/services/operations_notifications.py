@@ -71,5 +71,5 @@ def delivery_status(db, p, project, task):
         SysNotify.channel == "wecom_app", or_(*conditions))
     if ops.role(db, p, project) != "manager":
         q = q.where(SysNotify.user_id == p.id)
-    return [{"id": n.id, "recipient": name, "title": n.title, "status": {0: "等待发送", 1: "已投递", 2: "投递失败/已停止"}.get(n.send_status),
+    return [{"id": n.id, "recipient": name, "title": n.title, "status": {0: "等待发送", 1: "企微已受理", 2: "投递失败/已停止"}.get(n.send_status),
              "sent_at": n.sent_at, "retry_count": n.retry_count, "error": n.error_msg} for n, name in db.execute(q.order_by(SysNotify.id.desc()).limit(20))]

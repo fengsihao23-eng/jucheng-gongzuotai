@@ -107,13 +107,13 @@ def test_project_creation_and_handover_notify_only_the_current_owner(client, log
 
     class Provider:
         def send_app_message(self, ids, message):
-            delivered.append((ids, message.url))
+            delivered.append((ids, message.msg_type, message.url))
             return SendResult(True, "project")
 
     monkeypatch.setattr(notify_service, "get_wecom", Provider)
     notify_service.deliver_pending(db, [r.id for r in db.scalars(q)])
     assert queued.send_status == 2
-    assert len(delivered) == 1 and delivered[0][0] == ["xiekai"] and delivered[0][1].endswith(link)
+    assert len(delivered) == 1 and delivered[0][:2] == (["xiekai"], "textcard") and delivered[0][2].endswith(link)
 
 
 def test_assign_only_active_executing_members(client, login, db, project):

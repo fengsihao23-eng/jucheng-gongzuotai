@@ -13,13 +13,14 @@
       <template v-if="task.approval_status === 'approved'">
         <span class="progress-label"><span>任务进度</span><b class="jc-num">{{ taskProgress(task).label }}</b></span>
         <span v-if="taskProgress(task).percent !== null" class="progress-track" aria-hidden="true"><i :style="{ width: `${task.progress}%` }" /></span>
-        <span v-if="task.nodes.length" class="node-caption">
+        <span v-if="task.nodes.length" class="node-caption node-count">
           <span class="nodes" aria-hidden="true"><i v-for="node in task.nodes" :key="node.id" :class="{ complete: node.completed_at, late: node.overdue && !node.completed_at }" /></span>
-          节点 {{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }}
+          <span>节点 {{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }}</span>
         </span>
       </template>
       <span v-if="task.nodes.some(n => !n.completed_at)" class="node-caption">
-        下一节点：{{ task.nodes.find(n => !n.completed_at).name }} · {{ task.nodes.find(n => !n.completed_at).due_date }}
+        下一节点：{{ task.nodes.find(n => !n.completed_at).name }}
+        <span class="node-date">· {{ task.nodes.find(n => !n.completed_at).due_date }}</span>
       </span>
       <span class="node-caption">{{ task.last_feedback_at ? '反馈 ' + datetime(task.last_feedback_at) : '尚未反馈' }}</span>
       <span v-if="task.pending_replies" class="jc-down">{{ task.pending_replies }} 条要求待我回复</span>
@@ -48,6 +49,7 @@ defineEmits(['open-task', 'menu'])
 .context, .latest, .next, .node-caption { color: var(--jc-ink-2); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }.context { color: var(--jc-ink-3); }.latest { margin-top: 7px; }.latest, .next { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }.next { margin-top: 3px; }
 .progress-label { justify-content: space-between; font-size: 12px; color: var(--jc-ink-2); padding-top: 12px; margin-top: auto; }.progress-label b { color: var(--jc-ink); }
 .progress-track { display: block; height: 6px; border-radius: 6px; background: var(--jc-line-2); overflow: hidden; margin-top: 5px; }.progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--state); transition: width .2s ease; }
-.node-caption { display: flex; gap: 8px; align-items: center; margin-top: 7px; white-space: nowrap; }.nodes { display: inline-flex; flex-wrap: wrap; gap: 3px; }.nodes i { width: 7px; height: 7px; border: 1px solid #aaa89f; border-radius: 50%; }.nodes .complete { background: var(--jc-up); border-color: var(--jc-up); }.nodes .late { border-color: var(--jc-down); }
+.node-caption { margin-top: 7px; white-space: normal; }.node-count { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }.node-date { display: inline-block; white-space: nowrap; }
+.nodes { display: inline-flex; flex-wrap: wrap; gap: 3px; }.nodes i { width: 7px; height: 7px; border: 1px solid #aaa89f; border-radius: 50%; }.nodes .complete { background: var(--jc-up); border-color: var(--jc-up); }.nodes .late { border-color: var(--jc-down); }
 .card-foot { margin-top: 12px; border-top: 1px solid var(--jc-line-2); padding-top: 9px; justify-content: space-between; font-size: 12px; }.owner { min-width: 0; overflow-wrap: anywhere; }.owner small { display: block; font-size: 11px; color: var(--jc-ink-3); margin-top: 2px; }.action { color: var(--jc-brand); flex-shrink: 0; }
 </style>
