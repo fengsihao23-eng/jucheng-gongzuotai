@@ -146,7 +146,7 @@ def test_selected_report_members_and_manager_can_generate_person_report(client,l
     assert client.post(BASE+'/digest/reports',headers=login('xiekai'),json=body).status_code==403
 
 
-def test_wecom_discussion_and_reminder_cancel_after_reply_or_feedback(client,login,db,setup,monkeypatch):
+def test_wecom_discussion_and_reminder_cancel_after_reply_or_completion(client,login,db,setup,monkeypatch):
     from app.services import notify_service
     from app.integration.wecom.base import SendResult
     from app.jobs.operations import operations_task_reminder
@@ -165,10 +165,13 @@ def test_wecom_discussion_and_reminder_cancel_after_reply_or_feedback(client,log
     notify_service._deliver(db,[notice])
     assert not sent and notice.retry_count==3
     row=db.get(OpsTask,task['id']);row.last_feedback_at=now()-timedelta(days=4);db.commit()
-    operations_task_reminder(db,{})
-    reminder=db.scalar(select(SysNotify).where(SysNotify.ref_type=='ops_task_reminder',SysNotify.ref_id==f"{task['id']}:{today()}",SysNotify.user_id==uid(db,'xiekai'),SysNotify.channel=='wecom_app'))
+    with monkeypatch.context() as hold:
+        hold.setattr(notify_service,'deliver_pending',lambda *_: 0)
+        operations_task_reminder(db,{})
+    reminder=db.scalar(select(SysNotify).where(SysNotify.ref_type=='ops_task_reminder',SysNotify.ref_id.startswith(f"{task['id']}:{today()}:"),SysNotify.user_id==uid(db,'xiekai'),SysNotify.channel=='wecom_app'))
     assert reminder
-    data(client.post(f"{BASE}/tasks/{task['id']}/feedback",headers=login('xiekai'),json={'content':'本轮已跟进','status':'doing'}))
+    data(client.post(f"{BASE}/tasks/{task['id']}/feedback",headers=login('xiekai'),json={
+        'content':'已完成任务及节点','status':'done','completed_node_ids':[n['id'] for n in task['nodes']]}))
     db.expire(row)
     notify_service._deliver(db,[reminder])
     assert not sent and reminder.send_status==2
@@ -202,8 +205,10 @@ def test_due_today_still_sends_when_weekly_feedback_not_due(client,login,db,setu
     from app.jobs.operations import operations_task_reminder
     project,school,task=setup
     row=db.get(OpsTask,task['id']);row.due_date=today();row.cadence='weekly';row.last_feedback_at=now();db.commit()
-    operations_task_reminder(db,{})
-    notice=db.scalar(select(SysNotify).where(SysNotify.ref_type=='ops_task_reminder',SysNotify.ref_id==f"{task['id']}:{today()}",SysNotify.channel=='wecom_app',SysNotify.user_id==row.owner_id))
+    with monkeypatch.context() as hold:
+        hold.setattr(notify_service,'deliver_pending',lambda *_: 0)
+        operations_task_reminder(db,{})
+    notice=db.scalar(select(SysNotify).where(SysNotify.ref_type=='ops_task_reminder',SysNotify.ref_id.startswith(f"{task['id']}:{today()}:"),SysNotify.channel=='wecom_app',SysNotify.user_id==row.owner_id))
     assert notice
     sent=[]
     class Provider:

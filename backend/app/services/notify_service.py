@@ -59,8 +59,6 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
     if any(r.msg_type in OPS_TYPES for r in rows):
         from app.core.deps import build_principal
-        from app.models import OpsProject, OpsTask
-        from app.services.operations_policy import task_access
 
         allowed = []
         for r in rows:
@@ -68,7 +66,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
                 u = by_user.get(r.user_id)
                 can_receive = u and u.status == 1 and not u.is_deleted and ops_eligible(db, build_principal(u), r)
                 if not can_receive:
-                    r.send_status, r.error_msg, r.retry_count = 2, "任务已完成、暂停、转交、作废或收件人不再有权限", MAX_RETRY
+                    r.send_status, r.error_msg, r.retry_count = 2, "事项状态、负责人、权限或项目提醒设置已变更", MAX_RETRY
                     continue
             allowed.append(r)
         rows = allowed
@@ -78,18 +76,20 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     # 同一内容批量发送（企微 touser 支持 | 分隔，最多 1000 人）
     groups: dict[tuple, list[SysNotify]] = {}
     for r in rows:
-        groups.setdefault((r.title, r.content, r.link), []).append(r)
+        # 运营通知统一发为带入口的文本卡片，定时投递和重试使用同一格式。
+        delivery_type = "textcard" if r.msg_type in OPS_TYPES and r.link else msg_type
+        groups.setdefault((delivery_type, r.title, r.content, r.link), []).append(r)
     try:
         provider = get_wecom()
     except Exception as exc:  # noqa: BLE001  凭证未配置等
         for r in rows:
             r.send_status, r.error_msg, r.retry_count = 2, str(exc)[:500], r.retry_count + 1
         return
-    for (title, content, link), grp in groups.items():
+    for (delivery_type, title, content, link), grp in groups.items():
         ids = [by_user[r.user_id].wecom_userid for r in grp]
         err = ""
         try:
-            res = provider.send_app_message(ids, MessageDto(msg_type, title, content, _abs(link)))
+            res = provider.send_app_message(ids, MessageDto(delivery_type, title, content, _abs(link)))
         except Exception as exc:  # noqa: BLE001
             res = None
             err = str(exc)
@@ -104,12 +104,21 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     db.flush()
 
 
-def retry_failed(db: Session) -> int:
-    rows = db.scalars(select(SysNotify).where(SysNotify.channel == "wecom_app", SysNotify.send_status.in_([0, 2]),
-                                              SysNotify.retry_count < MAX_RETRY).order_by(SysNotify.id).limit(500).with_for_update(skip_locked=True)).all()
+def _deliver_queue(db: Session, *conditions) -> int:
+    rows = db.scalars(select(SysNotify).where(SysNotify.channel == "wecom_app", SysNotify.retry_count < MAX_RETRY,
+        *conditions).order_by(SysNotify.id).limit(500).with_for_update(skip_locked=True)).all()
     if rows:
         _deliver(db, list(rows))
     return len(rows)
+
+
+def deliver_pending(db: Session, ids: list[int]) -> int:
+    """Try newly committed notifications without racing the periodic retry worker."""
+    return _deliver_queue(db, SysNotify.id.in_(ids), SysNotify.send_status == 0) if ids else 0
+
+
+def retry_failed(db: Session) -> int:
+    return _deliver_queue(db, SysNotify.send_status.in_([0, 2]))
 
 
 def users_by_roles(db: Session, role_codes: Iterable[str]) -> list[SysUser]:

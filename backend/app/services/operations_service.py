@@ -12,6 +12,7 @@ from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsP
 from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
 from app.services import operations_followup as followups
 from app.services import operations_scope as content_scope
+from app.services.operations_notifications import PROJECT_ASSIGNMENT
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date", "task_id"]
@@ -137,6 +138,8 @@ def _write(db, p, obj, values, fields):
 
 
 def save_project(db, p, body, project_id=None):
+    from app.core.deps import build_principal
+
     if project_id:
         project = get_project(db, p, project_id, lock=True)
         manage(db, p, project)
@@ -148,8 +151,16 @@ def save_project(db, p, body, project_id=None):
         if not can_create(p):
             raise forbidden("仅公司负责人、市场负责人或管理员可新建运营项目")
         project = OpsProject(created_at=now())
-    user(db, body.owner_id)
-    return _write(db, p, project, body.model_dump(), PROJECT_FIELDS)
+    previous_owner_id = project.owner_id
+    owner = user(db, body.owner_id)
+    project = _write(db, p, project, body.model_dump(), PROJECT_FIELDS)
+    if previous_owner_id != owner.id and build_principal(owner).has_menu("operations"):
+        title = "运营项目已交接给你" if project_id else "你负责的运营项目已创建"
+        notify_service.send(db, [owner], PROJECT_ASSIGNMENT, title, f"你是「{project.name}」的项目负责人。",
+            link=f"/operations/{project.id}", ref_type="ops_project", ref_id=str(project.id),
+            wecom=content_scope.controls(db, project.id)["wecom_reminders"], defer=True,
+            wecom_content="请打开工作台查看项目安排。")
+    return project
 
 
 def progress_dict(row):

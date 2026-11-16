@@ -1,48 +1,59 @@
-"""每天 16:00 汇总运营项目到期、逾期、受阻及待反馈事项到站内通知。"""
+"""每天 09:00、15:00 提醒运营项目未完成的任务和阶段节点。"""
 from sqlalchemy import select
 
 from app.core.deps import build_principal
-from app.core.timeutil import today
+from app.core.timeutil import now, today
 from app.jobs.registry import job
 from app.models import OpsProject, OpsTask, OpsTaskDiscussion, SysNotify, SysUser
 from app.services import notify_service, operations_service as ops
+from app.services.operations_notifications import needs_escalation
 from app.services.operations_policy import archived
 from app.services import operations_policy as policy
 from app.services import operations_scope as scope
 
 
-@job("operations_task_reminder", "运营任务进展提醒", {"hour": 16, "minute": 0}, "每日 16:00",
-     idempotency=lambda p: f"operations_task_reminder:{today()}")
+def _reminder_slot():
+    local = now()
+    return local.date(), "09" if local.hour < 15 else "15"
+
+
+def _reminder_key(_params):
+    day, slot = _reminder_slot()
+    return f"operations_task_reminder:{day}:{slot}"
+
+
+@job("operations_task_reminder", "运营任务与节点提醒", {"hour": "9,15", "minute": 0}, "每日 09:00、15:00",
+     idempotency=_reminder_key)
 def operations_task_reminder(db, params):
+    day, slot = _reminder_slot()
     projects = db.scalars(select(OpsProject).where(OpsProject.status == "active")).all()
     sent = 0
+    pending_ids = []
     for project in projects:
         members = {m["user_id"] for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"}
+        wecom = scope.controls(db, project.id)["wecom_reminders"]
         tasks = db.scalars(select(OpsTask).where(OpsTask.project_id == project.id, OpsTask.status != "done", OpsTask.approval_status == "approved", ~archived())).all()
         for task in tasks:
-            owner = db.get(SysUser, task.owner_id)
-            if not owner or task.owner_id not in members:
-                continue
-            data = ops.task_dict(db, build_principal(owner), project, task)
-            reasons = [label for label, yes in [("已逾期", data["overdue"]), ("遇到阻碍", task.status == "blocked"),
-                       ("今日待反馈", data["needs_update"]), ("今日到期", task.due_date == today() or
-                        any(n.due_date == today() and not n.completed_at for n in task.nodes))] if yes]
-            if not reasons:
+            if task.owner_id not in members:
                 continue
             targets = {task.owner_id}
-            if data["overdue"] or task.status == "blocked":
+            if needs_escalation(task, day):
                 targets.add(project.owner_id)
-            reference = f"{task.id}:{today()}"
+            reference = f"{task.id}:{day}:{slot}"
             existing = set(db.scalars(select(SysNotify.user_id).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == reference)))
             users = [u for u in db.scalars(select(SysUser).where(SysUser.id.in_(targets - existing)))
                      if build_principal(u).has_menu("operations") and db.scalar(select(OpsTask.id).where(
                          OpsTask.id == task.id, policy.task_access(build_principal(u))))]
-            rows = notify_service.send(db, users, "operations_reminder", "运营任务进展提醒",
-                f"{project.name} · {task.title}\n{'、'.join(reasons)}；负责人：{owner.name}；截止：{task.due_date}。请反馈已完成的工作和下一步安排。",
+            nodes = [f"· {n.name}（{n.due_date} 截止）" for n in task.nodes if not n.completed_at]
+            details = [f"{project.name} · {task.title}",
+                f"{ops.STATUS_LABELS[task.status]}；负责人：{task.owner.name}；任务截止：{task.due_date}。"]
+            if nodes:
+                details.extend(["待完成节点：", *nodes])
+            rows = notify_service.send(db, users, "operations_reminder", "运营任务待完成提醒", "\n".join(details),
                 link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task_reminder", ref_id=reference,
-                wecom=scope.controls(db, project.id)["wecom_reminders"], defer=True,
-                wecom_content="你有待跟进的运营事项，请打开工作台反馈进展。")
+                wecom=wecom, defer=True, wecom_content="请打开工作台查看未完成的任务及阶段节点。")
             sent += sum(r.channel == "inapp" for r in rows)
+            pending_ids.extend(r.id for r in rows if r.channel == "wecom_app")
         requests = db.scalars(select(OpsTaskDiscussion).join(OpsTask, OpsTask.id == OpsTaskDiscussion.task_id).where(
             OpsTask.project_id == project.id, OpsTask.status != "done", ~archived(), OpsTask.approval_status == "approved",
             OpsTaskDiscussion.kind == "request", OpsTaskDiscussion.resolved_at.is_(None))).all()
@@ -54,18 +65,24 @@ def operations_task_reminder(db, params):
             if not principal.has_menu("operations") or not db.scalar(select(OpsTask.id).where(
                     OpsTask.id == request.task_id, policy.task_access(principal))):
                 continue
-            reference = f"{request.id}:{today()}"
+            reference = f"{request.id}:{day}"
             if db.scalar(select(SysNotify.id).where(SysNotify.ref_type == "ops_request_reminder", SysNotify.ref_id == reference,
                                                    SysNotify.user_id == recipient.id)):
                 continue
             rows = notify_service.send(db, [recipient], "operations_request", "还有一条任务要求待回复",
                 "请打开原任务查看要求并回复。已读通知不会结束待回复事项。",
                 link=f"/operations/{project.id}?task={request.task_id}", ref_type="ops_request_reminder", ref_id=reference,
-                wecom=scope.controls(db, project.id)["wecom_reminders"], defer=True,
+                wecom=wecom, defer=True,
                 wecom_content="你有一条运营任务要求待回复，请打开工作台查看。")
             sent += sum(r.channel == "inapp" for r in rows)
+            pending_ids.extend(r.id for r in rows if r.channel == "wecom_app")
     db.commit()
-    return {"rows": sent, "message": f"已生成 {sent} 条运营任务站内提醒"}
+    # 先提交消息，再在当次调度投递；遇到失败由通用队列继续重试。
+    if pending_ids:
+        db.expire_all()
+        notify_service.deliver_pending(db, pending_ids)
+        db.commit()
+    return {"rows": sent, "message": f"已生成 {sent} 条站内提醒、{len(pending_ids)} 条企业微信通知"}
 
 
 def generate_period_reports(db, mode):

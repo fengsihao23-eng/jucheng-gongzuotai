@@ -23,7 +23,7 @@ import { useRouter } from 'vue-router'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 
-const TYPES = { morning_report: '晨报', daily_expense: '每日支出', reminder: '催交提醒', alert: '预警', overdue: '延期', job_failed: '任务告警', approval: '审批登记', report: '报表', operations_task: '运营任务', operations_reminder: '进展提醒' }
+const TYPES = { morning_report: '晨报', daily_expense: '每日支出', reminder: '催交提醒', alert: '预警', overdue: '延期', job_failed: '任务告警', approval: '审批登记', report: '报表', operations_project_assignment: '运营项目', operations_task: '运营任务', operations_assignment: '运营任务', operations_reminder: '待办提醒' }
 const TONE = { alert: 'warn', overdue: 'down', job_failed: 'down', morning_report: 'brand', approval: 'up', operations_task: 'brand', operations_reminder: 'warn' }
 const router = useRouter()
 const rows = ref([]); const total = ref(0); const page = ref(1); const loading = ref(false); const unreadOnly = ref(false)

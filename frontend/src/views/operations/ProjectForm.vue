@@ -15,6 +15,7 @@
         </el-form-item>
       </div>
       <p v-if="initial?.id" class="jc-small jc-muted">更换项目负责人后，原负责人保留执行成员权限，可在项目团队中调整。</p>
+      <p v-else class="jc-small jc-muted">创建后会通知所选项目负责人。已绑定公司通讯录的负责人还会收到企业微信通知。</p>
       <el-form-item label="本阶段目标"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="6000" placeholder="本月要推进哪些学校、完成什么结果" /></el-form-item>
       <div class="two">
         <el-form-item label="目标日期"><el-date-picker v-model="form.target_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" /></el-form-item>

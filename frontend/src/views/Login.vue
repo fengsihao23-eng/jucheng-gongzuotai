@@ -102,7 +102,7 @@ async function wecom(auto = false) {
 }
 onMounted(async () => {
   cfg.value = await api.get('/auth/login-config')
-  if (!inWeCom || cfg.value.wecom_mode !== 'live' || cfg.value.corp_id !== '') return
+  if (!inWeCom || cfg.value.wecom_mode !== 'live' || !cfg.value.corp_id || !cfg.value.agent_id) return
   // 企微内打开应用即静默授权；30 秒内失败过一次就不再自动跳转，避免死循环
   const last = Number(sessionStorage.getItem('jc_oauth_at') || 0)
   if (Date.now() - last < 30000) return

@@ -1,5 +1,6 @@
 """运营项目会议需求：跨部门授权、任务反馈闭环、资金口径和 AI 共用入口。"""
 import uuid
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -7,6 +8,7 @@ from sqlalchemy import select
 
 from app.core.deps import build_principal
 from app.core.response import BizError
+from app.core.timeutil import TZ
 from app.models import OpsTask, SysNotify, SysUser
 from tests.conftest import data
 
@@ -74,6 +76,44 @@ def test_project_progress_keeps_plan_date_history_and_task_state(client, login, 
 def test_project_creation_authority(client, login, db, name, allowed):
     r = client.post(BASE, headers=login(name), json={"name": "新运营项目", "owner_id": uid(db, name)})
     assert r.status_code == (200 if allowed else 403)
+
+
+def test_project_creation_and_handover_notify_only_the_current_owner(client, login, db, project, monkeypatch):
+    from app.integration.wecom.base import SendResult
+    from app.services import notify_service
+
+    link = f"/operations/{project['id']}"
+    q = select(SysNotify).where(SysNotify.ref_type == "ops_project", SysNotify.ref_id == str(project["id"]))
+    created = db.scalars(q).all()
+    assert {(r.user_id, r.channel, r.link) for r in created} == {
+        (project["owner_id"], channel, link) for channel in ("inapp", "wecom_app")}
+    queued = next(r for r in created if r.channel == "wecom_app")
+    assert queued.send_status == 0
+
+    def notices(name):
+        payload = data(client.get("/api/v1/notifications", headers=login(name)))
+        return [item for item in payload["items"] if item["link"] == link]
+
+    assert len(notices("wujun")) == 1
+    assert not notices("admin")
+    body = {"name": project["name"], "owner_id": project["owner_id"]}
+    data(client.put(f"{BASE}/{project['id']}", headers=login("admin"), json=body))
+    assert len(db.scalars(q).all()) == 2
+    new_owner = uid(db, "xiekai")
+    data(client.put(f"{BASE}/{project['id']}", headers=login("admin"), json=body | {"owner_id": new_owner}))
+    assert not notices("wujun") and len(notices("xiekai")) == 1
+
+    delivered = []
+
+    class Provider:
+        def send_app_message(self, ids, message):
+            delivered.append((ids, message.msg_type, message.url))
+            return SendResult(True, "project")
+
+    monkeypatch.setattr(notify_service, "get_wecom", Provider)
+    notify_service.deliver_pending(db, [r.id for r in db.scalars(q)])
+    assert queued.send_status == 2
+    assert len(delivered) == 1 and delivered[0][:2] == (["xiekai"], "textcard") and delivered[0][2].endswith(link)
 
 
 def test_assign_only_active_executing_members(client, login, db, project):
@@ -266,16 +306,57 @@ def test_mcp_reuses_feedback_validation_and_visibility(client, login, db, projec
         t_ops_status(db, build_principal(db.get(SysUser, uid(db, "caofang"))), project_id=project["id"])
 
 
-def test_deadline_reminder_is_inapp_and_wecom_queue_idempotent(client, login, db, project):
-    from app.jobs.operations import operations_task_reminder
+def test_overdue_reminder_also_reaches_project_owner(client, login, db, project, monkeypatch):
+    from app.jobs import operations
+
+    monkeypatch.setattr(operations, "now", lambda: datetime(2026, 10, 20, 9, tzinfo=TZ))
     t = task(client, login, db, project, due_date="2026-10-19")
-    operations_task_reminder(db, {})
-    q = select(SysNotify).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == f"{t['id']}:2026-10-20")
+    operations.operations_task_reminder(db, {})
+    q = select(SysNotify).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == f"{t['id']}:2026-10-20:09")
     rows = db.scalars(q).all()
     assert {r.user_id for r in rows} == {uid(db, "xiekai"), project["owner_id"]}
     assert {r.channel for r in rows} == {"inapp", "wecom_app"}
-    assert all(r.send_status == 0 for r in rows if r.channel == "wecom_app")
-    operations_task_reminder(db, {})
+    assert all(r.send_status == 1 for r in rows)
+
+
+def test_unfinished_tasks_and_nodes_remind_in_both_slots(client, login, db, project, monkeypatch):
+    from apscheduler.triggers.cron import CronTrigger
+    from app.jobs import operations, registry
+
+    start = datetime(2026, 10, 20, tzinfo=TZ)
+    job = registry.JOBS["operations_task_reminder"]
+    cron = CronTrigger(timezone=TZ, **job.cron)
+    morning = cron.get_next_fire_time(None, start)
+    afternoon = cron.get_next_fire_time(morning, morning)
+    assert morning == start.replace(hour=9) and afternoon == start.replace(hour=15)
+    clock = [morning]
+    monkeypatch.setattr(operations, "now", lambda: clock[0])
+    t = task(client, login, db, project, cadence="node", nodes=[
+        {"name": "确认需求", "due_date": "2026-10-23"}, {"name": "提交方案", "due_date": "2026-10-25"}])
+    q = select(SysNotify).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id.startswith(f"{t['id']}:"))
+
+    assert registry.run_job(job.name).status == "success"
+    assert registry.run_job(job.name).status == "skipped"
+    assert registry.run_job(job.name, force=True).status == "success"
+    rows = db.scalars(q).all()
+    assert len(rows) == 2
+    assert all(r.user_id == t["owner_id"] and r.send_status == 1 and r.ref_id.endswith(":09") for r in rows)
+    morning_notice = next(r for r in rows if r.channel == "inapp")
+    assert "确认需求" in morning_notice.content and "提交方案" in morning_notice.content
+
+    data(report(client, login, t, completed_node_ids=[t["nodes"][0]["id"]]))
+    clock[0] = afternoon
+    assert registry.run_job(job.name).status == "success"
+    assert registry.run_job(job.name).status == "skipped"
+    second = [r for r in db.scalars(q) if r.ref_id.endswith(":15")]
+    assert {r.channel for r in second} == {"inapp", "wecom_app"} and len(second) == 2
+    assert all(r.user_id == t["owner_id"] and r.send_status == 1 for r in second)
+    afternoon_notice = next(r for r in second if r.channel == "inapp")
+    assert "确认需求" not in afternoon_notice.content and "提交方案" in afternoon_notice.content
+
+    data(report(client, login, t, status="done", progress=100, completed_node_ids=[t["nodes"][1]["id"]]))
+    clock[0] = morning + timedelta(days=1)
+    assert registry.run_job(job.name).status == "success"
     assert len(db.scalars(q).all()) == 4
 
 
