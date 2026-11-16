@@ -11,13 +11,14 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const msg = ref('正在通过企业微信登录…')
+const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
 onMounted(async () => {
   try {
     await auth.loginByCode(route.query.code || route.query.auth_code)
-    router.replace(route.query.redirect || '/')
+    router.replace(redirect)
   } catch (e) {
     msg.value = e.message + '，3 秒后返回登录页'
-    setTimeout(() => router.replace('/login'), 3000)
+    setTimeout(() => router.replace({ name: 'login', query: { redirect } }), 3000)
   }
 })
 </script>
