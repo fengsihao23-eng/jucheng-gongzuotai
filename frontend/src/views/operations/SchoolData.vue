@@ -7,13 +7,13 @@
       <Kpi v-if="can('procurement') && (mode === 'directory' || mode === 'procurement')" label="已登记投入" :value="money(project.financials.total_investment)" unit="元" :hint="`建设清单 + 人工 + 其他 · ${project.financials.unpriced_count || 0} 条未标价`" />
       <Kpi v-if="can('income') && (mode === 'directory' || mode === 'income')" label="全历史累计登记收入" :value="money(project.financials.total_income)" unit="元" hint="学校收入及未分摊的项目公共收入" />
     </div>
-    <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
+    <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-if="can('outreach')" v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-if="can('outreach')" v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
     <div v-if="mode === 'income' && project.can_manage" class="jc-row mt-8" style="margin-bottom: 12px"><IncomeFile :project-id="project.id" @saved="emit('saved')" /></div>
     <div v-if="mode === 'outreach'" class="toolbar"><el-radio-group v-model="lifecycle" aria-label="学校阶段分组"><el-radio-button value="prospect">待开拓学校</el-radio-button><el-radio-button value="existing">存量学校</el-radio-button><el-radio-button value="all">全部学校</el-radio-button></el-radio-group></div>
     <p v-if="mode === 'income'" class="jc-small jc-muted">最近登记收款日：{{ project.financials.last_income_date || '尚无记录' }}。{{ project.financials.income_note }}</p>
-    <el-table :data="schools" @row-click="s => selectedId = s.id">
+    <el-table :data="schools" @row-click="s => selectedId = s.id" @row-contextmenu="openMenu">
       <el-table-column prop="name" label="学校" min-width="190" />
-      <el-table-column prop="region" label="区域" width="100" />
+      <el-table-column v-if="mode !== 'procurement'" prop="region" label="区域" width="100" />
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="阶段 / 意向" width="150"><template #default="{ row }">{{ STAGES[row.stage] }}<div class="jc-small jc-muted">意向 · {{ POTENTIAL[row.potential] }}</div></template></el-table-column>
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="下一步 / 跟进日期" min-width="200"><template #default="{ row }">{{ row.next_action || '待补充' }}<div class="jc-small" :class="row.next_contact_date && row.next_contact_date < project.today && !['lost', 'operating', 'won'].includes(row.stage) ? 'jc-down' : 'jc-muted'">{{ row.next_contact_date || '' }}</div></template></el-table-column>
       <el-table-column v-if="can('procurement') && (mode === 'directory' || mode === 'procurement')" label="合计投入（元）" width="160" align="right"><template #default="{ row }">{{ money(row.total_investment) }}</template></el-table-column>
@@ -37,7 +37,7 @@
       <template v-if="selected">
         <div class="jc-row between"><p><span v-if="can('procurement')">合计投入 <b>{{ money(selected.total_investment) }} 元</b> </span><span v-if="can('income')">· 累计收入 <b>{{ money(selected.total_income) }} 元</b></span></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
         <p v-if="can('outreach')" class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
-        <div v-if="project.can_manage" class="jc-row"><span>学校区域</span><el-select :model-value="selected.region || '待定'" aria-label="学校区域" style="width:160px" @change="saveRegion"><el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" /></el-select></div>
+        <div v-if="project.can_manage && mode !== 'procurement'" class="jc-row"><span>学校区域</span><el-select :model-value="selected.region || '待定'" aria-label="学校区域" style="width:160px" @change="saveRegion"><el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" /></el-select></div>
         <p v-if="selected.note" class="plain">{{ selected.note }}</p>
         <el-tabs v-model="schoolTab">
           <el-tab-pane v-if="can('outreach')" label="客户跟进过程" name="outreach">
@@ -82,10 +82,12 @@
       <el-form ref="formRef" :model="form" label-position="top">
         <template v-if="kind === 'school'">
           <el-form-item label="学校名称" prop="name" :rules="[{ required: true, whitespace: true, message: '填写学校名称' }]"><el-input v-model="form.name" maxlength="128" /></el-form-item>
-          <div class="two"><el-form-item label="当前阶段"><el-select v-model="form.stage"><el-option v-for="(v, k) in STAGES" :key="k" :label="v" :value="k" /></el-select></el-form-item><el-form-item label="意向程度"><el-select v-model="form.potential"><el-option v-for="(v, k) in POTENTIAL" :key="k" :label="v" :value="k" /></el-select></el-form-item></div>
-          <el-form-item label="下一步跟进"><el-input v-model="form.next_action" type="textarea" maxlength="6000" /></el-form-item>
-          <el-form-item label="下次跟进日期"><el-date-picker v-model="form.next_contact_date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
-          <div class="two"><el-form-item label="人工投入（元）"><el-input-number v-model="form.labor_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item><el-form-item label="其他投入（元）"><el-input-number v-model="form.other_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item></div>
+          <template v-if="can('outreach')">
+            <div class="two"><el-form-item label="当前阶段"><el-select v-model="form.stage"><el-option v-for="(v, k) in STAGES" :key="k" :label="v" :value="k" /></el-select></el-form-item><el-form-item label="意向程度"><el-select v-model="form.potential"><el-option v-for="(v, k) in POTENTIAL" :key="k" :label="v" :value="k" /></el-select></el-form-item></div>
+            <el-form-item label="下一步跟进"><el-input v-model="form.next_action" type="textarea" maxlength="6000" /></el-form-item>
+            <el-form-item label="下次跟进日期"><el-date-picker v-model="form.next_contact_date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
+          </template>
+          <div v-if="can('procurement')" class="two"><el-form-item label="人工投入（元）"><el-input-number v-model="form.labor_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item><el-form-item label="其他投入（元）"><el-input-number v-model="form.other_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item></div>
         </template>
         <template v-else-if="kind === 'equipment'">
           <el-form-item label="选择设备产品" prop="product_id" :rules="[{ required: true, message: '选择产品' }]"><el-select v-model="form.product_id" filterable placeholder="可使用有权限项目中的产品" @change="chooseProduct"><el-option v-for="p in library" :key="p.id" :value="p.id" :label="`${p.name} · ${p.brand} ${p.model} · ${p.source_project}`" /></el-select></el-form-item>
@@ -103,11 +105,18 @@
       </el-form>
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-dialog>
+
+    <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false">
+      <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+        <div class="ctx-title">{{ menu.row?.name }}</div>
+        <button type="button" class="ctx-item danger" @click="removeSchool">删除学校</button>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import IncomeFile from './IncomeFile.vue'
 import SchoolFollowup from './SchoolFollowup.vue'
@@ -120,11 +129,37 @@ const labels = { directory: '查看档案', procurement: '查看采购', income:
 const can = section => (props.project.visible_sections || []).includes(section)
 const REGIONS = ['市直','江城','阳春','阳东','阳西','海陵湾','其他','待定']
 async function saveRegion(region) { try { await api.put(`/operations/${props.project.id}/schools/${selectedId.value}/region`, { region }); emit('saved'); announceChange(); ElMessage.success('学校区域已保存') } catch {} }
+const menu = reactive({ open: false, x: 0, y: 0, row: null })
+function openMenu(row, column, event) {
+  if (!props.project.can_manage || !['procurement', 'outreach'].includes(props.mode)) return
+  menu.row = row
+  menu.x = Math.min(event.clientX, window.innerWidth - 190)
+  menu.y = Math.min(event.clientY, window.innerHeight - 80)
+  menu.open = true
+}
+async function removeSchool() {
+  const row = menu.row
+  menu.open = false
+  if (!row) return
+  const equipment = row.equipment?.length || 0, incomes = row.incomes?.length || 0
+  try {
+    await ElMessageBox.confirm(
+      `「${row.name}」将从项目中删除，并连带删除设备清单 ${equipment} 条、每日收入 ${incomes} 条，相关任务会解除学校绑定。学校资料各页签共用，删除后采购、开拓、收入里都不再显示。`,
+      '删除学校', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
+  try {
+    await api.del(`/operations/${props.project.id}/schools/${row.id}`)
+    if (selectedId.value === row.id) selectedId.value = null
+    ElMessage.success('学校已删除')
+    emit('saved'); announceChange()
+  } catch {}
+}
 const search = ref(''), stage = ref(''), highOnly = ref(false), selectedId = ref(null)
 const lifecycle = ref('prospect')
 const initialTab = () => ({ procurement: 'equipment', income: 'income', outreach: 'outreach', directory: 'outreach' })[props.mode]
 const schoolTab = ref(initialTab())
-const schools = computed(() => props.project.schools.filter(s => s.name.includes(search.value) && (!stage.value || stage.value === s.stage) && (!highOnly.value || s.potential === 'high') && (props.mode !== 'outreach' || lifecycle.value === 'all' || (lifecycle.value === 'existing' ? ['won', 'operating'].includes(s.stage) : !['won', 'operating', 'lost'].includes(s.stage)))))
+// 待开拓只列已判定阶段的学校；来源为采购清单、阶段未判定的学校不进入开拓视图（在「全部学校」仍可查）。
+const schools = computed(() => props.project.schools.filter(s => s.name.includes(search.value) && (!can('outreach') || ((!stage.value || stage.value === s.stage) && (!highOnly.value || s.potential === 'high'))) && (props.mode !== 'outreach' || lifecycle.value === 'all' || (lifecycle.value === 'existing' ? ['won', 'operating'].includes(s.stage) : !['won', 'operating', 'lost', 'unknown'].includes(s.stage)))))
 const selected = computed(() => props.project.schools.find(s => s.id === selectedId.value))
 const marketTasks = id => props.project.tasks.filter(t => t.school_id === id && t.kind === 'outreach')
 const schoolTasks = computed(() => props.mode === 'outreach' ? marketTasks(selectedId.value) : props.project.tasks.filter(t => t.school_id === selectedId.value))
@@ -158,5 +193,11 @@ async function save() {
 <style scoped>
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 22px 0 16px; }.section-head { margin: 12px 0 20px; gap: 16px; flex-wrap: wrap; }.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }.plain { white-space: pre-wrap; line-height: 1.8; }
 .follow-task { border: 1px solid var(--jc-line); padding: 12px 16px; margin: 12px 0; cursor: pointer; border-radius: var(--jc-radius); }
+.ctx-mask { position: fixed; inset: 0; z-index: 3000; }
+.ctx-menu { position: fixed; min-width: 160px; padding: 6px; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, .16); }
+.ctx-title { padding: 6px 10px 8px; font-size: 12px; color: var(--jc-ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 220px; border-bottom: 1px solid var(--jc-line-2); margin-bottom: 4px; }
+.ctx-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--jc-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ctx-item:hover { background: var(--jc-surface-2); }
+.ctx-item.danger { color: var(--el-color-danger, #d9534f); }
 @media(max-width: 500px) { .two { grid-template-columns: 1fr; gap: 0; } }
 </style>

@@ -8,7 +8,7 @@
       </div>
       <div class="r">
         <span class="jc-num clock">{{ clock }}</span>
-        <span class="muted">更新于 {{ ov ? datetime(ov._cached_at) : '—' }} · 每 5 分钟刷新</span>
+        <span class="muted">更新于 {{ ov ? datetime(ov._cached_at) : '—' }} · 每 30 秒刷新{{ ov?.source?.stale ? ' · 来源同步待检查' : '' }}</span>
         <button class="btn" @click="paused = !paused">{{ paused ? '继续轮播' : '暂停轮播' }}</button>
         <button class="btn" @click="$router.push('/board')">返回</button>
       </div>
@@ -18,15 +18,15 @@
       <section class="kpis">
         <div class="k" :class="{ hl: active === 0 }"><span>当月回款</span><b class="jc-num">{{ wanNum(pay.amount) }}<i>万</i></b>
           <div class="pg"><em :style="{ width: Math.min(100, num(pay.rate) * 100) + '%' }" /></div>
-          <small>目标 {{ wan(pay.target) }} · 达成 {{ percent(pay.rate) }}</small></div>
+          <small>{{ pay.target == null && pay.planned_amount != null ? `本月已回款 · 当月预估 ${wan(pay.planned_amount)}` : `目标 ${wan(pay.target)} · 达成 ${percent(pay.rate)}` }}</small></div>
         <div class="k" :class="{ hl: active === 2 }"><span>今日签约</span><b class="jc-num">{{ wanNum(sign.today.amount) }}<i>万</i></b>
           <small>{{ sign.today.count }} 份 · 本月 {{ wan(sign.month.amount) }}</small></div>
-        <div class="k" :class="{ hl: active === 2 }"><span>年度累计业绩</span><b class="jc-num">{{ wanNum(sign.year.amount, 0) }}<i>万</i></b>
+        <div class="k" :class="{ hl: active === 2 }"><span>年度累计业绩</span><b class="jc-num">{{ wanNum(sign.year.amount) }}<i>万</i></b>
           <small>同比 {{ percent(sign.year.yoy) }}</small></div>
         <div class="k" :class="{ hl: active === 3 }"><span>本月新增商机</span><b class="jc-num">{{ opp.month.count }}<i>个</i></b>
           <small>{{ wan(opp.month.amount) }} · 本周 {{ opp.week.count }} 个</small></div>
-        <div class="k" :class="{ hl: active === 4 }"><span>招标 / 在建</span><b class="jc-num">{{ tender.bidding_count }} / {{ tender.building_count }}</b>
-          <small>节点预警 {{ tender.alert_count }} · 两周内截标 {{ tender.deadline_soon_count }}</small></div>
+        <div class="k" :class="{ hl: active === 4 }"><span>{{ ov.source ? '招标 / 已建设中标待签' : '招标 / 在建' }}</span><b class="jc-num">{{ tender.bidding_count }} / {{ tender.building_count }}</b>
+          <small>节点预警 {{ tender.alert_count ?? '未提供' }} · 两周内{{ ov.source ? '开标' : '截标' }} {{ tender.deadline_soon_count }}</small></div>
       </section>
 
       <section class="grid">
@@ -92,10 +92,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/api/client'
-import { datetime, num, percent, shortDate, wan, wanNum } from '@/utils/format'
+import { datetime, num, percent, shortDate, wan as formatWan, wanNum as formatWanNum } from '@/utils/format'
 import { dailyOption, funnelOption, lineBarOption, monthlyOption, submitOption } from './board-charts'
 
 const ov = ref(null)
+const wan = v => v == null ? '未提供' : formatWan(v)
+const wanNum = (v, d) => v == null ? '—' : formatWanNum(v, d)
 const monthly = ref(null)
 const active = ref(0)
 const paused = ref(false)
@@ -120,7 +122,7 @@ async function load() {
 }
 onMounted(() => {
   load()
-  t1 = setInterval(load, 5 * 60 * 1000)
+  t1 = setInterval(load, 30000)
   t2 = setInterval(() => { if (!paused.value) active.value = (active.value + 1) % 6 }, 8000)
   t3 = setInterval(() => (clock.value = dayjs().format('YYYY-MM-DD HH:mm:ss')), 1000)
 })

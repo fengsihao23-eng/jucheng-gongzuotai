@@ -18,6 +18,11 @@ def morning_board_push(db, params):
     r = board_service.build_morning_report(db, d)
     rule = dict_service.get(db, "notify_rule", "morning_report") or {}
     users = notify_service.users_by_roles(db, rule.get("roles") or ["ZB-01", "ZB-02"])
+    from app.core.deps import build_principal
+    from app.services import business_workbook, contract_workbook_sync
+    source = business_workbook.configured_source(db)
+    if source is not None:
+        users = [u for u in users if contract_workbook_sync.can_view(build_principal(u), source.config)]
     from app.core.storage import signed_url
     img = signed_url(r["image_file"], ttl=86400, absolute=True)
     from app.core.config import settings

@@ -29,3 +29,10 @@ def notify_retry(db, params):
     n = notify_service.retry_failed(db)
     db.commit()
     return {"rows": n, "message": f"重试 {n} 条"}
+
+
+@job("operation_audit_recover", "操作日志补录", {"minute": "*"}, "每 1 分钟")
+def audit_recover(db, params):
+    from app.core.operation_audit import recover
+    count = recover()
+    return {"rows": count, "message": f"恢复 {count} 条操作记录"}

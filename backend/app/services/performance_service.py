@@ -112,6 +112,10 @@ def _period_window(period: str | None) -> tuple[str, date, date, date]:
 
 # ---------------- 业绩统计 ----------------
 def overview(db: Session, period: str | None = None) -> dict:
+    from app.services import business_workbook, workbook_performance
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_performance.overview(db, wb, period)
     period, ms, end, ys = _period_window(period)
     ly_ms, ly_end, ly_ys = _same_day_last_year(ms), _same_day_last_year(end), date(ms.year - 1, 1, 1)
     L = BizContract.business_line
@@ -159,6 +163,10 @@ def overview(db: Session, period: str | None = None) -> dict:
 
 
 def by_owner(db: Session, period: str | None = None) -> list[dict]:
+    from app.services import business_workbook, workbook_performance
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_performance.by_owner(db, wb, period)
     period, ms, end, ys = _period_window(period)
     O = BizContract.owner_id
     m_sign, y_sign, m_pay, y_pay = sign_by(db, ms, end, O), sign_by(db, ys, end, O), pay_by(db, ms, end, O), pay_by(db, ys, end, O)
@@ -178,6 +186,10 @@ def by_owner(db: Session, period: str | None = None) -> list[dict]:
 
 
 def trend(db: Session, period: str | None = None, months: int = 12) -> list[dict]:
+    from app.services import business_workbook, workbook_performance
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_performance.trend(db, wb, period, months)
     period, _, end, _ = _period_window(period)
     periods = [period]
     for _ in range(months - 1):
@@ -201,6 +213,10 @@ def trend(db: Session, period: str | None = None, months: int = 12) -> list[dict
 
 # ---------------- 项目整体运营看板 ----------------
 def board(db: Session, business_line: str = "", ref: date | None = None) -> dict:
+    from app.services import business_workbook, workbook_performance
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_performance.board(db, wb, business_line, ref)
     T = ref or today()
     q = select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.status.in_(ACTIVE_STATUS)) \
         .options(selectinload(BizProject.milestones)).order_by(BizProject.business_line, BizProject.project_code)
@@ -350,12 +366,19 @@ PERF_CALIBER = [
 def performance_xlsx(db: Session, period: str | None = None) -> tuple[bytes, dict]:
     ov = overview(db, period)
     wb = Workbook()
-    k = [("当月签约", ov["month_sign"]), ("年度累计签约", ov["year_sign"]), ("当月回款", ov["month_pay"]),
+    k = [("当月签约", ov["month_sign"]), ("年度累计业绩", ov["year_sign"]), ("当月已回款", ov["month_pay"]),
          ("年度累计回款", ov["year_pay"])]
+    kpi_rows = [[n, v["amount"], v.get("target"), v.get("rate"), v["last_year"], v["yoy"]] for n, v in k]
+    if ov.get("planned_pay"):
+        pp = ov["planned_pay"]
+        kpi_rows.append([pp.get("title", "当月预估回款金额"), pp.get("amount"), None, None, None, None])
+        kpi_rows.append([pp.get("next_title", "次月预估回款金额"), pp.get("next_amount"), None, None, None, None])
+    dim_title = ov.get("dimension_label") or "按业务线"
+    dim_col = ov.get("dimension_col_label") or "业务线"
     _sheet(wb, "业绩总览", ["指标", "金额(元)", "目标(元)", "达成率", "上年同期(元)", "同比"],
-           [[n, v["amount"], v.get("target"), v.get("rate"), v["last_year"], v["yoy"]] for n, v in k],
-           [16, 18, 18, 10, 18, 10], money_cols=(2, 3, 5), pct_cols=(4, 6), first=True)
-    _sheet(wb, "按业务线", ["业务线", "当月签约", "月签约目标", "达成率", "年度签约", "年签约目标", "达成率",
+           kpi_rows,
+           [18, 18, 18, 10, 18, 10], money_cols=(2, 3, 5), pct_cols=(4, 6), first=True)
+    _sheet(wb, dim_title, [dim_col, "当月签约", "月签约目标", "达成率", "年度签约", "年签约目标", "达成率",
                          "当月回款", "月回款目标", "达成率", "年度回款", "年回款目标", "达成率", "年签约同比"],
            [[r["name"], r["month_sign"], r["month_sign_target"], r["month_sign_rate"], r["year_sign"],
              r["year_sign_target"], r["year_sign_rate"], r["month_pay"], r["month_pay_target"], r["month_pay_rate"],

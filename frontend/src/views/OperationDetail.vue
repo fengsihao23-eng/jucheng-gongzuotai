@@ -4,6 +4,7 @@
     <template v-if="project">
       <PageHeader :eyebrow="`${project.category} · ${PROJECT_STATUS[project.status]}`" :title="project.name" :desc="project.objective || '明确阶段目标，推进关键任务。'">
         <el-button @click="ask">问小聚</el-button>
+        <el-button v-if="project.can_manage" @click="projectForm = true">编辑项目</el-button>
         <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
       </PageHeader>
       <Panel class="mt-16">
@@ -31,9 +32,12 @@
             <el-empty v-if="!filteredTasks.length" :description="project.tasks.length ? '没有符合筛选条件的任务' : '还没有安排任务'" :image-size="66"><el-button v-if="!project.tasks.length && project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置第一项任务</el-button></el-empty>
           </el-tab-pane>
           <template v-if="project.can_view_project_content">
+            <el-tab-pane v-if="project.feature_settings?.configured && canSection('progress')" label="项目进度" name="progress" lazy>
+              <ProjectProgress :project="project" @saved="load" @open-task="openTask" />
+            </el-tab-pane>
             <template v-if="hasSchools">
               <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
-              <el-tab-pane v-if="canSection('income')" label="每日收入" name="income" lazy><SchoolData mode="income" :project="project" @saved="load" /></el-tab-pane>
+              <el-tab-pane v-if="canSection('income')" :label="legacyCampusIncome ? '收入情况' : '每日收入'" name="income" lazy><CampusIncomeReport v-if="legacyCampusIncome" /><SchoolData v-else mode="income" :project="project" @saved="load" /></el-tab-pane>
               <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
             </template>
             <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
@@ -41,7 +45,7 @@
           </template>
           <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
-          <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" /></el-tab-pane>
+          <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" :sections="project.visible_sections" /></el-tab-pane>
         </el-tabs>
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
@@ -85,6 +89,7 @@ import TaskCards from './operations/TaskCards.vue'
 import TaskOverview from './operations/TaskOverview.vue'
 import OpsDigest from './operations/OpsDigest.vue'
 import SchoolData from './operations/SchoolData.vue'
+import CampusIncomeReport from './operations/CampusIncomeReport.vue'
 import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
 import ProjectControls from './operations/ProjectControls.vue'
@@ -95,10 +100,16 @@ const project = ref(null), loading = ref(false), tab = ref('tasks'), query = ref
 const taskMode = ref('company'), projectForm = ref(false), taskForm = ref(false), editingTask = ref(null), pendingTask = ref(null), summaryOpen = ref(false)
 const popupPaused = ref(false)
 const schoolPreset = ref(null)
-const hasSchools = computed(() => project.value?.category.includes('校园') || project.value?.schools.length)
+const hasSchools = computed(() => project.value?.feature_settings?.configured || project.value?.category.includes('校园') || project.value?.schools.length)
+const legacyCampusIncome = computed(() => project.value?.feature_settings?.legacy_campus_income ?? project.value?.name === '智慧校园')
 const canSection = section => (project.value?.visible_sections || []).includes(section)
 const taskView = ref('cards')
 watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
+watch(project, value => {
+  if (!value) return
+  const section = tab.value === 'digest' ? 'reports' : tab.value
+  if (tab.value !== 'controls' && !canSection(section)) tab.value = 'tasks'
+})
 const delayOpen = ref(false), pendingDelay = ref(null)
 const statuses = { ongoing: '进行中', done: '已完成' }
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)

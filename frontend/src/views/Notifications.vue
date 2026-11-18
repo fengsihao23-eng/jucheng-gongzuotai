@@ -1,6 +1,6 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="个人" title="消息通知" desc="查看运营任务、进展反馈、晨报、催交提醒、到期预警和任务告警。">
+    <PageHeader eyebrow="个人" title="消息通知" desc="查看运营任务、回款跟进、进展反馈、晨报和提醒。">
       <el-switch v-model="unreadOnly" active-text="只看未读" @change="load(1)" />
       <el-button @click="readAll">全部标为已读</el-button>
     </PageHeader>
@@ -23,8 +23,8 @@ import { useRouter } from 'vue-router'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 
-const TYPES = { morning_report: '晨报', daily_expense: '每日支出', reminder: '催交提醒', alert: '预警', overdue: '延期', job_failed: '任务告警', approval: '审批登记', report: '报表', operations_project_assignment: '运营项目', operations_task: '运营任务', operations_assignment: '运营任务', operations_reminder: '待办提醒' }
-const TONE = { alert: 'warn', overdue: 'down', job_failed: 'down', morning_report: 'brand', approval: 'up', operations_task: 'brand', operations_reminder: 'warn' }
+const TYPES = { morning_report: '晨报', daily_expense: '每日支出', reminder: '催交提醒', alert: '预警', overdue: '延期', job_failed: '任务告警', approval: '审批登记', report: '报表', operations_project_assignment: '运营项目', operations_task: '运营任务', operations_assignment: '运营任务', operations_reminder: '待办提醒', workbook_collection_request: '回款跟进', workbook_collection_reply: '跟进回复', workbook_collection_progress: '跟进进展' }
+const TONE = { alert: 'warn', overdue: 'down', job_failed: 'down', morning_report: 'brand', approval: 'up', operations_task: 'brand', operations_reminder: 'warn', workbook_collection_request: 'warn', workbook_collection_reply: 'up', workbook_collection_progress: 'up' }
 const router = useRouter()
 const rows = ref([]); const total = ref(0); const page = ref(1); const loading = ref(false); const unreadOnly = ref(false)
 async function load(p = page.value) {

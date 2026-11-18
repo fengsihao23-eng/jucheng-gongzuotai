@@ -420,10 +420,18 @@ def _wecom_links(data):
 
 
 def operation_data_mode(op):
-    if op.source == "wecom_cli" or op.module in {"wecom_console", "wecom_approval", "wecom_external"}:
+    if op.source == "wecom_cli" or op.module in {"wecom_console", "wecom_approval", "wecom_external", "business_workbook"}:
         return "live"
     if op.module in {"imports", "kb", "operations", "receivables", "auth", "wecom_personal"}:
         return "local"  # 上传资料不是模拟连接；每份资料仍以其来源、审核状态为准。
+    if op.module in {"board", "portal", "performance", "contracts", "collections"}:
+        try:
+            from app.services import business_workbook
+            with SessionLocal() as db:
+                if business_workbook.configured_source(db) is not None:
+                    return "live"
+        except Exception:
+            pass
     if op.id in {"admin.preview_addressbook", "admin.addressbook_sync"}:
         return settings.source_mode("wecom")
     return settings.data_source_mode
@@ -563,9 +571,14 @@ class BusinessExecutor:
         area = area.strip().lower()
         text = (query + " " + area).strip()
         aliases = {"财务": ["expenses", "flows", "journal", "finance_data", "reports", "receivables"], "利润": ["reports"], "流水": ["flows", "journal"],
-                   "合同": ["contracts"], "报销": ["expenses"], "报表": ["reports", "performance", "market"], "商机": ["opportunities"],
+                   "合同": ["business_workbook", "contracts", "board"], "签约": ["business_workbook", "board", "performance", "contracts"],
+                   "回款": ["business_workbook", "board", "collections", "performance"], "预估回款": ["business_workbook", "board", "collections"],
+                   "应收": ["business_workbook", "collections", "receivables"], "未收": ["business_workbook", "collections"],
+                   "报销": ["expenses"], "报表": ["reports", "performance", "market"], "商机": ["business_workbook", "opportunities"],
+                   "招标": ["business_workbook", "projects", "tender"], "在建": ["business_workbook", "projects"],
                    "发票": ["receivables"], "开票": ["receivables"], "收款": ["receivables"], "到账": ["receivables"], "核销": ["receivables"], "红冲": ["receivables"],
-                   "业绩": ["performance"], "项目": ["projects", "market", "reports", "operations"], "市场": ["market"], "复盘": ["market"], "竞品": ["market"],
+                   "业绩": ["business_workbook", "board", "performance"], "看板": ["board", "business_workbook", "performance"],
+                   "项目": ["projects", "market", "reports", "operations", "business_workbook"], "市场": ["market"], "复盘": ["market"], "竞品": ["market"],
                    "运营": ["operations", "performance"], "智慧校园": ["operations"], "重点任务": ["operations"], "产品库": ["operations"],
                    "任务": ["operations"], "月度": ["operations"], "月计划": ["operations"], "自行安排": ["operations"],
                    "审核任务": ["operations"], "设备": ["operations"], "进展反馈": ["operations", "market"],

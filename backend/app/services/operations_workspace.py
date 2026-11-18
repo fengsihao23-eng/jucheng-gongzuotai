@@ -60,6 +60,7 @@ def outreach(db, p, project_id, year=None, region="", owner_id=None):
 def save_goal(db, p, project_id, body):
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
+    scope.require(db, p, project, "outreach")
     ops.active(project)
     school = ops.school(db, project_id, body.school_id)
     goal = db.scalar(select(OpsOutreachGoal).where(OpsOutreachGoal.project_id == project_id,
@@ -88,6 +89,7 @@ def save_goal(db, p, project_id, body):
 def region_update(db, p, project_id, school_id, region):
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
+    scope.require_school_features(db, p, project)
     ops.school(db, project_id, school_id)
     row = db.get(OpsSchoolRegion, school_id) or OpsSchoolRegion(school_id=school_id)
     before = row.region

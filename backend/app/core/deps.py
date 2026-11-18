@@ -66,6 +66,8 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
         menus.add("portal")
         buttons = set(individual.buttons) - {"*"}
         scope = individual.data_scope
+    if "ADMIN-01" in codes:
+        menus.add("operation_records")
     return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal)
 
 
@@ -104,6 +106,8 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
             raise BizError(40102, "账号连接已更新，请重新登录")
     p = build_principal(user)
     request.state.principal = p
+    from app.core.operation_audit import bind_actor
+    bind_actor(db, user)
     request.state.jwt_exp = payload["exp"]
     request.state.identity_verified_at = payload.get("verified_at")
     return p

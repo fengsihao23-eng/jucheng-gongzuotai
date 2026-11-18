@@ -68,13 +68,22 @@ class Ctx:
     @property
     def board(self) -> dict:
         if self._board is None:
-            from app.services import board_service
+            from app.services import board_service, business_workbook, contract_workbook_sync
+            wb = business_workbook.configured_source(self.db)
+            allowed = wb is None or contract_workbook_sync.can_view(self.p, wb.config) or any(
+                business_workbook.can_access_view(self.p, wb.config, view)
+                for view in ("board", "contracts", "collections", "opportunities", "tender"))
+            if not allowed:
+                self._board = {"key_projects": board_service._key_projects(self.db, self.T),
+                               "submission": board_service._submission_block(self.db, self.T),
+                               "profit": board_service._profit_block(self.db, self.T)}
+                return self._board
             self._board = board_service.overview(self.db, self.T)
         return self._board
 
 
 def _wan(v) -> str:
-    return f"{Decimal(v or 0) / 10000:,.1f}"
+    return "未提供" if v is None else f"{Decimal(v) / 10000:,.1f}"
 
 
 def _pct(v) -> str:
@@ -123,7 +132,8 @@ def _(c: Ctx):
 def _(c: Ctx):
     t = c.board["tender"]
     return {"value": f"{t['bidding_count']} / {t['building_count']}", "unit": "个",
-            "hint": f"节点预警 {t['alert_count']} · 两周内截标 {t['deadline_soon_count']}",
+            "hint": (f"{t['building_label']} {t['building_count']} 个；原表未提供节点预警" if t.get('building_label')
+                     else f"节点预警 {t['alert_count']} · 两周内截标 {t['deadline_soon_count']}"),
             "to": _drill(t["drill"]["building"])}
 
 
@@ -293,7 +303,7 @@ def _(c: Ctx):
     return {"items": [{"label": "填报进展反馈", "desc": "重点项目每日进展", "to": {"path": "/market", "query": {"feedback": "1"}}},
                       {"label": "市场周报", "desc": "自动成稿，一键提交", "to": {"path": "/market", "query": {"tab": "report"}}},
                       {"label": "竞品情报", "desc": "录入 / 简报", "to": {"path": "/intel"}},
-                      {"label": "商机信息", "desc": "漏斗与列表", "to": {"path": "/opportunities"}}]}
+                      {"label": "商机信息", "desc": "工单状态与列表", "to": {"path": "/opportunities"}}]}
 
 
 @card("market_intel", "list", "竞品情报摘要", span=2, menu="intel")
@@ -352,7 +362,7 @@ def _(c: Ctx):
     items = [{"label": "合同台账", "desc": "筛选 / 导出", "to": {"path": "/contracts"}}]
     if c.p.can("contracts:write"):
         items.append({"label": "新增合同", "desc": "人工录入", "to": {"path": "/contracts", "query": {"new": "1"}}})
-    items += [{"label": "商机信息", "desc": "漏斗视图", "to": {"path": "/opportunities"}},
+    items += [{"label": "商机信息", "desc": "工单状态与列表", "to": {"path": "/opportunities"}},
               {"label": "数据清洗", "desc": "Excel 导入", "to": {"path": "/clean"}}]
     return {"items": items}
 
@@ -372,7 +382,7 @@ def _(c: Ctx):
                         {"prop": "amount", "label": "金额", "width": 130, "money": True},
                         {"prop": "source", "label": "来源", "width": 90}],
             "rows": [{**{k: x[k] for k in ("sign_date", "customer_name", "amount")},
-                      "source": {1: "企微审批", 2: "人工", 3: "导入"}.get(x["source_type"]), "to": _drill(x["drill"])}
+                      "source": {1: "企微审批", 2: "人工", 3: "导入", 4: "指定表格"}.get(x["source_type"]), "to": _drill(x["drill"])}
                      for x in items], "to": {"path": "/contracts", "query": {"sign_month": f"{c.T:%Y-%m}"}}}
 
 

@@ -10,7 +10,8 @@ MENUS = {
     "expenses": "报销归集", "flows": "流水核对", "journal": "出纳日记账", "finance_data": "财务数据",
     "profit": "项目利润", "receivables": "开票与收款", "submissions": "汇报提交", "projects": "项目台账", "market": "重点项目跟进",
     "operations": "运营项目", "intel": "竞品情报", "reviews": "项目复盘", "hr": "人事中心", "service": "客服工单",
-    "tender": "标书助手", "kb": "知识库", "imports": "资料导入", "clean": "数据清洗", "mcp": "WorkBuddy 接入", "admin": "系统管理",
+    "tender": "标书助手", "kb": "知识库", "imports": "资料导入", "clean": "数据清洗", "mcp": "WorkBuddy 接入",
+    "operation_records": "操作记录", "admin": "系统管理",
 }
 
 # Known business actions, also used by the per-person authorization form.

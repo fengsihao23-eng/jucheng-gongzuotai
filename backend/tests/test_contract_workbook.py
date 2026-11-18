@@ -55,6 +55,17 @@ def sales(*rows):
             "rows": [{"row": 1, "cells": cols}, {"row": 2, "cells": [None] * 8 + ["已收", "未收"]}, *rows]}
 
 
+def older(*records, profile="older"):
+    return {"id": profile, "name": "2、2026年前（已签单个项目+未回款）" if profile == "older" else
+            "6、市场销售长效合同（已签运营类+持续回款）", "range": "A1:P30", "merges": [], "rows": [
+                {"row": 1, "cells": ["序号", "项目名称", "对接单位" if profile == "older" else "挂靠单位", "项目负责人",
+                                     "实际跟进人", "我方签约主体", "合同总金额", "签订时间", "应收", "", "", "", "", "", "", ""]},
+                {"row": 2, "cells": [None] * 8 + ["已收", "未收"]},
+                *[{"row": n, "cells": [n - 2, name, "历史客户", "负责人", "跟进甲", "主体", amount, when,
+                                        received, outstanding, None, None, None, None, None, None]}
+                  for n, name, amount, when, received, outstanding in records]]}
+
+
 def tender():
     return {"id": "tender-sheet", "name": "4、招标状态项目", "range": "A1:K10", "merges": ["C2:C3"],
             "rows": [

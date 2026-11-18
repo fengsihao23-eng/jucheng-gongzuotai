@@ -1,18 +1,19 @@
 <template>
-  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'personal-work-layout': route.name === 'portal' }">
+  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'personal-work-layout': route.name === 'portal', 'workbook-layout': !!route.meta.workbookView }">
     <aside class="side jc-noprint">
       <router-link to="/" class="brand"><JcLogo :size="30" /></router-link>
       <nav>
         <template v-for="g in groups" :key="g.title">
           <div v-if="g.title" class="gt">{{ g.title }}</div>
-          <router-link v-for="m in g.items" :key="m.key" :to="m.path" class="item"
+          <router-link v-for="m in g.items" :key="m.path" :to="m.path" class="item"
                        :class="{ active: isActive(m) }">
             <span class="bar" />{{ m.label }}
           </router-link>
         </template>
       </nav>
       <div class="side-foot jc-muted jc-small">
-        <div>数据模式：{{ mode === 'mock' ? '演示数据' : '生产数据' }}</div>
+        <div v-if="route.meta.workbookView">数据来源：见页面同步状态</div>
+        <div v-else>数据模式：{{ mode === 'mock' ? '演示数据' : '生产数据' }}</div>
         <div>v2.0 · 广东聚成数智</div>
       </div>
     </aside>
@@ -98,7 +99,7 @@ const W = ['日', '一', '二', '三', '四', '五', '六']
 const today = dayjs().format('YYYY年M月D日') + ' 星期' + W[dayjs().day()]
 
 const groups = computed(() =>
-  MENU_GROUPS.map((g) => ({ ...g, items: g.items.filter((m) => (m.anyMenu || [m.key]).some(key => auth.hasMenu(key))) })).filter((g) => g.items.length),
+  MENU_GROUPS.map((g) => ({ ...g, items: g.items.filter((m) => (!m.adminOnly || profile.value?.is_admin) && (m.anyMenu || [m.key]).some(key => auth.hasMenu(key))) })).filter((g) => g.items.length),
 )
 const isActive = (m) => (m.path === '/' ? route.path === '/' : route.path === m.path || route.path.startsWith(m.path + '/'))
 
@@ -187,8 +188,8 @@ nav { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
 .np-more { display: block; text-align: center; padding-top: 10px; font-size: 13px; }
 @media (max-width: 900px) { .side { display: none; } .today { display: none; } .top { padding: 0 16px; } }
 @media (max-width: 560px) {
-  :is(.operations-layout, .personal-work-layout) .top { gap: 8px; }
-  :is(.operations-layout, .personal-work-layout) .me-t, :is(.operations-layout, .personal-work-layout) .top .jc-spacer { display: none; }
-  :is(.operations-layout, .personal-work-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout) .top { gap: 8px; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout) .me-t, :is(.operations-layout, .personal-work-layout, .workbook-layout) .top .jc-spacer { display: none; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 </style>

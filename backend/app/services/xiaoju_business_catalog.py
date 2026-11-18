@@ -21,6 +21,7 @@ MODULES = {
     "auth": ("我的账号与工作台", "/account"),
     "portal": ("个人工作台", "/"), "board": ("经营看板", "/board"),
     "contracts": ("合同与回款", "/contracts"), "submissions": ("汇报与催交", "/submissions"),
+    "business_workbook": ("固定表格经营数据（五块页面的唯一来源）", "/contracts"),
     "expenses": ("报销归集", "/expenses"), "flows": ("银行流水核对", "/flows"),
     "journal": ("出纳日记账", "/journal"), "finance_data": ("财务数据与税务", "/finance-data"),
     "reports": ("报表与项目利润", "/reports"), "projects": ("项目与进度", "/projects"),
@@ -43,6 +44,12 @@ MODULES = {
 # Identity, credentials and sign-off stay in their dedicated UI. The rest of the
 # registered business routes are covered automatically, using their actual guards.
 ROUTE_EXCLUSIONS = {
+    # Evidence and administrator audit exports stay in the dedicated, read-only UI.
+    "operation_records.ui_event", "operation_records.options", "operation_records.export",
+    "operation_records.listing", "operation_records.detail",
+    "business_workbook.request_collection_followup", "business_workbook.reply_collection_followup",
+    "business_workbook.cancel_collection_followup", "business_workbook.export_opportunities",
+    "business_workbook.update_collection_progress",
     "auth.login_config", "auth.login", "auth.wecom_authorize_url", "auth.wecom_oauth",
     "auth.logout", "auth.change_password", "auth.reset_mcp_token", "auth.verify_identity",
     "mcp_config.client_config", "mcp_config.self_test", "mcp_config.config_with_token",
@@ -162,7 +169,12 @@ LABELS = {
 ROUTE_LABELS = {
     "role_members": "查角色实名名单", "effective_permissions": "查指定人员有效权限",
     "signing": "查询累计、本月、本周和今日签约统计",
-    "collection_board": "查询应收余额和回款负责人", "follow_up": "登记回款跟进或催办",
+    "collection_board": "查询回款情况、未收金额、本月已回款及当月/次月预估回款金额", "follow_up": "登记回款跟进或催办",
+    "business_workbook.page": "查询经营业绩、回款情况（全部金额/未收/当月与次月预估回款金额）、商机与招标在建台账",
+    "business_workbook.collection_period_projects": "查询当月预估回款金额或次月预估回款金额对应项目清单",
+    "business_workbook.collection_project_report": "查看单个项目回款报告与原表预估回款计划",
+    "business_workbook.contract_detail": "查看经营业绩合同详情",
+    "business_workbook.collection_detail": "查看回款合同详情",
     "operation_digest": "查询运营项目周报、月报或个人工作总结",
     "draft_proposal": "使用项目产品库生成学校方案初稿",
     "add_project_members": "批量加入运营项目成员", "pause_follow": "暂停或恢复重点项目跟进",

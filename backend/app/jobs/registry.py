@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.db import SessionLocal, engine
 from app.core.timeutil import utcnow
 from app.models import SyncJobLog
+from app.core.operation_audit import recorded
 
 log = logging.getLogger("jobs")
 
@@ -41,6 +42,7 @@ def job(name: str, title: str, cron: dict, schedule_text: str, idempotency: Call
     return deco
 
 
+@recorded("job")
 def run_job(name: str, params: dict | None = None, trigger: str = "schedule", force: bool = False,
             db: Session | None = None) -> SyncJobLog:
     jd = JOBS[name]

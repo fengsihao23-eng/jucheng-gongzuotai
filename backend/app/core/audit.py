@@ -10,17 +10,18 @@ from app.models import LogOperation
 
 _MOBILE = re.compile(r"(?<!\d)(1[3-9]\d)\d{4}(\d{4})(?!\d)")
 _IDCARD = re.compile(r"(?<!\d)(\d{6})\d{8}(\d{3}[\dXx])(?!\d)")
-_SECRET_KEYS = {"password", "token", "secret", "access_token", "authorization"}
+_SECRET = re.compile(r"password|passwd|secret|token|authorization|cookie|credential|cipher|private.?key|api.?key|aes.?key|signature|binding_id", re.I)
 
 
 def mask_text(s: str) -> str:
-    return _IDCARD.sub(r"\1********\2", _MOBILE.sub(r"\1****\2", s))
+    s = _MOBILE.sub(r"\1****\2", _IDCARD.sub(r"\1********\2", s))
+    return re.sub(r"((?:access_token|token|secret|signature|scode|password)=)[^&\s]+", r"\1***", s, flags=re.I)
 
 
 def mask(value: Any) -> Any:
     """参数脱敏：手机号、身份证号、密钥类字段。"""
     if isinstance(value, dict):
-        return {k: ("***" if k.lower() in _SECRET_KEYS else mask(v)) for k, v in value.items()}
+        return {k: ("***" if _SECRET.search(str(k)) else mask(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [mask(v) for v in value]
     if isinstance(value, str):
@@ -35,6 +36,10 @@ def snapshot(obj, fields: list[str]) -> dict:
 def log_op(db: Session, user_id: int | None, action: str, target_type: str | None = None,
            target_id: Any = None, before: dict | None = None, after: dict | None = None,
            ip: str | None = None) -> None:
+    from app.core.operation_audit import current
+    ctx = current.get()
+    if ctx is not None:
+        ctx.notes.append(mask(encode({"action":action,"target":target_type,"id":target_id,"before":before,"after":after})))
     db.add(LogOperation(user_id=user_id, action=action, target_type=target_type,
                         target_id=None if target_id is None else str(target_id),
                         before=mask(encode(before)) if before else None,

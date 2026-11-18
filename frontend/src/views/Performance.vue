@@ -21,13 +21,18 @@
         <div v-loading="loadingPerf">
           <div class="jc-grid c4">
             <Kpi label="当月合同签订额" :value="wanNum(ov.month_sign?.amount)" unit="万" :progress="ov.month_sign?.rate"
-              :hint="`目标 ${wan(ov.month_sign?.target)} · 达成 ${percent(ov.month_sign?.rate)}`" :delta="ov.month_sign?.yoy"
+              :hint="ov.source_mode === 'workbook' ? `${ov.month_sign?.count ?? 0} 份 · 上月 ${wan(ov.month_sign?.prev)}` : `目标 ${wan(ov.month_sign?.target)} · 达成 ${percent(ov.month_sign?.rate)}`" :delta="ov.month_sign?.yoy"
               :to="{ path: '/contracts', query: { sign_month: ov.period } }" />
             <Kpi label="年度累计业绩" :value="wanNum(ov.year_sign?.amount)" unit="万" :progress="ov.year_sign?.rate"
-              :hint="`年度目标 ${wan(ov.year_sign?.target)} · 达成 ${percent(ov.year_sign?.rate)}`" :delta="ov.year_sign?.yoy" />
-            <Kpi label="当月回款" :value="wanNum(ov.month_pay?.amount)" unit="万" :progress="ov.month_pay?.rate"
-              :hint="`目标 ${wan(ov.month_pay?.target)} · 达成 ${percent(ov.month_pay?.rate)}`" :delta="ov.month_pay?.yoy" />
-            <Kpi label="年度累计回款" :value="wanNum(ov.year_pay?.amount)" unit="万" :progress="ov.year_pay?.rate"
+              :hint="ov.source_mode === 'workbook' ? `${ov.year_sign?.count ?? 0} 份 · 上年同期 ${wan(ov.year_sign?.last_year)}` : `年度目标 ${wan(ov.year_sign?.target)} · 达成 ${percent(ov.year_sign?.rate)}`" :delta="ov.year_sign?.yoy"
+              :to="{ path: '/contracts' }" />
+            <Kpi :label="ov.source_mode === 'workbook' ? '当月已回款' : '当月回款'" :value="wanNum(ov.month_pay?.amount)" unit="万" :progress="ov.month_pay?.rate"
+              :hint="ov.source_mode === 'workbook' ? `${ov.month_pay?.count ?? 0} 笔 · 原表月度回款进度` : `目标 ${wan(ov.month_pay?.target)} · 达成 ${percent(ov.month_pay?.rate)}`" :delta="ov.month_pay?.yoy"
+              :to="ov.source_mode === 'workbook' ? { path: '/collections', query: { basis: 'monthly', period: ov.period } } : undefined" />
+            <Kpi v-if="ov.source_mode === 'workbook'" :label="ov.planned_pay?.title || '当月预估回款金额'" :value="wanNum(ov.planned_pay?.amount)" unit="万"
+              :hint="`${ov.planned_pay?.count ?? 0} 个项目 · 次月预估 ${wan(ov.planned_pay?.next_amount)}`"
+              :to="{ path: '/collections' }" />
+            <Kpi v-else label="年度累计回款" :value="wanNum(ov.year_pay?.amount)" unit="万" :progress="ov.year_pay?.rate"
               :hint="`年度回款目标 ${wan(ov.year_pay?.target)}`" :delta="ov.year_pay?.yoy" />
           </div>
           <p class="jc-muted jc-small cmp">
@@ -39,22 +44,22 @@
             <Panel class="jc-span-2" title="近 12 个月签约与回款" sub="柱：签约额 / 回款额；线：回款达成率">
               <Chart :option="trendOption" height="300px" :empty="!ov.trend?.length" />
             </Panel>
-            <Panel title="业务线业绩进度" sub="年度签约 / 当月回款达成">
+            <Panel :title="ov.source_mode === 'workbook' ? '区域业绩分布' : '业务线业绩进度'" :sub="ov.source_mode === 'workbook' ? '年度签约 / 同比变化' : '年度签约 / 当月回款达成'">
               <div v-for="r in ov.by_line || []" :key="r.business_line" class="prog">
-                <div class="jc-row between"><b>{{ r.name }}</b><span class="jc-num jc-small">{{ wan(r.year_sign) }} / {{ wan(r.year_sign_target) }}</span></div>
-                <div class="bar"><i :style="barStyle(r.year_sign_rate)" /></div>
+                <div class="jc-row between"><b>{{ r.name }}</b><span class="jc-num jc-small">{{ ov.source_mode === 'workbook' ? wan(r.year_sign) : `${wan(r.year_sign)} / ${wan(r.year_sign_target)}` }}</span></div>
+                <div v-if="ov.source_mode !== 'workbook'" class="bar"><i :style="barStyle(r.year_sign_rate)" /></div>
                 <div class="jc-row between jc-small jc-muted">
-                  <span>年签约 {{ percent(r.year_sign_rate) }} · 同比 <span :class="tone(r.year_sign_yoy)">{{ signed(r.year_sign_yoy) }}</span></span>
-                  <span>月回款 {{ percent(r.month_pay_rate) }}</span>
+                  <span>{{ ov.source_mode === 'workbook' ? '当月签约 ' + wan(r.month_sign) : '年签约 ' + percent(r.year_sign_rate) }} · 同比 <span :class="tone(r.year_sign_yoy)">{{ signed(r.year_sign_yoy) }}</span></span>
+                  <span>{{ ov.source_mode === 'workbook' ? '已收 ' + wan(r.year_pay) : '月回款 ' + percent(r.month_pay_rate) }}</span>
                 </div>
               </div>
             </Panel>
           </div>
 
           <div class="jc-grid c2 mt-16">
-            <Panel title="按业务线" :padding="false">
+            <Panel :title="ov.dimension_label || '按业务线'" :padding="false">
               <el-table :data="ov.by_line || []" size="small">
-                <el-table-column prop="name" label="业务线" min-width="110" />
+                <el-table-column prop="name" :label="ov.dimension_col_label || '业务线'" min-width="110" />
                 <el-table-column label="当月签约" align="right" min-width="100"><template #default="{ row }"><span class="jc-num">{{ wan(row.month_sign) }}</span></template></el-table-column>
                 <el-table-column label="年度签约" align="right" min-width="100"><template #default="{ row }"><span class="jc-num">{{ wan(row.year_sign) }}</span></template></el-table-column>
                 <el-table-column label="当月回款" align="right" min-width="100"><template #default="{ row }"><span class="jc-num">{{ wan(row.month_pay) }}</span></template></el-table-column>
@@ -94,19 +99,24 @@
       <el-tab-pane label="项目运营看板" name="board">
         <div v-loading="loadingBoard">
           <div class="jc-grid c5">
-            <Kpi label="运营项目" :value="sm.projects ?? '—'" unit="个" :hint="`节点延期 ${sm.delayed_projects ?? 0} 个`" />
-            <Kpi label="合同总额" :value="wanNum(sm.contract_amount)" unit="万" :hint="`应收余额 ${wan(sm.receivable)}`" />
-            <Kpi label="累计回款" :value="wanNum(sm.received)" unit="万" :progress="sm.pay_rate" :hint="`回款率 ${percent(sm.pay_rate)}`" />
-            <Kpi label="逾期应收" :value="wanNum(sm.overdue)" unit="万" :hint="`${sm.overdue_projects ?? 0} 个项目存在逾期`" />
-            <Kpi label="项目毛利" :value="wanNum(sm.gross_profit)" unit="万" :hint="`毛利率 ${percent(sm.gross_margin)}`" />
+            <Kpi :label="bd.source_mode === 'workbook' ? '合同项目' : '运营项目'" :value="sm.projects ?? '—'" unit="个"
+              :hint="bd.source_mode === 'workbook' ? `未收项目 ${sm.unpaid_projects ?? 0} 个` : `节点延期 ${sm.delayed_projects ?? 0} 个`" />
+            <Kpi label="合同总额" :value="wanNum(sm.contract_amount)" unit="万" :hint="`未收余额 ${wan(sm.receivable)}`" />
+            <Kpi label="累计已收" :value="wanNum(sm.received)" unit="万" :progress="sm.pay_rate" :hint="`回款率 ${percent(sm.pay_rate)}`" />
+            <Kpi v-if="bd.source_mode === 'workbook'" label="当月预估回款金额" :value="wanNum(sm.planned_month)" unit="万"
+              :hint="`${sm.planned_month_count ?? 0} 个项目 · 原表预估`" :to="{ path: '/collections' }" />
+            <Kpi v-else label="逾期应收" :value="wanNum(sm.overdue)" unit="万" :hint="`${sm.overdue_projects ?? 0} 个项目存在逾期`" />
+            <Kpi v-if="bd.source_mode === 'workbook'" label="次月预估回款金额" :value="wanNum(sm.planned_next)" unit="万"
+              :hint="`${sm.planned_next_count ?? 0} 个项目 · 原表预估`" :to="{ path: '/collections' }" />
+            <Kpi v-else label="项目毛利" :value="wanNum(sm.gross_profit)" unit="万" :hint="`毛利率 ${percent(sm.gross_margin)}`" />
           </div>
 
-          <Panel class="mt-16" title="运营项目" :sub="`在建 / 已验收 / 运维 · 统计日 ${bd.as_of || ''} · 逾期或延期行标红`" :padding="false">
+          <Panel class="mt-16" :title="bd.source_mode === 'workbook' ? '合同与回款台账' : '运营项目'" :sub="bd.source_mode === 'workbook' ? `两张表合并 · 统计日 ${bd.as_of || ''}` : `在建 / 已验收 / 运维 · 统计日 ${bd.as_of || ''} · 逾期或延期行标红`" :padding="false">
             <el-table :data="bd.projects || []" :row-class-name="({ row }) => (row.alert ? 'is-alert' : '')" size="small"
               :default-sort="{ prop: 'contract_amount', order: 'descending' }">
               <el-table-column label="项目" min-width="230" fixed>
                 <template #default="{ row }">
-                  <router-link class="plink" :to="`/projects/${row.project_code}`">{{ row.name }}</router-link>
+                  <router-link class="plink" :to="row.detail_path || `/projects/${row.project_code}`">{{ row.name }}</router-link>
                   <div class="jc-muted jc-small">{{ row.project_code }} · {{ row.customer_name }}</div>
                 </template>
               </el-table-column>

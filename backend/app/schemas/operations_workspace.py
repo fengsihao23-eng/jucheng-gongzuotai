@@ -1,9 +1,9 @@
 from datetime import date
 from typing import Annotated, Literal
 from pydantic import Field, StringConstraints, model_validator
-from app.schemas.operations import Id, Input, Money, Name, Note, Cadence
+from app.schemas.operations import Id, Input, Money, Name, Note, Cadence, OperationSection
 
-Section = Literal["tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds"]
+Section = OperationSection
 
 
 class MemberViewIn(Input):

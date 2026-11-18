@@ -7,7 +7,8 @@ from sqlalchemy import delete, or_, select, update
 from app.core.audit import log_op, snapshot
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
-from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsProduct, OpsProject, OpsProjectIncome, OpsProjectProgress, OpsSchool,
+from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsOutreachGoal, OpsProduct, OpsProject, OpsProjectIncome,
+                        OpsProjectProgress, OpsSchool, OpsSchoolRegion, OpsSchoolVisit,
                         OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
 from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
 from app.services import operations_followup as followups
@@ -152,8 +153,12 @@ def save_project(db, p, body, project_id=None):
             raise forbidden("仅公司负责人、市场负责人或管理员可新建运营项目")
         project = OpsProject(created_at=now())
     previous_owner_id = project.owner_id
+    legacy_campus_income = bool(project_id and project.name == "智慧校园")
     owner = user(db, body.owner_id)
-    project = _write(db, p, project, body.model_dump(), PROJECT_FIELDS)
+    project = _write(db, p, project, body.model_dump(include=set(PROJECT_FIELDS)), PROJECT_FIELDS)
+    if body.enabled_sections is not None:
+        content_scope.save_features(db, p, project, body.enabled_sections, body.expected_features_revision,
+                                    creating=not project_id, legacy_campus_income=legacy_campus_income)
     if previous_owner_id != owner.id and build_principal(owner).has_menu("operations"):
         title = "运营项目已交接给你" if project_id else "你负责的运营项目已创建"
         notify_service.send(db, [owner], PROJECT_ASSIGNMENT, title, f"你是「{project.name}」的项目负责人。",
@@ -185,6 +190,7 @@ def project_progress(db, p, project_id, before_id=None):
 def record_project_progress(db, p, project_id, body):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "progress")
     return _save_project_progress(db, p, project, body)
 
 
@@ -197,6 +203,7 @@ def record_project_progress_entries(db, p, project_id, entries, expected_owner_i
     """Record the report and its dated work items once, in the same transaction."""
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "progress")
     if any(entry.next_due_date for entry in entries):
         active(project)
         if expected_owner_id is not None and project.owner_id != expected_owner_id:
@@ -281,16 +288,49 @@ def school(db, project_id, school_id):
 def save_school(db, p, project_id, body, school_id=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require_school_features(db, p, project)
     row = school(db, project.id, school_id) if school_id else OpsSchool(project_id=project.id)
     if db.scalar(select(OpsSchool.id).where(OpsSchool.project_id == project.id, OpsSchool.name == body.name,
                                           OpsSchool.id != (school_id or 0))):
         raise conflict("本项目已存在同名学校")
-    return _write(db, p, row, body.model_dump(), SCHOOL_FIELDS)
+    enabled = content_scope.enabled_features(db, project)
+    ignored = set()
+    if "outreach" not in enabled:
+        ignored |= {"stage", "potential", "next_action", "next_contact_date"}
+    if "procurement" not in enabled:
+        ignored |= {"labor_cost", "other_cost"}
+    return _write(db, p, row, body.model_dump(exclude=ignored), SCHOOL_FIELDS)
+
+
+def delete_school(db, p, project_id, school_id):
+    """删除学校及其设备清单、每日收入、跟进与年度目标，并解除任务关联。
+
+    学校资料在采购、开拓、收入各视图共用，删除后各视图都不再出现。
+    """
+    project = get_project(db, p, project_id, lock=True)
+    manage(db, p, project)
+    content_scope.require_school_features(db, p, project)
+    row = school(db, project.id, school_id)
+    before = snapshot(row, SCHOOL_FIELDS)
+    tasks = db.execute(update(OpsTask).where(OpsTask.school_id == row.id).values(school_id=None)).rowcount or 0
+    equipment = db.execute(delete(OpsEquipment).where(OpsEquipment.school_id == row.id)).rowcount or 0
+    incomes = db.execute(delete(OpsIncome).where(OpsIncome.school_id == row.id)).rowcount or 0
+    visits = db.execute(delete(OpsSchoolVisit).where(OpsSchoolVisit.school_id == row.id)).rowcount or 0
+    goals = db.execute(delete(OpsOutreachGoal).where(OpsOutreachGoal.school_id == row.id)).rowcount or 0
+    db.execute(delete(OpsSchoolRegion).where(OpsSchoolRegion.school_id == row.id))
+    db.delete(row)
+    db.flush()
+    log_op(db, p.id, "operations.school_delete", "ops_school", school_id, before=before,
+           after={"deleted": True, "equipment": equipment, "incomes": incomes, "visits": visits,
+                  "goals": goals, "tasks_detached": tasks})
+    return {"id": school_id, "equipment": equipment, "incomes": incomes, "visits": visits,
+            "goals": goals, "tasks_detached": tasks}
 
 
 def save_product(db, p, project_id, body, product_id=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "products")
     row = db.get(OpsProduct, product_id) if product_id else OpsProduct(project_id=project.id)
     if not row or row.project_id != project.id:
         raise not_found("本项目产品")
@@ -304,6 +344,7 @@ def product_dict(row):
 def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "procurement")
     school(db, project.id, school_id)
     # 产品可以复用本人有权查看的其他运营项目，但不能借 ID 读取未授权产品。
     product = db.scalar(select(OpsProduct).where(OpsProduct.id == body.product_id,
@@ -321,6 +362,7 @@ def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
 def save_income(db, p, project_id, school_id, body, income_id=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "income")
     school(db, project.id, school_id)
     if body.income_date > today():
         raise bad_request("收入日期不能晚于今天")
@@ -419,6 +461,8 @@ def create_task(db, p, project_id, body):
     from app.services import operations_plans as plans
     project = get_project(db, p, project_id, lock=True)
     active(project)
+    if body.kind == "outreach":
+        content_scope.require(db, p, project, "outreach")
     if body.source == "company":
         manage(db, p, project)
     elif role(db, p, project) not in {"manager", "member", "reviewer"} or body.owner_id != p.id:
@@ -695,7 +739,8 @@ def project_detail(db, p, project_id):
     project = get_project(db, p, project_id)
     rows = tasks(db, p, project_id)
     shared = has_project_content(db, p, project)
-    sections = set(content_scope.view(db, p, project)["sections"])
+    access = content_scope.view(db, p, project)
+    sections = set(access["sections"])
     can_income, can_procurement = "income" in sections, "procurement" in sections
     progress = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.project_id == project.id,
         or_(OpsProjectProgress.task_id.is_(None), OpsProjectProgress.task_id.in_([t["id"] for t in rows])))
@@ -717,7 +762,8 @@ def project_detail(db, p, project_id):
     return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],
             "can_record_visits": "outreach" in sections and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
-            "visible_sections": sorted(sections), "task_scope": content_scope.view(db, p, project)["task_scope"],
+            "visible_sections": sorted(sections), "task_scope": access["task_scope"],
+            "feature_settings": content_scope.feature_settings(db, project),
             "can_archive_tasks": policy.can_archive(db, p, project), "can_view_project_content": shared, "tasks": rows, "stats": task_stats(rows),
             "schools": content_scope.redact_schools(schools, sections), "products": [product_dict(r) for r in products], "today": today(),
             "unassigned_incomes": unassigned, "import_batches": batches,

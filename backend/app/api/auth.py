@@ -48,6 +48,8 @@ class PrefsIn(BaseModel):
 
 
 def _session(db: Session, user: SysUser, request: Request, method: str) -> dict:
+    from app.core.operation_audit import bind_actor
+    bind_actor(db, user)
     user_service.ensure_default_role(db, user)
     user.last_login_at = utcnow()
     log_op(db, user.id, "auth.login", "user", user.id, after={"method": method}, ip=client_ip(request))
@@ -57,28 +59,39 @@ def _session(db: Session, user: SysUser, request: Request, method: str) -> dict:
 
 
 def visible_menus(db: Session, p: Principal) -> list[str]:
-    """运营项目按项目成员隔离：没有参与任何项目的人不显示该菜单。"""
+    """Explicit grants show the module; data inside it remains member-scoped."""
     menus = set(p.menus)
     if "operations" in menus:
         from app.models import OpsMember, OpsProject
         from app.services import operations_service as ops
-        joined = ops.can_view_all(p) or db.scalar(
-            select(OpsProject.id).where(OpsProject.owner_id == p.id).limit(1)) is not None or db.scalar(
-            select(OpsMember.id).where(OpsMember.user_id == p.id).limit(1)) is not None
+        from app.core.permissions import ROLE_DEFS
+        if p.user.permission_override is not None and not p.is_admin:
+            explicit = "operations" in p.user.permission_override.menus
+        else:
+            explicit = any("operations" in {**ROLE_DEFS.get(role.role_code, {}), **(role.permissions or {})}.get("menus", [])
+                           for role in p.user.roles)
+        joined = explicit or ops.can_view_all(p) or db.scalar(
+            select(OpsProject.id).where(OpsProject.owner_id == p.id, OpsProject.status != "deleted").limit(1)) is not None or db.scalar(
+            select(OpsMember.id).join(OpsProject, OpsProject.id == OpsMember.project_id)
+            .where(OpsMember.user_id == p.id, OpsProject.status != "deleted").limit(1)) is not None
         if not joined:
             menus.discard("operations")
     return sorted(menus, key=list(MENUS).index)
 
 
 def profile(p: Principal, db: Session | None = None) -> dict:
+    import hashlib, json
+    from app.services.personal_permission_service import view
     u = p.user
     menus = visible_menus(db, p) if db is not None else sorted(p.menus, key=list(MENUS).index)
+    permission_revision = hashlib.sha256(json.dumps({"configuration": view(u)["permission_revision"], "menus": menus},
+        sort_keys=True).encode()).hexdigest()
     return {"id": u.id, "userid": u.wecom_userid, "name": u.name, "position": u.position,
             "dept_code": u.dept_code, "dept_name": u.department.name if u.department else None,
             "roles": [{"code": r.role_code, "name": r.name} for r in u.roles] or [{"code": "EMP", "name": "普通员工"}],
             "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
             "portal": p.portal, "is_admin": p.is_admin, "preferences": u.preferences or {},
-            "mcp_token_hint": u.access_token_hint}
+            "mcp_token_hint": u.access_token_hint, "permission_revision": permission_revision}
 
 
 @router.get("/login-config")

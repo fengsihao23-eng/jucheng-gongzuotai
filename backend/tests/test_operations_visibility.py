@@ -36,3 +36,18 @@ def test_operations_menu_kept_for_project_owner(db):
     db.flush()
     p = build_principal(u)
     assert "operations" in visible_menus(db, p)
+
+
+def test_explicit_personal_menu_keeps_entry_without_granting_other_projects(db,client,login):
+    from app.models import SysUserPermission
+    from app.api.auth import profile
+    u = _user(db, "explicit_empty_operations")
+    db.add(SysUserPermission(user_id=u.id, menus=["portal","operations"],buttons=[],data_scope="self"))
+    db.commit()
+    db.expire_all()
+    p = build_principal(db.get(SysUser,u.id))
+    assert "operations" in visible_menus(db,p)
+    assert profile(p,db)["permission_revision"]
+    from app.services.operations_service import list_projects
+    result=list_projects(db,p)
+    assert result["items"]==[] and not result["can_create"]

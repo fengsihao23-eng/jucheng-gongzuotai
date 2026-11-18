@@ -187,21 +187,37 @@ def role_members(code: str, keyword: str = Query("", max_length=100), page: int 
 
 @router.get("/users/{user_id}/effective-permissions")
 def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depends(get_db)):
-    from app.api.auth import visible_menus
+    from app.api.auth import profile
     from app.services import operations_service as ops
 
     u = get_or_404(db, SysUser, user_id, "用户")
     target = build_principal(u)
+    runtime = profile(target, db)
     owned = list(db.execute(select(OpsProject.name, OpsProject.id).where(OpsProject.owner_id == u.id)))
     joined = list(db.execute(select(OpsProject.name, OpsProject.id, OpsMember.role).join(OpsMember, OpsMember.project_id == OpsProject.id)
                              .where(OpsMember.user_id == u.id, OpsProject.owner_id != u.id)))
     last = db.scalar(select(LogOperation).where(LogOperation.user_id == u.id, LogOperation.action == "auth.login")
                      .order_by(LogOperation.id.desc()).limit(1))
     active = u.status == 1
+    access_notes = []
+    if active and "operations" in runtime["menus"] and not ops.can_view_all(target) and not (owned or joined):
+        access_notes.append("运营项目入口已开放；尚未加入任何运营项目，列表暂为空。请在对应项目的团队里添加此人。")
+    from app.services import business_workbook
+    try:
+        wb = business_workbook.configured_source(db)
+        if wb:
+            for view, label in (("contracts", "经营业绩"), ("collections", "回款情况"),
+                                ("opportunities", "商机信息"), ("tender", "招标与在建"), ("board", "经营看板")):
+                if any(target.has_menu(m) for m in business_workbook.MENUS[view]) and not business_workbook.can_access_view(target, wb.config, view):
+                    access_notes.append(label + "：菜单已勾选，来源数据仍需授权。当前个人数据范围尚未满足此来源的读取条件。")
+    except BizError as exc:
+        access_notes.append(exc.message)
     return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes, **personal.view(u),
                "assigned_roles": sorted(r.role_code for r in u.roles),
                "department": u.department.name if u.department else None, "position": u.position,
-               "menus": [MENUS[key] for key in visible_menus(db, target)] if active else [],
+               "menus": [MENUS[key] for key in runtime["menus"]] if active else [],
+               "menu_keys": runtime["menus"] if active else [], "access_notes": access_notes,
+               "login_permission_revision": runtime["permission_revision"],
                "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
                "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_create(target),
                "operations_archive": active and (target.is_admin or target.can("operations:archive")),

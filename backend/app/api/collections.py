@@ -23,6 +23,34 @@ def collection_board(year: int | None = Query(None, ge=2000, le=2099), basis: Li
                      state: Literal["open", "settled", "pending", "unreported", "all"] = "open",
                      page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100),
                      p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.core.timeutil import month_of
+    from app.services import business_workbook, collection_workbook, workbook_metrics
+    wb = business_workbook.active_source(db, p, "collections")
+    if wb is not None:
+        T = today()
+        cur_period = month_of(T)
+        data = collection_workbook.page(db, wb, p, keyword=keyword, page=page, size=size, unpaid_only=(state == "open"))
+        overall = data.get("overall_summary") or data.get("summary") or {}
+        m_pay = workbook_metrics.collection_metrics(wb, cur_period, T)
+        cards = data.get("collection_cards") or []
+        return ok({
+            "source_mode": "workbook",
+            "total": data["total"],
+            "page": data["page"],
+            "size": data["size"],
+            "overall_summary": overall,
+            "month_received": {"period": cur_period, "title": "本月已回款", "amount": m_pay["amount"], "count": m_pay["count"], "available": m_pay["available"]},
+            "collection_cards": cards,
+            "totals": [
+                {"key": "all_contract_amount", "label": "全部合同金额", "amount": overall.get("amount", {}).get("value"), "count": overall.get("count")},
+                {"key": "outstanding", "label": "未收金额", "amount": overall.get("outstanding", {}).get("value"), "count": data["total"]},
+                {"key": "month_received", "label": "本月已回款", "amount": m_pay["amount"], "count": m_pay["count"]},
+                *[{"key": c["key"], "label": c["title"], "period": c["period"], "amount": c["amount"], "count": c["count"]} for c in cards],
+            ],
+            "owners": [{"id": idx, "name": name} for idx, name in enumerate(data.get("filter_options", {}).get("owners", []), start=1)],
+            "items": data["items"],
+            "note": "固定来源口径：合并「2026年销售合同」与「2026年前（已签单个项目+未回款）」；区分本月已回款与当月/次月预估回款金额。",
+        })
     return ok(service.board(db, p, year=year or today().year, basis=basis, bucket=bucket, keyword=keyword,
                             owner_id=owner_id, state=state, page=page, size=size))
 

@@ -30,6 +30,8 @@ async def lifespan(app: FastAPI):
     from app import jobs
     from app.jobs import registry
     jobs.load_all()
+    from app.core.operation_audit import install
+    install()
     if settings.environment != 'test':
         from app.services.intake_agent import recover_interrupted
         recover_interrupted()
@@ -54,7 +56,33 @@ async def trace_and_renew(request: Request, call_next):
     tid = request.headers.get("X-Trace-Id") or uuid.uuid4().hex[:16]
     trace_id_var.set(tid)
     t0 = time.perf_counter()
-    response = await call_next(request)
+    from app.core.operation_audit import Context as AuditContext, current as audit_context, describe, finish
+    from starlette.concurrency import run_in_threadpool
+    audited = request.url.path.startswith("/api/") or request.url.path.rstrip("/") == "/mcp"
+    area, action = describe(request.url.path, request.method)
+    ctx = AuditContext(module=area,action=action)
+    handle = audit_context.set(ctx) if audited else None
+    response = None
+    try:
+        response = await call_next(request)
+    finally:
+        if audited:
+            if ctx.actor_id is None and request.headers.get("Authorization","").startswith("Bearer "):
+                from app.core.operation_audit import identify
+                await run_in_threadpool(identify,request)
+            status=response.status_code if response else 500
+            ui=getattr(request.state,"audit_ui",None)
+            if ui:
+                ctx.module,ctx.action = ui["title"], "访问页面" if ui["kind"]=="visit" else "界面操作"
+                ctx.source="page"
+            detail={"trace":tid, "ui":ui, "error":getattr(request.state,"audit_error",None)}
+            try:
+                await run_in_threadpool(finish,ctx,outcome="success" if status<400 else "denied" if status in (401,403) else "failed",
+                    status=status,duration=round((time.perf_counter()-t0)*1000),method=request.method,
+                    path=request.url.path[:500],ip=request.headers.get("x-forwarded-for","").split(",")[-1].strip()[:64] or (request.client.host if request.client else None),
+                    detail=detail)
+            finally:
+                audit_context.reset(handle)
     response.headers["X-Trace-Id"] = tid
     # 滑动续期：会话剩余 < 30 分钟时下发新 token
     exp = getattr(request.state, "jwt_exp", None)
@@ -70,20 +98,23 @@ async def trace_and_renew(request: Request, call_next):
 
 
 @app.exception_handler(BizError)
-async def biz_error(_: Request, exc: BizError):
+async def biz_error(request: Request, exc: BizError):
+    request.state.audit_error = exc.message
     return JSONResponse({"code": exc.code, "message": exc.message, "data": exc.data, "trace_id": trace_id_var.get()},
                         status_code=exc.http_status)
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_error(_: Request, exc: RequestValidationError):
+async def validation_error(request: Request, exc: RequestValidationError):
     errs = [{"field": ".".join(str(x) for x in e["loc"][1:]), "message": e["msg"]} for e in exc.errors()]
     msg = "参数错误：" + "；".join(f"{e['field']} {e['message']}" for e in errs[:3])
+    request.state.audit_error = "请求参数校验失败"
     return JSONResponse({"code": 40001, "message": msg, "data": errs, "trace_id": trace_id_var.get()}, status_code=400)
 
 
 @app.exception_handler(Exception)
-async def server_error(_: Request, exc: Exception):
+async def server_error(request: Request, exc: Exception):
+    request.state.audit_error = "服务器内部错误"
     log.exception("unhandled error")
     return JSONResponse({"code": 50001, "message": "服务器内部错误，请联系管理员", "data": None,
                          "trace_id": trace_id_var.get()}, status_code=500)

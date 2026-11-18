@@ -7,8 +7,10 @@ import './styles/theme.css'
 import App from './App.vue'
 import router from './router'
 import components from './components'
+import { installOperationAudit } from './utils/operationAudit'
 
 const app = createApp(App)
+installOperationAudit(router)
 app.use(createPinia()).use(router).use(ElementPlus, { locale: zhCn }).use(components)
 app.config.errorHandler = (err, vm, info) => {
   console.error('[vue]', info, err)

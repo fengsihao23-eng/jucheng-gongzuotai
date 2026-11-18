@@ -47,6 +47,29 @@ def list_contracts(page: int = 1, page_size: int = 20, f: dict = Depends(_filter
 
 @router.get("/signing")
 def signing(f: dict = Depends(_filters), p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.core.timeutil import month_range, week_range
+    from app.services import business_workbook, workbook_metrics
+    wb = business_workbook.active_source(db, p, "contracts")
+    if wb is not None:
+        T = today()
+        yr = f.get("sign_year") or T.year
+        ys, ye = date(yr, 1, 1), (T if yr == T.year else date(yr, 12, 31))
+        ms = month_range(ref=T)[0]
+        ws = week_range(ref=T)[0]
+        y_m = workbook_metrics.contract_metrics(wb, ys, ye)
+        m_m = workbook_metrics.contract_metrics(wb, ms, T)
+        w_m = workbook_metrics.contract_metrics(wb, ws, T)
+        d_m = workbook_metrics.contract_metrics(wb, T, T)
+        return ok({
+            "source_mode": "workbook",
+            "items": [
+                {"key": "year", "label": f"{yr}年度累计业绩", "start": ys, "end": ye, "count": y_m["count"], "amount": y_m["amount"]},
+                {"key": "month", "label": "当月签约", "start": ms, "end": T, "count": m_m["count"], "amount": m_m["amount"]},
+                {"key": "week", "label": "本周签约", "start": ws, "end": T, "count": w_m["count"], "amount": w_m["amount"]},
+                {"key": "today", "label": "今日签约", "start": T, "end": T, "count": d_m["count"], "amount": d_m["amount"]},
+            ],
+            "note": "经营业绩固定来源口径：2026年取「2026年销售合同」，以前年份取「2026年前已签单个项目未回款」，按原表签订日期统计。",
+        })
     return ok({"items": cs.signing_board(db, p, **f),
                "note": "按实际签订日统计截至今日的有效合同；周一为一周起点，已终止合同不计入。"})
 

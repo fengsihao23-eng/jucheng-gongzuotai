@@ -42,6 +42,7 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
         q = q.where(SysUser.id.in_([m["user_id"] for m in ops.members(db, project)] if project else [p.id]))
     return ok({"users": [{"id": u.id, "name": u.name, "dept": u.dept_code, "department": u.department.name if u.department else None} for u in db.scalars(q)],
                "categories": sorted(set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.category)))),
+               **content_scope.feature_options(),
                **(plans.options(db, p, project) if project else {})})
 
 
@@ -103,7 +104,7 @@ def product_library(keyword: str = "", p: Principal = Menu, db: Session = Depend
 def create_operation(body: ProjectIn, p: Principal = Menu, db: Session = Depends(get_db)):
     project = ops.save_project(db, p, body)
     db.commit()
-    return ok(ops.project_dict(db, p, project))
+    return ok({**ops.project_dict(db, p, project), "feature_settings": content_scope.feature_settings(db, project)})
 
 
 @router.delete("/{project_id}")
@@ -411,6 +412,14 @@ def edit_school(project_id: int, school_id: int, body: SchoolIn, p: Principal = 
     row = ops.save_school(db, p, project_id, body, school_id)
     db.commit()
     return ok({"id": row.id})
+
+
+@router.delete("/{project_id}/schools/{school_id}")
+def delete_school(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    """删除学校，连带设备清单、每日收入、跟进记录与年度目标，并解除任务关联。"""
+    result = ops.delete_school(db, p, project_id, school_id)
+    db.commit()
+    return ok(result)
 
 
 @router.get("/{project_id}/schools/{school_id}/visits")

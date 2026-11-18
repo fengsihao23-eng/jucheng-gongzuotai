@@ -125,6 +125,13 @@
             </dl>
           </section>
 
+          <section v-if="effective.active" class="effective-saved">
+            <h4>已保存并生效的权限</h4>
+            <p v-if="changed" class="jc-small jc-muted">上方选择尚未保存；这里显示账号当前实际生效的权限。</p>
+            <div class="role-tags"><span v-for="label in effective.menus" :key="label" class="jc-pill">{{ label }}</span></div>
+            <p class="jc-small jc-muted">可执行操作：{{ effective.buttons.map(key => privileges[key] || key).join('、') || '基础查看操作' }}</p>
+            <p v-for="note in effective.access_notes || []" :key="note" class="jc-small access-note">{{ note }}</p>
+          </section>
           <p v-if="!effective.active" class="jc-muted">账号已停用，启用后角色权限才会生效。</p>
           <template v-if="!canManage && effective.active">
             <dl class="permission-sections">
@@ -187,6 +194,7 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { useAuth } from '@/store/auth'
+import { announcePermissionChange } from '@/composables/usePermissionRefresh'
 
 const props = defineProps({
   roles: { type: Array, required: true },
@@ -350,9 +358,10 @@ async function save() {
         expected_revision: effective.value.permission_revision }, { silent: true })
     acceptPermissions(result)
     needsIdentity.value = false
-    saveNotice.value = '已保存 ' + row.name + ' 的权限'
+    saveNotice.value = '已保存 ' + row.name + ' 的权限，账号页面将在 15 秒内同步'
     ElMessage.success(saveNotice.value)
     emit('roles-changed', row.id)
+    announcePermissionChange(row.id)
     if (roster.value) loadMembers(people.value.page)
   } catch (error) {
     stale.value = error.code === 40901
@@ -420,6 +429,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.effective-saved { margin-top: 14px; padding: 13px 15px; border: 1px solid var(--jc-line); border-radius: 8px; }
+.effective-saved h4 { margin: 0 0 8px; font-size: 14px; }.access-note { line-height: 1.7; margin-bottom: 0; }
 :global(.department-permissions .el-dialog__body) { max-height: min(70vh, calc(100dvh - 148px)); overflow: auto; padding-top: 12px; }
 .roster-tools { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
 .roster-tools .el-input { max-width: 270px; }

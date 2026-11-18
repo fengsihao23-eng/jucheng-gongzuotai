@@ -14,6 +14,7 @@ from app.services import operations_service as ops, campus_income_file as import
 def prepare(db, p, project_id, body):
     project = ops.get_project(db, p, project_id)
     ops.manage(db, p, project)
+    ops.content_scope.require(db, p, project, "income")
     payload = body.model_dump(mode="json", exclude={"expected_sha256"})
     sha = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
     old = db.scalar(select(OpsIncomeIngressBatch).where(OpsIncomeIngressBatch.project_id == project_id,

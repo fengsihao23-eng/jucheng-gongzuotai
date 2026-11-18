@@ -384,3 +384,21 @@ def test_workbuddy_protocol_operations_tools(client, login, db, project):
     assert r["ok"] and r["data"]["progress"] == 25
     r = call(client, token, "ops.task_feedback", task_id=t["id"], content="已联系校方", status="doing")
     assert r["ok"] and r["data"]["progress"] == 25
+
+
+def test_school_delete_cascades_equipment_income_and_tasks(client, login, db, project):
+    h = login("admin"); base = f"{BASE}/{project['id']}"
+    s = data(client.post(base + "/schools", headers=h, json={"name": "待删除学校", "labor_cost": "10.00"}))
+    p = data(client.post(base + "/products", headers=h, json={"name": "删除测试终端", "reference_price": "100.00"}))
+    data(client.post(base + f"/schools/{s['id']}/equipment", headers=h, json={"product_id": p["id"], "quantity": 2, "unit_price": "50.00"}))
+    data(client.post(base + f"/schools/{s['id']}/income", headers=h, json={"income_date": "2026-10-20", "amount": "88.00"}))
+    t = data(client.post(base + "/tasks", headers=h, json={"title": "绑定学校的任务", "owner_id": uid(db, "wujun"),
+                                                           "due_date": "2026-10-25", "school_id": s["id"]}))
+    member(client, login, db, project, role="viewer")
+    assert client.delete(base + f"/schools/{s['id']}", headers=login("xiekai")).status_code == 403
+    result = data(client.delete(base + f"/schools/{s['id']}", headers=h))
+    assert result["equipment"] == 1 and result["incomes"] == 1 and result["tasks_detached"] == 1
+    detail = data(client.get(base, headers=h))
+    assert detail["schools"] == []
+    assert Decimal(detail["financials"]["total_investment"]) == Decimal("0")
+    assert db.get(OpsTask, t["id"]).school_id is None

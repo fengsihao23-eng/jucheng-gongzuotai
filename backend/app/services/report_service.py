@@ -596,6 +596,14 @@ def render_project_operation(db, m: dict, ctx: dict, lines: list[str]) -> list[t
 
 # ================================================================ 公司周报 / 月报 公共取数
 def signed_contracts(db: Session, start: date, end: date) -> list[dict]:
+    from app.services import business_workbook, workbook_metrics
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        rows = workbook_metrics.between(business_workbook.performance_rows(wb), start, end)
+        return [{"contract_no": f"{r['sheet_name']} · 第 {r['row']} 行", "name": r["name"],
+                 "customer_name": r.get("customer") or "—", "amount": _d(r.get("amount")),
+                 "sign_date": date.fromisoformat(r["date_value"]), "project_code": None,
+                 "line_name": r.get("region") or "未注明"} for r in rows]
     cs = db.scalars(select(BizContract).where(BizContract.is_deleted.is_(False), BizContract.status != 3,
                                               BizContract.sign_date >= start, BizContract.sign_date <= end)
                     .order_by(BizContract.sign_date, BizContract.id)).all()
@@ -605,6 +613,25 @@ def signed_contracts(db: Session, start: date, end: date) -> list[dict]:
 
 
 def payments_between(db: Session, start: date, end: date) -> list[dict]:
+    from app.services import business_workbook, workbook_metrics
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        periods = workbook_metrics.collection_periods(wb)
+        out = []
+        cur = date(start.year, start.month, 1)
+        while cur <= end:
+            per = f"{cur:%Y-%m}"
+            d = periods.get(per)
+            if d and d["available"]:
+                for r in d["rows"]:
+                    dt = date.fromisoformat(r["date_value"]) if r.get("date_value") else cur
+                    if start <= dt <= end:
+                        out.append({"payment_date": dt, "contract_no": f"{r['sheet_name']} · 第 {r['row']} 行",
+                                    "customer_name": r.get("customer") or "—", "project_code": None,
+                                    "business_line": r.get("region") or "", "line_name": r.get("region") or "未注明",
+                                    "amount": _d(r.get("received"))})
+            cur = date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
+        return out
     rows = db.execute(select(BizPayment, BizContract).join(BizPayment.contract).where(
         BizPayment.payment_date >= start, BizPayment.payment_date <= end, BizContract.is_deleted.is_(False))
         .order_by(BizPayment.payment_date, BizPayment.id)).all()

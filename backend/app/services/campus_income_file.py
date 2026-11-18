@@ -57,6 +57,7 @@ def read_rows(raw, filename):
 def prepare(db, p, project_id, raw, filename):
     project = ops.get_project(db, p, project_id)
     ops.manage(db, p, project)
+    ops.content_scope.require(db, p, project, "income")
     if not raw or len(raw) > MAX_BYTES:
         raise bad_request("请选择小于 3MB 的收入明细文件")
     sha = hashlib.sha256(raw).hexdigest()

@@ -26,6 +26,7 @@ from app.core.response import BizError, encode
 from app.core.security import hash_token
 from app.core.timeutil import utcnow
 from app.models import LogMcpAudit, McpTool, SysUser
+from app.core.operation_audit import recorded
 
 log = logging.getLogger("mcp")
 
@@ -108,6 +109,11 @@ def _rate_ok(user_id: int) -> bool:
 
 
 def _audit(db, user_id, tool, params, outcome, summary, cost_ms, ip):
+    from app.core.operation_audit import current
+    context = current.get()
+    if context is not None:
+        context.notes.append({"tool":tool,"outcome":outcome,"params":mask(encode(params)),
+                              "summary":mask((summary or "")[:2000])})
     db.add(LogMcpAudit(user_id=user_id, tool_code=tool, params=mask(encode(params)), outcome=outcome,
                        result_summary=(summary or "")[:2000], cost_ms=cost_ms, client_ip=ip, called_at=utcnow()))
     db.commit()
@@ -136,6 +142,7 @@ def _files(*files) -> list[dict]:
     return out
 
 
+@recorded("mcp")
 def _run(tool: str, ctx: Context, params: dict, impl) -> str:
     """统一包装：鉴权上下文 → 注册表/角色/限流校验 → 执行 → 审计 → JSON 结果。"""
     t0 = time.perf_counter()
@@ -149,6 +156,8 @@ def _run(tool: str, ctx: Context, params: dict, impl) -> str:
             _audit(db, None, tool, params, "unauthorized", "无有效令牌", 0, ip)
             return json.dumps({"ok": False, "message": "未认证：请在工作台「WorkBuddy 接入」页获取个人 Access Token"}, ensure_ascii=False)
         p = build_principal(user)
+        from app.core.operation_audit import bind_actor
+        bind_actor(db, user)
         reg = db.scalar(select(McpTool).where(McpTool.tool_code == tool))
         if reg is None or not reg.enabled:
             raise ToolDenied("denied", f"工具 {tool} 已停用，请联系平台管理员")
@@ -306,12 +315,20 @@ def t_contract_register(db, p, approval_no: str | None = None):
                                                                        SyncWecomApproval.dispatch_status == 2))]
     new = [c for c in db.scalars(select(BizContract).where(BizContract.contract_no.not_in(before)))] if before else []
     T = today()
-    from sqlalchemy import extract, func
-    month = db.scalar(select(func.coalesce(func.sum(BizContract.amount), 0)).where(
-        BizContract.is_deleted.is_(False), extract("year", BizContract.sign_date) == T.year,
-        extract("month", BizContract.sign_date) == T.month))
-    year = db.scalar(select(func.coalesce(func.sum(BizContract.amount), 0)).where(
-        BizContract.is_deleted.is_(False), extract("year", BizContract.sign_date) == T.year))
+    from app.core.timeutil import month_range
+    from app.services import business_workbook, workbook_metrics
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        ms, _ = month_range(ref=T)
+        month = workbook_metrics.contract_metrics(wb, ms, T)["amount"] or 0
+        year = workbook_metrics.contract_metrics(wb, date(T.year, 1, 1), T)["amount"] or 0
+    else:
+        from sqlalchemy import extract, func
+        month = db.scalar(select(func.coalesce(func.sum(BizContract.amount), 0)).where(
+            BizContract.is_deleted.is_(False), extract("year", BizContract.sign_date) == T.year,
+            extract("month", BizContract.sign_date) == T.month))
+        year = db.scalar(select(func.coalesce(func.sum(BizContract.amount), 0)).where(
+            BizContract.is_deleted.is_(False), extract("year", BizContract.sign_date) == T.year))
     summary = (f"新登记合同 {len(new)} 份" + ("：" + "、".join(f"{c.contract_no}（{c.customer_name} ¥{c.amount:,.0f}）" for c in new) if new else "")
                + f"；当月签约 ¥{month:,.0f}，年度累计 ¥{year:,.0f}")
     fails = [r for r in results if r["status"] == 2]
@@ -326,6 +343,8 @@ def t_contract_register(db, p, approval_no: str | None = None):
 def t_executive_daily(db, p, date: str | None = None):
     from app.core.timeutil import today
     from app.services import board_service
+    from app.services.business_workbook import active_source
+    active_source(db, p, "board")
     d = _d(date, today())
     r = board_service.build_morning_report(db, d)
     return {"summary": r.get("text_markdown"), "data": r.get("summary"), "board_url": settings.public_base_url + "/board",
@@ -335,6 +354,8 @@ def t_executive_daily(db, p, date: str | None = None):
 def t_compare(db, p, metric: str = "payment_rate", a: str | None = None, b: str | None = None):
     from app.core.timeutil import month_of, prev_month, today
     from app.services import board_service
+    from app.services.business_workbook import active_source
+    active_source(db, p, "board")
     a = a or month_of(today())
     b = b or prev_month(a)
     r = board_service.compare(db, metric, a, b)

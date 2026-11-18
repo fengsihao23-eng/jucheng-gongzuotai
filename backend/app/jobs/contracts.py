@@ -46,7 +46,7 @@ def sync_sources(db, params):
     return {"rows": 1, "message": "；".join(lines)[:1200]}
 
 
-@job(contract_workbook_sync.JOB, "企业微信合同工作簿同步", {"minute": f"2-59/{contract_workbook_sync.POLL_MINUTES}"},
+@job(contract_workbook_sync.JOB, "企业微信合同工作簿同步", {"minute": f"*/{contract_workbook_sync.POLL_MINUTES}"},
      f"每 {contract_workbook_sync.POLL_MINUTES} 分钟检查版本")
 def sync_workbooks(db, params):
     enabled = [(key, cfg) for key, cfg in db.execute(select(ContractWorkbook.source_key, ContractWorkbook.config))

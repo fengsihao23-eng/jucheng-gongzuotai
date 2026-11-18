@@ -1,12 +1,12 @@
 <template>
-  <el-dialog v-model="visible" :title="initial?.id ? '编辑运营项目' : '新建运营项目'" width="min(580px, 94vw)" destroy-on-close>
+  <el-dialog v-model="visible" :title="initial?.id ? '编辑运营项目' : '新建运营项目'" width="min(630px, 94vw)" class="ops-project-form" destroy-on-close>
     <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="save">
       <el-form-item label="项目名称" prop="name" :rules="[{ required: true, whitespace: true, message: '填写项目名称' }]">
         <el-input v-model="form.name" maxlength="128" placeholder="例如：智慧校园运营" />
       </el-form-item>
       <div class="two">
         <el-form-item label="项目分类" prop="category" :rules="[{ required: true, message: '选择或填写分类' }]">
-          <el-select v-model="form.category" filterable allow-create default-first-option>
+          <el-select v-model="form.category" filterable allow-create default-first-option @change="suggestForNewCategory">
             <el-option v-for="v in categories" :key="v" :label="v" :value="v" />
           </el-select>
         </el-form-item>
@@ -16,6 +16,22 @@
       </div>
       <p v-if="initial?.id" class="jc-small jc-muted">更换项目负责人后，原负责人保留执行成员权限，可在项目团队中调整。</p>
       <p v-else class="jc-small jc-muted">创建后会通知所选项目负责人。已绑定公司通讯录的负责人还会收到企业微信通知。</p>
+      <el-form-item label="标准功能">
+        <div class="feature-box" v-loading="loadingOptions">
+          <div v-if="features.length" class="feature-heading">
+            <span class="jc-small jc-muted">勾选本项目需要使用的功能</span>
+            <el-button link type="primary" @click="applyPreset">使用推荐组合</el-button>
+          </div>
+          <el-checkbox-group v-if="features.length" v-model="form.enabled_sections" aria-label="标准功能" class="feature-grid" @change="onFeaturesChanged">
+            <el-checkbox v-for="option in features" :key="option.value" :value="option.value"
+              :disabled="option.required || (option.value === 'products' && form.enabled_sections.includes('procurement'))">
+              {{ option.label }}<span v-if="option.required" class="jc-small jc-muted"> · 基础</span>
+            </el-checkbox>
+          </el-checkbox-group>
+          <span v-if="optionError" class="jc-small jc-down">无法读取标准功能。<el-button link type="primary" @click="loadOptions">重试</el-button></span>
+          <p v-else-if="features.length" class="feature-hint jc-small jc-muted">{{ initial?.id ? '取消勾选仅关闭入口，已有资料会保留。' : '勾选后，相关功能会出现在项目详情。' }}学校采购会同时启用设备产品库。</p>
+        </div>
+      </el-form-item>
       <el-form-item label="本阶段目标"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="6000" placeholder="本月要推进哪些学校、完成什么结果" /></el-form-item>
       <div class="two">
         <el-form-item label="目标日期"><el-date-picker v-model="form.target_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" style="width: 100%" /></el-form-item>
@@ -23,7 +39,7 @@
       </div>
       <el-checkbox v-model="form.is_key">列为重点项目</el-checkbox>
     </el-form>
-    <template #footer><el-button @click="visible = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目</el-button></template>
+    <template #footer><el-button @click="visible = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="loadingOptions || !features.length" @click="save">保存项目</el-button></template>
   </el-dialog>
 </template>
 
@@ -38,24 +54,63 @@ const props = defineProps({ modelValue: Boolean, initial: Object })
 const emit = defineEmits(['update:modelValue', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const users = ref([]), categories = ref([]), formRef = ref(), saving = ref(false), auth = useAuth()
-const form = reactive({})
-watch(visible, async v => {
-  if (!v) return
-  const source = props.initial
-  Object.assign(form, { name: source?.name || '智慧校园', category: source?.category || '智慧校园',
-    owner_id: source?.owner_id || auth.profile?.id, objective: source?.objective || '', target_date: source?.target_date || null,
-    status: source?.status || 'active', is_key: source?.is_key ?? true })
+const features = ref([]), presets = ref({}), loadingOptions = ref(false), optionError = ref(false)
+const form = reactive({ enabled_sections: [] })
+let optionVersion = 0, changedFeatures = false, featuresRevision = 0
+
+function normalizeFeatures() {
+  const chosen = new Set(form.enabled_sections)
+  for (const option of features.value) {
+    if (option.required) chosen.add(option.value)
+    if (chosen.has(option.value)) for (const dependency of option.depends_on) chosen.add(dependency)
+  }
+  form.enabled_sections = features.value.map(o => o.value).filter(k => chosen.has(k))
+}
+function fillPreset() {
+  form.enabled_sections = [...(presets.value[form.category?.includes('校园') ? 'campus' : 'general'] || [])]
+  normalizeFeatures()
+}
+function applyPreset() { changedFeatures = true; fillPreset() }
+function onFeaturesChanged() { changedFeatures = true; normalizeFeatures() }
+function suggestForNewCategory() { if (!props.initial?.id && !changedFeatures && features.value.length) fillPreset() }
+async function loadOptions() {
+  const id = ++optionVersion
+  loadingOptions.value = true; optionError.value = false
   try {
-    const data = await api.get('/operations/options', source?.id ? { project_id: source.id } : {})
+    const data = await api.get('/operations/options', props.initial?.id ? { project_id: props.initial.id } : {})
+    if (id !== optionVersion || !visible.value) return
     users.value = data.users
     categories.value = [...new Set(['智慧校园', '心理服务', '其他运营', ...data.categories])]
-  } catch { /* API displays the error. */ }
+    features.value = data.features || []
+    presets.value = data.feature_presets || {}
+    if (!features.value.length) { optionError.value = true; return }
+    if (!props.initial?.id && !changedFeatures) fillPreset()
+    else normalizeFeatures()
+  } catch { if (id === optionVersion) optionError.value = true }
+  finally { if (id === optionVersion) loadingOptions.value = false }
+}
+watch(visible, v => {
+  optionVersion++
+  if (!v) return
+  const source = props.initial
+  changedFeatures = false
+  featuresRevision = source?.feature_settings?.revision || 0
+  features.value = []
+  Object.assign(form, { name: source?.name || '智慧校园', category: source?.category || '智慧校园',
+    owner_id: source?.owner_id || auth.profile?.id, objective: source?.objective || '', target_date: source?.target_date || null,
+    status: source?.status || 'active', is_key: source?.is_key ?? true,
+    enabled_sections: [...(source?.feature_settings?.sections || [])] })
+  loadOptions()
 })
 async function save() {
+  if (loadingOptions.value || !features.value.length || saving.value) return
   if (!await formRef.value.validate().catch(() => false)) return
   saving.value = true
   try {
-    const result = props.initial?.id ? await api.put(`/operations/${props.initial.id}`, form) : await api.post('/operations', form)
+    const { enabled_sections, ...payload } = form
+    if (!props.initial?.id || changedFeatures) payload.enabled_sections = enabled_sections
+    if (props.initial?.id && changedFeatures) payload.expected_features_revision = featuresRevision
+    const result = props.initial?.id ? await api.put(`/operations/${props.initial.id}`, payload) : await api.post('/operations', payload)
     visible.value = false
     ElMessage.success('运营项目已保存')
     emit('saved', result)
@@ -63,4 +118,14 @@ async function save() {
   } catch { /* Keep the form for correction. */ } finally { saving.value = false }
 }
 </script>
-<style scoped>.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media(max-width: 500px) { .two { grid-template-columns: 1fr; gap: 0; } }</style>
+<style scoped>
+.two { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
+.feature-box { width:100%;min-height:42px;border:1px solid var(--jc-line);border-radius:8px;padding:10px 12px; }
+.feature-heading { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0 8px; }
+.feature-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 6px; }
+.feature-grid :deep(.el-checkbox) { margin-right:0;white-space:normal;height:auto;min-height:30px; }
+.feature-grid :deep(.el-checkbox__label) { padding-left:6px;line-height:1.4; }
+.feature-hint { margin:6px 0 0;line-height:1.6; }
+:global(.ops-project-form > .el-dialog__body) { max-height:min(70vh, calc(100dvh - 155px));overflow:auto; }
+@media(max-width:500px) { .two { grid-template-columns:1fr;gap:0; }.feature-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+</style>

@@ -1,6 +1,6 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="经营 · 回款" title="回款台账" desc="从应收余额查到合同分期，记录预计回款、催办和负责人回复。">
+    <PageHeader eyebrow="经营 · 回款" title="回款情况" desc="从应收余额查到合同分期，记录预计回款、催办和负责人回复。">
       <el-button v-if="auth.hasMenu('receivables')" @click="router.push('/receivables')">开票与到账</el-button>
     </PageHeader>
     <div class="jc-grid c5 buckets" v-loading="loading && !board.totals.length">

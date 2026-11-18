@@ -2,7 +2,7 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="总经办 · 经营决策" title="经营看板"
-                :desc="ov ? `${ov.period || ''} 经营快照 · 数据截至 ${datetime(ov._cached_at)} · 缓存不超过 5 分钟` : '每天早上一个页面看全公司'">
+                :desc="ov ? `${ov.period || ''} 经营快照 · 数据截至 ${datetime(ov._cached_at)} · ${ov.source ? '业务模块每分钟同步，页面自动刷新' : '缓存不超过 5 分钟'}` : '每天早上一个页面看全公司'">
       <el-date-picker v-model="period" type="month" value-format="YYYY-MM" :clearable="false"
                       style="width: 132px" :disabled-date="(d) => d.getTime() > Date.now()" @change="load()" />
       <el-button @click="openMorning">今日晨报</el-button>
@@ -10,34 +10,35 @@
       <el-button @click="load(true)" :loading="loading">刷新数据</el-button>
       <el-button type="primary" @click="$router.push('/board/screen')">大屏模式</el-button>
     </PageHeader>
+    <el-alert v-if="ov?.source?.stale" :title="ov.source.last_error || '业务模块同步待检查，当前显示上次完整数据'" type="warning" :closable="false" class="mb-16" />
 
     <div v-loading="loading && !ov">
       <template v-if="ov">
         <!-- 顶部 5 KPI -->
         <div class="jc-grid c5">
           <Kpi label="当月回款" :value="wanNum(pay.amount)" unit="万" :progress="pay.rate"
-               :hint="`目标 ${wan(pay.target)} · 达成 ${percent(pay.rate)} · 时间进度 ${percent(pay.time_progress, 0)}`"
+               :hint="ov.source ? `${pay.amount == null ? '原表未提供可核验的本月回款' : (pay.planned_amount != null ? '本月已回款 · 当月预估 ' + wan(pay.planned_amount) : '回款情况 · 原表明确月度回款')} · ${pay.target_note || '目标 ' + wan(pay.target)}` : `目标 ${wan(pay.target)} · 达成 ${percent(pay.rate)} · 时间进度 ${percent(pay.time_progress, 0)}`"
                :to="pay.drill" />
           <Kpi :label="isCurrentMonth ? '今日签约' : '当月签约'" :value="wanNum(signPoint.amount)" unit="万"
                :hint="isCurrentMonth
                  ? `${signPoint.count} 份 · 本周 ${wan(sign.week.amount)} · 本月 ${wan(sign.month.amount)}`
                  : `${signPoint.count} 份 · 当月 ${wan(sign.month.amount)} · 全年 ${wan(sign.year.amount)}`"
                :to="signPoint.drill" />
-          <Kpi label="年度累计业绩" :value="wanNum(sign.year.amount, 0)" unit="万" :delta="sign.year.yoy"
-               :hint="`去年同期 ${wan(sign.year.last_year_same_period)}`" :to="sign.year.drill" />
+          <Kpi label="年度累计业绩" :value="wanNum(sign.year.amount)" unit="万" :delta="sign.year.yoy"
+               :hint="ov.source ? `合同台账 · ${sign.year.count} 条，${sign.year.missing_amount} 条金额未注明` : `去年同期 ${wan(sign.year.last_year_same_period)}`" :to="sign.year.drill" />
           <Kpi label="本月新增商机" :value="opp.month.count" unit="个" :to="opp.month.drill"
-               :hint="`${wan(opp.month.amount)} · 本周 ${opp.week.count} 个 ${wan(opp.week.amount)}`" />
-          <Kpi label="招标 / 在建" :value="`${tender.bidding_count} / ${tender.building_count}`" unit="个"
-               :hint="`节点预警 ${tender.alert_count} · 两周内截标 ${tender.deadline_soon_count}`" :to="tender.drill.building" />
+               :hint="ov.source ? `按原表发起时间 · 本周 ${opp.week.count} 个 · 金额未提供` : `${wan(opp.month.amount)} · 本周 ${opp.week.count} 个 ${wan(opp.week.amount)}`" />
+          <Kpi :label="ov.source ? '招标 / 已建设中标待签' : '招标 / 在建'" :value="`${tender.bidding_count} / ${tender.building_count}`" unit="个"
+               :hint="ov.source ? '招标与在建模块 · 原表项目去重统计' : `节点预警 ${tender.alert_count} · 两周内截标 ${tender.deadline_soon_count}`" :to="tender.drill.building" />
         </div>
 
         <!-- ① 回款 -->
         <div class="jc-grid c2 mt-16">
-          <Panel title="① 回款目标达成" :sub="`${pay.period} · 今日到账 ${wan(pay.today.amount)}（${pay.today.count} 笔）`">
+          <Panel title="① 回款目标达成" :sub="ov.source ? pay.note : `${pay.period} · 今日到账 ${wan(pay.today.amount)}（${pay.today.count} 笔）`">
             <template #extra><el-button link type="primary" @click="go(pay.drill)">回款明细</el-button></template>
             <Chart :option="lineBarOption(pay)" height="260px" @click="(p) => go(pay.by_line[p.dataIndex]?.drill)" />
           </Panel>
-          <Panel title="本月每日累计回款 vs 目标线" :sub="`距目标 ${wan(pay.gap)}`">
+          <Panel title="本月每日累计回款 vs 目标线" :sub="pay.target_note || `距目标 ${wan(pay.gap)}`">
             <Chart :option="dailyOption(pay)" height="260px" />
           </Panel>
         </div>
@@ -104,7 +105,7 @@
         <!-- ③ 签约 ④ 商机 -->
         <div class="jc-grid c2 mt-16">
           <Panel title="③ 当月签约" :padding="false"
-                 :sub="`本月 ${wan(sign.month.amount)}（${sign.month.count} 份，环比 ${percent(sign.month.mom)}）· 年度累计同比 ${percent(sign.year.yoy)}`">
+                 :sub="sign.note || `本月 ${wan(sign.month.amount)}（${sign.month.count} 份，环比 ${percent(sign.month.mom)}）· 年度累计同比 ${percent(sign.year.yoy)}`">
             <template #extra><el-button link type="primary" @click="go(sign.month.drill)">合同台账</el-button></template>
             <el-table :data="sign.items" max-height="300" class="clickable" @row-click="(r) => go(r.drill)">
               <el-table-column label="签订日" width="90"><template #default="{ row }">{{ shortDate(row.sign_date) }}
@@ -116,7 +117,7 @@
               <el-table-column label="来源" width="90"><template #default="{ row }"><StatusPill :text="SOURCE[row.source_type]" :tone="row.source_type === 1 ? 'info' : ''" /></template></el-table-column>
             </el-table>
           </Panel>
-          <Panel title="④ 新增商机与漏斗" :sub="`本周 ${opp.week.count} 个 ${wan(opp.week.amount)} · 在跟进 ${wan(opp.open_amount)}`">
+          <Panel title="④ 新增商机与漏斗" :sub="opp.note || `本周 ${opp.week.count} 个 ${wan(opp.week.amount)} · 在跟进 ${wan(opp.open_amount)}`">
             <template #extra><el-button link type="primary" @click="go(opp.drill)">商机信息</el-button></template>
             <Chart :option="funnelOption(opp)" height="280px" @click="(p) => go(p.data?.drill)" />
           </Panel>
@@ -124,21 +125,21 @@
 
         <!-- ⑤ 招标在建 ⑥ 提交率 -->
         <div class="jc-grid c2 mt-16">
-          <Panel title="⑤ 招标 / 在建" :sub="`招标中 ${tender.bidding_count} 个（${wan(tender.bidding_amount)}）· 在建 ${tender.building_count} 个`">
+          <Panel title="⑤ 招标 / 在建" :sub="tender.note || `招标中 ${tender.bidding_count} 个（${wan(tender.bidding_amount)}）· 在建 ${tender.building_count} 个`">
             <div class="mini-kpis">
               <div class="mk" @click="go(tender.drill.bidding)"><span class="jc-muted">招标中</span><b class="jc-num">{{ tender.bidding_count }}</b></div>
-              <div class="mk" @click="go(tender.drill.building)"><span class="jc-muted">在建</span><b class="jc-num">{{ tender.building_count }}</b></div>
-              <div class="mk" @click="go(tender.drill.alert)"><span class="jc-muted">节点延期</span><b class="jc-num" :class="{ 'jc-down': tender.overdue_count }">{{ tender.overdue_count }}</b></div>
-              <div class="mk" @click="go(tender.drill.alert)"><span class="jc-muted">7 天内到期</span><b class="jc-num jc-warn">{{ tender.due_soon_count }}</b></div>
+              <div class="mk" @click="go(tender.drill.building)"><span class="jc-muted">{{ tender.building_label || '在建' }}</span><b class="jc-num">{{ tender.building_count }}</b></div>
+              <div class="mk" @click="go(tender.drill.alert)"><span class="jc-muted">节点延期</span><b class="jc-num" :class="{ 'jc-down': tender.overdue_count }">{{ tender.overdue_count ?? '未提供' }}</b></div>
+              <div class="mk" @click="go(tender.drill.alert)"><span class="jc-muted">7 天内到期</span><b class="jc-num jc-warn">{{ tender.due_soon_count ?? '未提供' }}</b></div>
             </div>
-            <div class="sub-t">招标截止临近</div>
+            <div class="sub-t">{{ ov.source ? '原表开标日期临近' : '招标截止临近' }}</div>
             <div v-if="!tender.deadlines.length" class="jc-muted jc-small">暂无</div>
             <div v-for="d in tender.deadlines" :key="d.project_code" class="li" @click="go(d.drill)">
               <span class="jc-ellipsis">{{ d.name }}</span>
               <span class="jc-small" :class="d.urgent ? 'jc-down' : 'jc-muted'">{{ d.bid_deadline }} · 剩 {{ d.days_left }} 天</span>
             </div>
             <div class="sub-t">节点预警</div>
-            <div v-if="!tender.alerts.length" class="jc-muted jc-small">暂无</div>
+            <div v-if="!tender.alerts.length" class="jc-muted jc-small">{{ ov.source ? '原表未提供施工节点，暂无预警依据' : '暂无' }}</div>
             <div v-for="a in tender.alerts.slice(0, 6)" :key="a.project_code + a.node_name" class="li"
                  @click="go({ path: '/projects/' + a.project_code })">
               <span class="jc-ellipsis">{{ a.project_name }} · {{ a.node_name }}</span>
@@ -236,17 +237,20 @@ import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
-import { BUSINESS_LINES, datetime, money, num, percent, shortDate, wan, wanNum } from '@/utils/format'
+import { BUSINESS_LINES, datetime, money, num, percent, shortDate, wan as formatWan, wanNum as formatWanNum } from '@/utils/format'
 import { dailyOption, funnelOption, lineBarOption, monthlyOption, submitOption } from './board-charts'
 
 const METRICS = { payment_rate: '回款完成率', payment: '回款额', sign: '签约额', opportunity: '新增商机' }
-const SOURCE = { 1: '企微审批', 2: '人工', 3: '导入' }
+const SOURCE = { 1: '企微审批', 2: '人工', 3: '导入', 4: '指定表格' }
+const wan = (v, digits) => v == null ? '未提供' : formatWan(v, digits)
+const wanNum = (v, digits) => v == null ? '—' : formatWanNum(v, digits)
 const route = useRoute()
 const router = useRouter()
 const period = ref(dayjs().format('YYYY-MM'))
 const ov = ref(null)
 const monthly = ref(null)
 const loading = ref(false)
+let loadId = 0
 const pay = computed(() => ov.value.payment)
 const sign = computed(() => ov.value.sign)
 const opp = computed(() => ov.value.opportunity)
@@ -259,21 +263,25 @@ const monthlyChart = computed(() => monthlyOption(monthly.value))
 const monthlySub = computed(() => {
   const t = monthly.value?.totals
   if (!t) return '加载中…'
+  if (monthly.value.source_revision) return `${monthly.value.year} 年 · 新签 ${wan(t.sign_amount)}（${t.sign_count} 条） · ${t.pay_months} 个月有明确回款 · ${monthly.value.note}`
   return `${monthly.value.year} 年 · 全年新签 ${wan(t.sign_amount)}（${t.sign_count} 份） · 回款 ${wan(t.pay_amount)}（${t.pay_count} 笔）`
 })
 
 async function load(refresh = false) {
+  const id = ++loadId, selectedPeriod = period.value
   loading.value = true
   try {
     const [o, m] = await Promise.all([
-      api.get('/board/overview', { refresh: refresh ? 1 : 0, period: period.value }),
-      api.get('/board/monthly'),
+      api.get('/board/overview', { refresh: refresh ? 1 : 0, period: selectedPeriod }),
+      api.get('/board/monthly', { year: Number(selectedPeriod.slice(0, 4)) }),
     ])
+    if (id !== loadId) return
+    if (!refresh && o.source && m.source_revision !== o.source.revision) return load(true)
     ov.value = o
     monthly.value = m
-  } finally { loading.value = false }
+  } finally { if (id === loadId) loading.value = false }
 }
-useBusinessRefresh(() => load(true))
+useBusinessRefresh(() => load(true), { interval: 30000 })
 const go = (d) => d && router.push({ path: d.path, query: d.query || {} })
 
 // ---------- 对比 ----------

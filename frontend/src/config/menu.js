@@ -4,8 +4,8 @@ export const MENU_GROUPS = [
   {
     title: '经营',
     items: [
-      { key: 'contracts', path: '/contracts', label: '合同台账' },
-      { key: 'contracts', anyMenu: ['contracts', 'receivables'], path: '/collections', label: '回款台账' },
+      { key: 'contracts', path: '/contracts', label: '经营业绩' },
+      { key: 'contracts', anyMenu: ['contracts', 'receivables'], path: '/collections', label: '回款情况' },
       { key: 'opportunities', path: '/opportunities', label: '商机信息' },
       { key: 'projects', path: '/tender-projects', label: '招标与在建' },
       { key: 'board', path: '/board', label: '经营看板' },
@@ -49,6 +49,7 @@ export const MENU_GROUPS = [
       { key: 'contracts', path: '/approvals', label: '审批台账' },
       { key: 'performance', path: '/performance', label: '业绩与运营' },
       { key: 'clean', path: '/clean', label: '数据清洗' },
+      { key: 'operation_records', path: '/operation-records', label: '操作记录' },
     ],
   },
   {

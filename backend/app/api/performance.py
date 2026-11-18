@@ -28,21 +28,29 @@ def _period(period: str | None) -> str | None:
 
 @router.get("/overview")
 def overview(period: str | None = None, p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     return ok(svc.overview(db, _period(period)))
 
 
 @router.get("/owners")
 def owners(period: str | None = None, p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     return ok(svc.by_owner(db, _period(period)))
 
 
 @router.get("/trend")
 def trend(period: str | None = None, months: int = 12, p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     return ok(svc.trend(db, _period(period), max(1, min(months, 36))))
 
 
 @router.get("/board")
 def board(business_line: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     return ok(svc.board(db, business_line))
 
 
@@ -52,6 +60,8 @@ def _xlsx(data: bytes, name: str) -> Response:
 
 @router.get("/export")
 def export(request: Request, period: str | None = None, p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     data, m = svc.performance_xlsx(db, _period(period))
     log_op(db, p.id, "performance.export", "report", m["period"], ip=client_ip(request))
     db.commit()
@@ -60,6 +70,8 @@ def export(request: Request, period: str | None = None, p: Principal = Menu, db:
 
 @router.get("/board/export")
 def board_export(request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook
+    business_workbook.active_source(db, p, "performance")
     data, _ = svc.board_xlsx(db)
     log_op(db, p.id, "operation_board.export", "report", str(today()), ip=client_ip(request))
     db.commit()

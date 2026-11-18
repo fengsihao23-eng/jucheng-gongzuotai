@@ -315,6 +315,10 @@ def _profit_block(db: Session, T: date) -> dict:
 
 
 def overview(db: Session, ref: date | None = None, refresh: bool = False) -> dict:
+    from app.services import business_workbook, workbook_board
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_board.overview(db, wb, ref or today())
     global _source_synced_at
     source_synced_at = db.scalar(select(func.max(ContractWorkbook.synced_at)))
     with _lock:
@@ -345,6 +349,10 @@ def _period_bounds(period: str, T: date) -> tuple[date, date, bool]:
 
 
 def metric_value(db: Session, metric: str, period: str, T: date | None = None) -> dict:
+    from app.services import business_workbook, workbook_board
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_board.metric(db, wb, metric, period, T or today())
     T = T or today()
     s, e, partial = _period_bounds(period, T)
     out = {"period": period, "start": s, "end": e, "partial": partial}
@@ -383,7 +391,7 @@ def compare(db: Session, metric: str, a: str, b: str) -> dict:
     change = _rate(diff, y) if diff is not None and y else None
     name = METRICS[metric]
     if diff is None:
-        conclusion = f"{a} 与 {b} 的{name}数据不完整（缺少回款目标配置），无法对比。"
+        conclusion = f"{a} 与 {b} 的{name}数据不完整，请核对来源期间数据和回款目标，暂不计算差额。"
     else:
         up = diff > 0
         if metric == "payment_rate":
@@ -415,6 +423,9 @@ def compare(db: Session, metric: str, a: str, b: str) -> dict:
 # ------------------------------------------------------------------ FR-03-05 回款目标配置
 def get_targets(db: Session, period: str) -> dict:
     t = target_of(db, period)
+    from app.services.business_workbook import configured_source
+    if configured_source(db) is not None and not dict_service.get(db, "business_workbook_target", period):
+        t = {}
     names = _line_names(db)
     return {"period": period, "lines": [{"line": k, "name": v, "target": t.get(k, ZERO)} for k, v in names.items()],
             "total": sum(t.values(), ZERO), "configured": bool(t)}
@@ -434,9 +445,14 @@ def set_targets(db: Session, period: str, values: dict[str, Decimal], user_id: i
             raise bad_request("目标金额不能为负")
         clean[k] = int(v) if v == v.to_integral_value() else float(v)
     before = dict_service.get(db, "payment_target", period)
-    merged = {**(before or {}), **clean}
+    from app.services.business_workbook import configured_source
+    wb = configured_source(db)
+    base = before if wb is None or dict_service.get(db, "business_workbook_target", period) else {}
+    merged = {**(base or {}), **clean}
     dict_service.put(db, "payment_target", period, merged, f"{period} 回款目标（元），按业务线")
     log_op(db, user_id, "board.target", "payment_target", period, {"value": before}, {"value": merged}, ip)
+    if wb is not None:
+        dict_service.put(db, "business_workbook_target", period, {"source": wb.source_key, "user_id": user_id})
     db.commit()
     invalidate()
     return get_targets(db, period)
@@ -444,7 +460,7 @@ def set_targets(db: Session, period: str, values: dict[str, Decimal], user_id: i
 
 # ------------------------------------------------------------------ FR-03-03 晨报
 def _wan(v) -> str:
-    return f"{Decimal(v or 0) / 10000:,.1f}万"
+    return "未提供" if v is None else f"{Decimal(v) / 10000:,.1f}万"
 
 
 def _pct(v) -> str:
@@ -457,12 +473,14 @@ def morning_summary(db: Session, d: date) -> dict:
                                        ov["key_projects"])
     return {
         "date": d, "payment_amount": pay["amount"], "payment_target": pay["target"], "payment_rate": pay["rate"],
+        "payment_planned": pay.get("planned_amount"), "next_payment_planned": pay.get("next_planned_amount"),
         "time_progress": pay["time_progress"], "payment_today": pay["today"]["amount"],
         "sign_today_amount": sign["today"]["amount"], "sign_today_count": sign["today"]["count"],
         "sign_month_amount": sign["month"]["amount"], "sign_year_amount": sign["year"]["amount"],
         "sign_yoy": sign["year"]["yoy"], "opp_week_count": opp["week"]["count"], "opp_week_amount": opp["week"]["amount"],
         "opp_month_count": opp["month"]["count"], "bidding_count": tender["bidding_count"],
         "building_count": tender["building_count"], "alert_count": tender["alert_count"],
+        "building_label": tender.get("building_label", "在建"),
         "deadline_soon_count": tender["deadline_soon_count"], "key_project_count": kp["count"],
         "key_delayed_count": kp["delayed_count"],
         "key_projects": [{"name": r["name"], "current_node": r["current_node"], "delayed": r["delayed"],
@@ -476,14 +494,15 @@ def morning_summary(db: Session, d: date) -> dict:
 def morning_text(s: dict) -> str:
     d: date = s["date"]
     wk = "一二三四五六日"[d.weekday()]
+    plan_note = f"｜当月预估回款 {_wan(s['payment_planned'])}，次月预估 {_wan(s['next_payment_planned'])}" if s.get("payment_planned") is not None else ""
     lines = [f"## 聚成数智 · 经营晨报（{d:%Y-%m-%d} 周{wk}）",
-             f"> **回款**：本月 {_wan(s['payment_amount'])} / 目标 {_wan(s['payment_target'])}，"
-             f"达成 <font color=\"warning\">{_pct(s['payment_rate'])}</font>（时间进度 {_pct(s['time_progress'])}）",
+             f"> **回款**：本月已回款 {_wan(s['payment_amount'])} / 目标 {_wan(s['payment_target'])}，"
+             f"达成 <font color=\"warning\">{_pct(s['payment_rate'])}</font>（时间进度 {_pct(s['time_progress'])}）{plan_note}",
              f"> **签约**：今日 {s['sign_today_count']} 份 {_wan(s['sign_today_amount'])}；本月 {_wan(s['sign_month_amount'])}；"
              f"年度累计 {_wan(s['sign_year_amount'])}（同比 {_pct(s['sign_yoy'])}）",
              f"> **商机**：本周新增 {s['opp_week_count']} 个 {_wan(s['opp_week_amount'])}；本月新增 {s['opp_month_count']} 个",
              f"> **招标/在建**：招标中 {s['bidding_count']} 个（{s['deadline_soon_count']} 个两周内截止），"
-             f"在建 {s['building_count']} 个，节点预警 <font color=\"warning\">{s['alert_count']}</font> 个",
+             f"{s.get('building_label', '在建')} {s['building_count']} 个，节点预警 <font color=\"warning\">{s['alert_count'] if s['alert_count'] is not None else '未提供'}</font>",
              f"> **重点项目**：{s['key_project_count']} 个，延期 <font color=\"warning\">{s['key_delayed_count']}</font> 个",
              ]
     for kp in s["key_projects"][:5]:
@@ -530,7 +549,8 @@ def morning_image(s: dict) -> bytes:
              ("今日签约", _wan(s["sign_today_amount"]), f"{s['sign_today_count']} 份 · 本月 {_wan(s['sign_month_amount'])}"),
              ("年度累计业绩", _wan(s["sign_year_amount"]), f"同比 {_pct(s['sign_yoy'])}"),
              ("本周新增商机", f"{s['opp_week_count']} 个", f"金额 {_wan(s['opp_week_amount'])}"),
-             ("招标 / 在建", f"{s['bidding_count']} / {s['building_count']}", f"节点预警 {s['alert_count']} 个")]
+             ("招标 / 待签" if s.get('building_label') != '在建' else "招标 / 在建",
+              f"{s['bidding_count']} / {s['building_count']}", f"节点预警 {s['alert_count'] if s['alert_count'] is not None else '未提供'}")]
     tw, th, gap, x0, y0 = 208, 150, 15, 48, 136
     for i, (lbl, val, hint) in enumerate(tiles):
         x = x0 + i * (tw + gap)
@@ -597,6 +617,10 @@ def build_morning_report(db: Session, d: date | None = None, uploader_id: int | 
 
 def monthly(db: Session, year: int) -> dict:
     """按自然月归集新签与回款（经营看板历史区、大屏共用同一口径）。"""
+    from app.services import business_workbook, workbook_board
+    wb = business_workbook.configured_source(db)
+    if wb is not None:
+        return workbook_board.monthly(wb, year)
     start, end = date(year, 1, 1), date(year, 12, 31)
     sign_month = func.extract("month", BizContract.sign_date)
     sign = {int(m): (int(n), Decimal(a or 0)) for m, n, a in db.execute(

@@ -20,6 +20,7 @@ def preferences(db, p, project_id):
 def set_preferences(db, p, project_id, body):
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
+    scope.require(db, p, project, "reports")
     row = db.get(OpsDigestPreference, project_id) or OpsDigestPreference(project_id=project_id, updated_by=p.id)
     row.weekly, row.monthly, row.updated_by = body.weekly, body.monthly, p.id
     db.add(row)

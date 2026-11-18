@@ -23,7 +23,7 @@ from app.services import (contract_service as contracts, contract_workbook_layou
 
 SOURCE_TYPE = 4
 JOB = "contracts_workbook_sync"
-POLL_MINUTES = 10
+POLL_MINUTES = 1
 MODELS = {"contract": BizContract, "opportunity": BizOpportunity}
 FIELDS = {
     "contract": ("name", "customer_name", "amount", "sign_date", "region", "owner_id", "business_line"),
@@ -87,6 +87,10 @@ def configure(db, key, *, title, url, reader_id, view_department_ids=(), view_us
         if (row.config.get("format"), row.config.get("docid"), row.config.get("file_id")) != (
                 config.get("format"), config.get("docid"), config.get("file_id")):
             raise bad_request("固定来源已经绑定；更换文档时请使用新来源")
+        if row.config.get("presentation_only"):
+            config.update(presentation_only=True, auto_apply=False, auto_receipts=False)
+        if "collection_amount_selection" in row.config:
+            config["collection_amount_selection"] = row.config["collection_amount_selection"]
         if any(row.config.get(f) != config[f] for f in ("auto_apply", "auto_receipts", "profiles", "reader_id", "binding_id")):
             row.revision = None
         row.config = config
@@ -429,8 +433,19 @@ def sync(db, key, *, force=False, preview=False, allow_create=True, expected_rev
             wb.checked_at, wb.last_error = checked_at, None
             db.commit()
             return {"changed": False, "revision": wb.revision, "summary": wb.summary}
-        summary, created, updated = reconcile(db, wb, sheets, p, write=cfg["auto_apply"] and not preview,
-                                             allow_create=allow_create)
+        if cfg.get("presentation_only"):
+            from app.services.business_workbook import validate_snapshot
+            projected = validate_snapshot(sheets, cfg)
+            for sheet, projection in zip(sheets, projected):
+                sheet["profile"], sheet["warning"] = projection.profile, projection.warning
+                sheet["summary"] = {"rows": len(sheet["rows"]), "business": len(projection.items)}
+            summary = {"sheets": len(sheets), "rows": sum(len(s["rows"]) for s in sheets),
+                       "business": sum(len(s.items) for s in projected), "review": 0,
+                       "source_only": True}
+            created = updated = 0
+        else:
+            summary, created, updated = reconcile(db, wb, sheets, p, write=cfg["auto_apply"] and not preview,
+                                                 allow_create=allow_create)
         if preview:
             return {"revision": revision, "summary": summary, "sheets": sheets}
         wb.sheets, wb.revision, wb.summary = sheets, revision, summary

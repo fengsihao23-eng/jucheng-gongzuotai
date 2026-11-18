@@ -69,6 +69,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5180
 
 「合同台账 → 企业微信同步」可定时读取固定的企微合同工作簿、关联合同与商机、查看每个源表单元格及回款差异。见[合同工作簿同步](docs/CONTRACT_WORKBOOK_SYNC.md)。
 
+2026-11-16 起，经营区四个台账可切换为该工作簿的唯一来源；原经营看板保留界面并汇总这些模块，其他业务区继续连接原模块。数据规则、自动同步与回退见[固定来源与看板汇总](docs/BUSINESS_SOURCE_ONLY_20261116.md)。
+
 小聚也能自动读取接入配置、调用 CLI、写入 WorkBuddy MCP 配置并验证连接，自动发现和验证企业微信、柠檬云凭证。接入范围见 [接入说明](docs/INTEGRATION_ASSISTANT.md)。本地运行前在 `backend/agent_runtime` 执行一次 `npm ci --ignore-scripts`；Docker 自动安装。
 
 企业微信还支持按账号绑定官方 CLI 个人连接，可调用文档、表格、待办、日程等实际获授权的业务，并在缺少功能权限时提供官方授权入口。使用与账号保护说明见 [企业微信 CLI](docs/WECOM_CLI.md)。
@@ -97,6 +99,8 @@ cd acceptance && npm install && node e2e.mjs                            # 端到
 ## 生产部署
 
 目标环境：阿里云 ECS（4C8G，华南1 深圳）· Ubuntu/Debian · Docker Compose · 域名 `https://juchengcc.com`。
+
+仅发布前端时，使用 `python3 deploy/frontend-release.py prepare --directory var/<本次发布目录>` 冻结当前源码并匹配线上 API 版本。验收冻结目录中的构建后，运行同一命令的 `check` 和 `publish` 子命令。发布会校验源文件、构建文件及线上版本，备份旧前端，再切换入口；保留已经打开页面所需的旧哈希资源。不要从旧备份或其他工作目录直接覆盖线上入口。
 
 ```bash
 cd frontend && npm run build          # 产出 frontend/dist
