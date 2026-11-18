@@ -25,6 +25,7 @@ JS
 # Exclude local test data and credentials; installed production configuration remains authoritative.
 rsync -az -e 'ssh -o BatchMode=yes' --exclude '.venv' --exclude 'var' --exclude 'node_modules' --exclude '.env' --exclude '__pycache__' --exclude '.pytest_cache' --exclude '*.pyc' --exclude 'samples' "$ROOT/backend/" "$SERVER:/opt/jucheng/backend/"
 rsync -az -e 'ssh -o BatchMode=yes' --exclude '.env' --exclude 'app.env' --exclude 'certs' --exclude 'backups' --exclude 'releases' "$ROOT/deploy/" "$SERVER:/opt/jucheng/deploy/"
+chmod -R a+rX "$ROOT/frontend/dist"
 rsync -az -e 'ssh -o BatchMode=yes' --exclude 'index.html' --exclude 'build-info.json' "$ROOT/frontend/dist/" "$SERVER:/opt/jucheng/frontend/dist/"
 scp -q "$ROOT/frontend/dist/index.html" "$ROOT/frontend/dist/build-info.json" "$SERVER:$RELEASE_DIR/"
 # Keep prior hashed assets for already-open browsers; do not replace business volumes or secrets.
@@ -47,7 +48,7 @@ REMOTE
 for attempt in $(seq 1 40); do
   if "${SSH[@]}" "curl -fsS --max-time 8 https://juchengcc.com/health" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(s);process.exit(j.status==="ok" && j.revision===process.argv[1]?0:1)}catch{process.exit(1)}})' "$REVISION"; then
     # Publish the entry page only after the compatible new API is healthy.
-    "${SSH[@]}" "cp '$RELEASE_DIR/index.html' /opt/jucheng/frontend/dist/index.html.next && cp '$RELEASE_DIR/build-info.json' /opt/jucheng/frontend/dist/build-info.json.next && mv /opt/jucheng/frontend/dist/build-info.json.next /opt/jucheng/frontend/dist/build-info.json && mv /opt/jucheng/frontend/dist/index.html.next /opt/jucheng/frontend/dist/index.html"
+    "${SSH[@]}" "cp '$RELEASE_DIR/index.html' /opt/jucheng/frontend/dist/index.html.next && cp '$RELEASE_DIR/build-info.json' /opt/jucheng/frontend/dist/build-info.json.next && chmod 644 /opt/jucheng/frontend/dist/index.html.next /opt/jucheng/frontend/dist/build-info.json.next && mv /opt/jucheng/frontend/dist/build-info.json.next /opt/jucheng/frontend/dist/build-info.json && mv /opt/jucheng/frontend/dist/index.html.next /opt/jucheng/frontend/dist/index.html"
     "${SSH[@]}" "curl -fsS --max-time 8 https://juchengcc.com/build-info.json" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{process.exit(JSON.parse(s).revision===process.argv[1]?0:1)}catch{process.exit(1)}})' "$REVISION"
     printf 'Deployed %s; backup %s\n' "$REVISION" "$RELEASE_DIR"
     exit 0
