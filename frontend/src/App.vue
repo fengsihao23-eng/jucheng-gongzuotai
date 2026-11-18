@@ -1,5 +1,5 @@
 <template>
-  <router-view :key="auth.profile?.permission_revision || 'initial'" />
+  <router-view />
 </template>
 
 <script setup>

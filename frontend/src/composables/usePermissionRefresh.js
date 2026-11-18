@@ -25,7 +25,11 @@ export function usePermissionRefresh() {
     if (!value || !prior || value === prior || route.meta.public) return
     if ((route.meta.menu && !auth.hasMenu(route.meta.menu)) ||
         (route.meta.anyMenu && !route.meta.anyMenu.some(key => auth.hasMenu(key))) ||
-        (route.meta.adminOnly && !auth.profile.is_admin)) router.replace('/403')
+        (route.meta.adminOnly && !auth.profile.is_admin)) {
+      router.replace('/403')
+      return
+    }
+    window.dispatchEvent(new CustomEvent('business-data-changed'))
   })
   onMounted(() => {
     window.addEventListener('focus', refresh)

@@ -43,7 +43,8 @@ function bizError(body, cfg) {
   e.code = body.code
   e.data = body.data
   e.traceId = body.trace_id
-  if (body.code === 40101 || body.code === 40102) {
+  const isLoginCall = typeof cfg?.url === 'string' && (cfg.url.includes('/auth/login') || cfg.url.includes('/auth/wecom/oauth'))
+  if ((body.code === 40101 || body.code === 40102) && !isLoginCall) {
     setToken(null)
     if (!location.pathname.startsWith('/login')) {
       location.href = '/login?redirect=' + encodeURIComponent(location.pathname + location.search)
