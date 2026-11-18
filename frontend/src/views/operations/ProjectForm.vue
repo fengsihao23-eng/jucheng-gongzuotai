@@ -24,7 +24,7 @@
           </div>
           <el-checkbox-group v-if="features.length" v-model="form.enabled_sections" aria-label="标准功能" class="feature-grid" @change="onFeaturesChanged">
             <el-checkbox v-for="option in features" :key="option.value" :value="option.value"
-              :disabled="option.required || (option.value === 'products' && form.enabled_sections.includes('procurement'))">
+              :disabled="option.required || (option.value === 'products' && ['procurement','warehouse','scrap'].some(k => form.enabled_sections.includes(k)))">
               {{ option.label }}<span v-if="option.required" class="jc-small jc-muted"> · 基础</span>
             </el-checkbox>
           </el-checkbox-group>
@@ -67,7 +67,7 @@ function normalizeFeatures() {
   form.enabled_sections = features.value.map(o => o.value).filter(k => chosen.has(k))
 }
 function fillPreset() {
-  form.enabled_sections = [...(presets.value[form.category?.includes('校园') ? 'campus' : 'general'] || [])]
+  form.enabled_sections = [...(presets.value[form.name?.includes('一键报警') ? 'alarm' : form.category?.includes('校园') ? 'campus' : 'general'] || [])]
   normalizeFeatures()
 }
 function applyPreset() { changedFeatures = true; fillPreset() }

@@ -108,6 +108,9 @@ def period_summary(db, p, mode, period, project_id=None, mine=False, owner_id=No
     report = {"period": period, "mode": mode, "start": start, "end": end, "items": result, "stats": stats, "visits": visits,
               "generated_at": now(), "person": p.user.name if mine else ops.user(db, owner_id).name if owner_id else "项目团队",
               "note": "预览按当前权限和归属展示，反馈按所选期间登记记录统计；保存后保留当时的报告版本。未反馈不推测进展。"}
+    from app.services.operations_assets import report_facts
+    report.update(report_facts(db, p, [pid for pid in permitted_report_projects if project_id is None or pid == project_id],
+                              start, end, start_at, end_exclusive, p.id if mine else owner_id))
     report["text"] = render_text(report)
     return report
 
@@ -146,5 +149,13 @@ def render_text(report):
         lines.append(f"• {row['owner_name']}：{row['title']}，{row['status_label']}；请结合上述原反馈核对原因与下一步。")
     if not pending:
         lines.append("已登记任务中暂无受阻或逾期未完成事项；其他协调需求请补充到原任务。")
+    if report.get("maintenance") or report.get("asset_movements"):
+        lines.extend(["", "五、运营维护与仓库物料"])
+        for r in report.get("maintenance", []):
+            lines.append(f"• {r['kind_label']}｜{r['project_name']} / {r['title']}：{r['content'] or '更新基础资料'}" +
+                         (f"；存在问题：{r['problems']}" if r.get('problems') else '') +
+                         (f"；下一步：{r['next_step']}" if r.get('next_step') else '') + f"（过程记录 #{r['id']}）")
+        for r in report.get("asset_movements", []):
+            lines.append(f"• {r['occurred_on']} {r['project_name']} / {r['product_name']}：{r['action_name']} {r['quantity']}；{r['note']}（库存记录 #{r['id']}）")
     lines.extend(["", report["note"]])
     return "\n".join(lines)

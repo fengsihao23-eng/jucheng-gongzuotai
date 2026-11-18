@@ -186,9 +186,15 @@ def _confirm_receipt(db, a, values):
     return str(row.id)
 
 
+def _stock_out(db, a, values):
+    from app.services.operations_assets import approved_stock_out
+    return approved_stock_out(db, a, values)
+
+
 HANDLERS = {"contract": _register_contract, "expense": _register_expense, "opportunity": _register_opportunity,
-            "invoice": _request_invoice, "receipt": _confirm_receipt, "procurement": _register_procurement}
-LEDGER_KEYS = {"contract", "invoice", "receipt", "procurement"}
+            "invoice": _request_invoice, "receipt": _confirm_receipt, "procurement": _register_procurement,
+            "stock_out": _stock_out}
+LEDGER_KEYS = {"contract", "invoice", "receipt", "procurement", "stock_out"}
 
 
 # ---------------- 主流程 ----------------

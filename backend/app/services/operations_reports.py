@@ -42,6 +42,8 @@ def can_read(db, p, row):
         return False
     if row.facts.get("visits") and not scope.can(db, p, project, "outreach"):
         return False
+    if any(not scope.can(db, p, project, section) for section in row.facts.get("content_sections", [])):
+        return False
     return True
 
 

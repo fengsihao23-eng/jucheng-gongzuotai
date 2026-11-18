@@ -58,6 +58,17 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
             return
     from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
     from app.services.collection_followups import NOTICE_TYPES as COLLECTION_TYPES, eligible_notice as collection_eligible
+    from app.services.collection_reminders import NOTICE as REMINDER_TYPE, eligible as reminder_eligible
+    pending_rows = []
+    for r in rows:
+        if r.msg_type == REMINDER_TYPE and not reminder_eligible(db, r):
+            r.send_status, r.error_msg, r.retry_count = 2, "回款节点、负责人或权限已变化", MAX_RETRY
+        else:
+            pending_rows.append(r)
+    rows = pending_rows
+    if not rows:
+        db.flush()
+        return
     if any(r.msg_type in OPS_TYPES for r in rows):
         from app.core.deps import build_principal
 
@@ -89,7 +100,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     groups: dict[tuple, list[SysNotify]] = {}
     for r in rows:
         # 运营通知统一发为带入口的文本卡片，定时投递和重试使用同一格式。
-        delivery_type = "textcard" if r.msg_type in (OPS_TYPES | COLLECTION_TYPES) and r.link else msg_type
+        delivery_type = "textcard" if r.msg_type in (OPS_TYPES | COLLECTION_TYPES | {REMINDER_TYPE}) and r.link else msg_type
         groups.setdefault((delivery_type, r.title, r.content, r.link), []).append(r)
     try:
         provider = get_wecom()

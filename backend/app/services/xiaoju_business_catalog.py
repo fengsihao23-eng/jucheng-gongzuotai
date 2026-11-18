@@ -65,6 +65,10 @@ ROUTE_EXCLUSIONS = {
     "source_checks.verify_source", "source_checks.robot_state", "source_checks.save_robot",
 }
 LABELS = {
+    "warehouse": "查询仓库在库、在运营和已报废设备数量与流转记录", "stock_movement": "登记出入库、退库或设备报废",
+    "maintenance_records": "查询运营设备运维、欠费、回款或客户资料维护", "maintenance_history": "读取运营维护过程记录",
+    "create_maintenance": "新增项目运营维护记录", "update_maintenance": "更新本人负责的运营维护进展",
+    "overdue_collection_nodes": "查看已超时未反馈的回款合同节点", "save_collection_reminder": "设置回款日周反馈节点及负责人管理者自动提醒",
     "role_members": "查角色实名名单", "effective_permissions": "查指定人员有效权限",
     "signing": "查询累计、本月、本周和今日签约统计",
     "collection_board": "查询应收余额和回款负责人", "follow_up": "登记回款跟进或催办",
@@ -263,6 +267,7 @@ def resolve(schema, components, seen=()):
 def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
+    if module == "business_workbook" and name == "save_collection_reminder": return "confirm"
     if module == "operations":
         return "query" if name in {"draft_feedback", "draft_proposal"} else "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"

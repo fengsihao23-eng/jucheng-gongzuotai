@@ -4,30 +4,36 @@ from app.core.audit import log_op
 from app.core.response import bad_request, conflict, forbidden
 from app.models import OpsMember, OpsMemberView, OpsProject, OpsProjectControl, OpsProjectFeatures, OpsTask, SysUser
 
+LEGACY_SECTIONS = {"tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds"}
+ALARM_FEATURES = {"device_maintenance", "arrears", "collection_maintenance", "customers", "warehouse", "scrap"}
 SECTIONS = {"tasks": "任务", "progress": "项目进度", "outreach": "学校与市场开拓", "procurement": "学校采购",
-            "income": "每日营收", "products": "设备产品", "team": "项目团队", "reports": "周报月报", "funds": "经费与审批"}
+            "income": "每日营收", "products": "设备产品", "team": "项目团队", "reports": "周报月报", "funds": "经费与审批",
+            "warehouse": "仓库物料", "device_maintenance": "设备运维", "arrears": "欠费维护",
+            "collection_maintenance": "回款维护", "customers": "客户资料维护", "scrap": "设备报废"}
 BASE_FEATURES = {"tasks", "team"}
 FEATURE_LABELS = {**SECTIONS, "tasks": "任务情况", "outreach": "市场开拓", "income": "收入情况", "products": "设备产品库",
                   "reports": "周报 / 月报"}
-FEATURE_ORDER = ("tasks", "team", "progress", "reports", "outreach", "procurement", "income", "products", "funds")
+FEATURE_ORDER = ("tasks", "team", "progress", "reports", "outreach", "procurement", "income", "products", "funds",
+                 "warehouse", "device_maintenance", "arrears", "collection_maintenance", "customers", "scrap")
 SCHOOL_FEATURES = {"outreach", "procurement", "income"}
 
 
 def feature_options():
     return {"features": [{"value": key, "label": FEATURE_LABELS[key], "required": key in BASE_FEATURES,
-                           "depends_on": ["products"] if key == "procurement" else []} for key in FEATURE_ORDER],
-            "feature_presets": {"campus": list(FEATURE_ORDER),
+                           "depends_on": ["products"] if key in {"procurement", "warehouse", "scrap"} else []} for key in FEATURE_ORDER],
+            "feature_presets": {"campus": [key for key in FEATURE_ORDER if key in LEGACY_SECTIONS | {"warehouse"}],
+                                "alarm": [key for key in FEATURE_ORDER if key in BASE_FEATURES | ALARM_FEATURES | {"products", "reports", "progress"}],
                                 "general": ["tasks", "team", "progress", "reports"]}}
 
 
 def enabled_features(db, project):
     row = db.get(OpsProjectFeatures, project.id)
-    return set(row.sections) if row else set(SECTIONS)
+    return set(row.sections) if row else LEGACY_SECTIONS | {"warehouse"} | (ALARM_FEATURES if project.name.strip() == "一键报警" else set())
 
 
 def feature_settings(db, project):
     row = db.get(OpsProjectFeatures, project.id)
-    enabled = set(row.sections) if row else set(SECTIONS)
+    enabled = enabled_features(db, project)
     return {"configured": bool(row), "revision": row.revision if row else 0,
             "sections": [key for key in FEATURE_ORDER if key in enabled],
             "legacy_campus_income": row.legacy_campus_income if row else project.name == "智慧校园"}
@@ -38,7 +44,7 @@ def save_features(db, p, project, sections, expected_revision, *, creating, lega
     if not creating and expected_revision != before["revision"]:
         raise conflict("项目标准功能已变化，请刷新后重试")
     chosen = set(sections) | BASE_FEATURES
-    if "procurement" in chosen:
+    if chosen & {"procurement", "warehouse", "scrap"}:
         chosen.add("products")
     selected = [key for key in FEATURE_ORDER if key in chosen]
     row = db.get(OpsProjectFeatures, project.id)

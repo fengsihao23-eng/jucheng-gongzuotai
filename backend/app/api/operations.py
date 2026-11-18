@@ -21,9 +21,47 @@ from app.services import operations_reports as op_reports
 from app.services import operations_scope as content_scope, operations_workspace as workspace, operations_income_feed as income_feed
 from app.schemas.operations_workspace import MemberViewIn, ProjectControlIn, OutreachGoalIn, SchoolRegionIn, IncomeFeedIn
 from app.schemas.operations import DiscussionIn, SchoolVisitIn, SchoolTransitionIn, DigestGenerateIn, DigestPreferenceIn
+from app.schemas.operations_assets import AssetMovementIn, MaintenanceIn, MaintenanceKind
+from app.services import operations_assets as assets
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
+
+
+@router.get("/{project_id}/warehouse")
+def warehouse(project_id: int, scrap: bool = False, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(assets.overview(db, p, project_id, scrap=scrap))
+
+
+@router.post("/{project_id}/warehouse/movements")
+def stock_movement(project_id: int, body: AssetMovementIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = assets.move(db, p, project_id, body)
+    db.commit()
+    return ok({"id": row.id})
+
+
+@router.get("/{project_id}/maintenance")
+def maintenance_records(project_id: int, kind: MaintenanceKind, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(assets.records(db, p, project_id, kind))
+
+
+@router.post("/{project_id}/maintenance")
+def create_maintenance(project_id: int, body: MaintenanceIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = assets.save_record(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.put("/{project_id}/maintenance/{record_id}")
+def update_maintenance(project_id: int, record_id: int, body: MaintenanceIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = assets.save_record(db, p, project_id, body, record_id)
+    db.commit()
+    return ok(result)
+
+
+@router.get("/{project_id}/maintenance/{record_id}/history")
+def maintenance_history(project_id: int, record_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(assets.record_history(db, p, project_id, record_id))
 
 
 @router.get("")

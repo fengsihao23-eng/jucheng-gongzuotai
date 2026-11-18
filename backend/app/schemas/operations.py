@@ -15,7 +15,8 @@ TaskSource = Literal["company", "self", "project_plan"]
 Visibility = Literal["team", "selected"]
 TaskKind = Literal["general", "outreach"]
 Cadence = Literal["daily", "every_2_days", "every_3_days", "weekly", "node"]
-OperationSection = Literal["tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds"]
+OperationSection = Literal["tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds",
+                           "warehouse", "device_maintenance", "arrears", "collection_maintenance", "customers", "scrap"]
 
 
 class Input(BaseModel):
@@ -31,7 +32,7 @@ class ProjectIn(Input):
     status: Literal["active", "paused", "completed"] = "active"
     is_key: bool = True
     enabled_sections: list[OperationSection] | None = Field(
-        default=None, max_length=9, description="本项目开通的标准功能。任务和项目团队为基础功能；学校采购依赖设备产品库。")
+        default=None, max_length=15, description="本项目开通的标准功能。任务和项目团队为基础功能；采购和仓库依赖设备产品库。")
     expected_features_revision: int | None = Field(
         default=None, ge=0, description="编辑标准功能时传入当前功能版本；未配置的历史项目为0。")
 

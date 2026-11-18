@@ -43,8 +43,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
-const props = defineProps({ projectId: Number, active: Boolean })
-const router = useRouter(), route = useRoute(), mode = ref('week'), period = ref(''), mine = ref(false)
+const props = defineProps({ projectId: Number, active: Boolean, initialMode: { type: String, default: 'week' } })
+const router = useRouter(), route = useRoute(), mode = ref(props.initialMode), period = ref(''), mine = ref(false)
 const selectedProject = ref(null), projects = ref([]), settings = ref(null), report = ref(null), savedReport = ref(null), history = ref([])
 const ownerId = ref(null), members = ref([])
 const view = ref('text'), loading = ref(false), saving = ref(false), currentProject = computed(() => props.projectId || selectedProject.value)
@@ -91,6 +91,7 @@ watch(() => [props.projectId, props.active, route.query.digest], async () => {
   await refresh()
   if (/^[1-9]\d*$/.test(String(route.query.digest))) { try { await openSaved(Number(route.query.digest)) } catch {} }
 }, { immediate: true })
+watch(() => props.initialMode, value => { if (mode.value !== value) { mode.value = value; period.value = ''; refresh() } })
 </script>
 <style scoped>
 .digest-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }.digest-controls .el-select { width: 230px; }.digest-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; line-height: 1.95; padding: 20px; border: 1px solid var(--jc-line); border-radius: 7px; background: var(--jc-surface); }.source-event { margin-bottom: 10px; }.source-event p { white-space: pre-wrap; margin-top: 4px; }.source-event small { color: var(--jc-ink-3); }.schedule { margin-top: 20px; border-top: 1px solid var(--jc-line); padding-top: 14px; }.schedule summary { cursor: pointer; }@media(max-width:560px) { .digest-text { padding: 12px; } }

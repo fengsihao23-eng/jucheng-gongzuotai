@@ -10,6 +10,14 @@ from app.services import dict_service, receivables_service as ledger, receivable
 log = logging.getLogger(__name__)
 
 
+@job("collection_feedback_reminders", "回款节点超时自动提醒", {"hour": 9, "minute": 0}, "每天 09:00（北京时间）检查日/周反馈节点")
+def collection_feedback_reminders(db, params):
+    from app.services.collection_reminders import scan
+    result = scan(db)
+    db.commit()
+    return result
+
+
 @job("receivables_source_sync", "开票与收款固定来源同步", {"minute": "*/15"}, "每 15 分钟")
 def sync_sources(db, params):
     configs = dict_service.items(db, "receivables_source")

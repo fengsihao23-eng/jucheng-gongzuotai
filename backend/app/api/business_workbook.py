@@ -116,6 +116,32 @@ class CollectionRequestIn(BaseModel):
     content: str = Field(min_length=1, max_length=1600)
 
 
+class CollectionReminderIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    revision: str = Field(min_length=1, max_length=64)
+    recipient_id: int = Field(gt=0)
+    manager_ids: list[int] = Field(default_factory=list, max_length=30)
+    due_on: date
+    cadence: Literal['daily', 'weekly'] = 'weekly'
+    enabled: bool = True
+    expected_revision: int = Field(ge=0)
+
+
+@router.get('/collections/reminders/overdue')
+def overdue_collection_nodes(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.collection_reminders import overdue_items
+    return ok(overdue_items(db, p), headers=HEADERS)
+
+
+@router.put('/collections/items/{sheet}/{row_number}/reminder')
+def save_collection_reminder(sheet: str, row_number: int, body: CollectionReminderIn,
+                            p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services import collection_reminders
+    result = collection_reminders.save(db, p, sheet, row_number, body)
+    db.commit()
+    return ok(result, headers=HEADERS)
+
+
 class CollectionReplyIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
     content: str = Field(min_length=1, max_length=1600)

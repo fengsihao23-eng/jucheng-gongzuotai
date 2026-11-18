@@ -311,6 +311,8 @@ def delete_school(db, p, project_id, school_id):
     manage(db, p, project)
     content_scope.require_school_features(db, p, project)
     row = school(db, project.id, school_id)
+    from app.services.operations_assets import remove_school_stock
+    remove_school_stock(db, project, school_id)
     before = snapshot(row, SCHOOL_FIELDS)
     tasks = db.execute(update(OpsTask).where(OpsTask.school_id == row.id).values(school_id=None)).rowcount or 0
     equipment = db.execute(delete(OpsEquipment).where(OpsEquipment.school_id == row.id)).rowcount or 0
@@ -356,7 +358,10 @@ def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
     row = db.get(OpsEquipment, equipment_id) if equipment_id else OpsEquipment(school_id=school_id)
     if not row or row.school_id != school_id:
         raise not_found("本学校设备")
-    return _write(db, p, row, body.model_dump(), ["product_id", "quantity", "unit_price", "recorded_amount", "review_note", "note"])
+    row = _write(db, p, row, body.model_dump(), ["product_id", "quantity", "unit_price", "recorded_amount", "review_note", "note"])
+    from app.services.operations_assets import sync_equipment
+    sync_equipment(db, p, project, row)
+    return row
 
 
 def save_income(db, p, project_id, school_id, body, income_id=None):

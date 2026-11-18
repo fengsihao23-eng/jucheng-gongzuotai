@@ -432,7 +432,9 @@ def execution_detail(db, p, sheet_id, row_number, revision=''):
     owner_norm = source.layout.norm(item.get('owner'))
     matched = [u.id for u in choices if owner_norm and source.layout.norm(u.name) == owner_norm]
 
+    from app.services import collection_reminders
     return {
+        'reminder': collection_reminders.info(db, wb, p, sheet_id, keys),
         'sheet_id': sheet_id,
         'row': row_number,
         'revision': wb.revision,

@@ -7,7 +7,7 @@ Section = OperationSection
 
 
 class MemberViewIn(Input):
-    sections: list[Section] = Field(max_length=9)
+    sections: list[Section] = Field(max_length=15)
     task_scope: Literal["team", "self"] = "team"
     expected_revision: int = Field(ge=0)
 

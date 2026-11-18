@@ -102,6 +102,7 @@
               <el-button size="small" :loading="cancelling" @click="cancelPending">撤回待回复要求</el-button>
             </section>
 
+            <CollectionReminderPanel :data="item.reminder" :sheet="props.sheet" :row="props.row" :revision="item.revision" :suggested-recipient="item.suggested_recipient_id" :pending-recipient="item.pending_request?.recipient_id" @saved="load(true); emit('saved')" />
             <details v-if="item.can_request" class="section request-collapse">
               <summary>定向指派 / 发送企业微信跟进提醒</summary>
               <div class="request-body">
@@ -255,6 +256,7 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { datetime } from '@/utils/format'
+import CollectionReminderPanel from './CollectionReminderPanel.vue'
 
 const props = defineProps({
   modelValue: Boolean,

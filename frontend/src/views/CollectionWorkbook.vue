@@ -139,6 +139,7 @@
         </form>
       </Panel>
 
+      <CollectionOverduePanel ref="overduePanel" @open-execution="openExecution" />
       <CollectionReportSection
         v-if="!receipts"
         ref="reportSection"
@@ -225,6 +226,7 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import CollectionExecutionDialog from '@/components/CollectionExecutionDialog.vue'
 import CollectionReportSection from '@/components/CollectionReportSection.vue'
+import CollectionOverduePanel from '@/components/CollectionOverduePanel.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 
@@ -247,6 +249,7 @@ const listTitle = computed(() => receipts.value ? '实际回款清单' : '未收
 const quickCards = computed(() => data.value?.collection_cards || [])
 const periodOpen = ref(false), activePeriod = ref(null), periodData = ref(null), periodLoading = ref(false), periodError = ref('')
 const execOpen = ref(false), execTarget = reactive({ sheet: '', row: 0 })
+const overduePanel = ref(null)
 let periodRequest = 0
 const moneyText = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 
@@ -329,6 +332,7 @@ function openExecution(row) {
   execOpen.value = true
 }
 function onExecutionSaved() {
+  overduePanel.value?.refresh()
   load({ quiet: true })
   if (periodOpen.value && activePeriod.value) {
     loadPeriod(periodData.value?.page || 1, { quiet: true })
