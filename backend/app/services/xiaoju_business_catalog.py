@@ -49,7 +49,8 @@ ROUTE_EXCLUSIONS = {
     "operation_records.listing", "operation_records.detail",
     "business_workbook.request_collection_followup", "business_workbook.reply_collection_followup",
     "business_workbook.cancel_collection_followup", "business_workbook.export_opportunities",
-    "business_workbook.update_collection_progress",
+    "business_workbook.update_collection_progress", "business_workbook.submit_collection_execution",
+    "business_workbook.draft_collection_execution", "business_workbook.save_collection_report",
     "auth.login_config", "auth.login", "auth.wecom_authorize_url", "auth.wecom_oauth",
     "auth.logout", "auth.change_password", "auth.reset_mcp_token", "auth.verify_identity",
     "mcp_config.client_config", "mcp_config.self_test", "mcp_config.config_with_token",
@@ -175,6 +176,11 @@ ROUTE_LABELS = {
     "business_workbook.collection_project_report": "查看单个项目回款报告与原表预估回款计划",
     "business_workbook.contract_detail": "查看经营业绩合同详情",
     "business_workbook.collection_detail": "查看回款合同详情",
+    "business_workbook.contract_report_query": "按自然语言提问生成经营业绩统计报表或合同清单",
+    "business_workbook.collection_item_execution": "查看回款项目执行情况、存在问题与过程记录",
+    "business_workbook.collection_summary_report": "生成回款情况与跟进进展阶段性文字总结",
+    "business_workbook.list_collection_reports": "查询已留档的回款阶段性总结报告",
+    "business_workbook.get_collection_report": "读取指定回款阶段性总结留档报告",
     "operation_digest": "查询运营项目周报、月报或个人工作总结",
     "draft_proposal": "使用项目产品库生成学校方案初稿",
     "add_project_members": "批量加入运营项目成员", "pause_follow": "暂停或恢复重点项目跟进",
@@ -268,7 +274,7 @@ def _effect(module, method, path, name):
     if module == "flows": return "confirm"
     if path.endswith("/remind") or (module == "hr" and ("/rule" in path or "/template" in path or "/alerts/scan" in path or "/candidates/" in path and path.endswith("/stage"))): return "confirm"
     if module == "clean" and path.endswith("/import"): return "confirm"
-    if name in {"qa", "risk_check"}: return "query"
+    if name in {"qa", "risk_check", "contract_report_query", "collection_summary_report"}: return "query"
     return "execute"
 
 

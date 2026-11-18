@@ -13,5 +13,6 @@ class WorkbookCollectionProgress(TimestampMixin, Base):
     author_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
     stage: Mapped[str] = mapped_column(String(32))
     content: Mapped[str] = mapped_column(Text)
+    problems: Mapped[str | None] = mapped_column(Text)
     next_step: Mapped[str | None] = mapped_column(Text)
     expected_on: Mapped[date | None] = mapped_column(Date)

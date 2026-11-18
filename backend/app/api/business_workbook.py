@@ -101,6 +101,14 @@ def collection_detail(sheet: str, row_number: int, revision: str = '',
     return ok(detail(db, p, sheet, row_number, revision, view='collections'), headers=HEADERS)
 
 
+class ContractReportQueryIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    question: str = Field(min_length=1, max_length=500)
+    year: str = Field(default='', max_length=16)
+    start: str = Field(default='', max_length=16)
+    end: str = Field(default='', max_length=16)
+
+
 class CollectionRequestIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
     revision: str = Field(min_length=1, max_length=64)
@@ -114,7 +122,100 @@ class CollectionReplyIn(BaseModel):
     expected_on: date | None = None
     stage: Literal['contact', 'approval', 'awaiting', 'blocked', 'reported_paid'] = 'contact'
     expected_report_id: int | None = Field(default=None, gt=0)
+    problems: str | None = Field(default=None, max_length=2000)
     next_step: str | None = Field(default=None, max_length=1600)
+
+
+class CollectionExecutionIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    revision: str = Field(min_length=1, max_length=64)
+    stage: Literal['contact', 'approval', 'awaiting', 'blocked', 'reported_paid'] = 'contact'
+    content: str = Field(min_length=1, max_length=2000)
+    has_problem: bool = False
+    problems: str | None = Field(default=None, max_length=2000)
+    next_step: str | None = Field(default=None, max_length=2000)
+    expected_on: date | None = None
+    expected_progress_id: int | None = Field(default=None, gt=0)
+
+
+class CollectionDraftIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class CollectionSummaryIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    scope: Literal['all', 'current_month', 'next_month', 'tracked', 'problems'] = 'all'
+    owner: str = Field(default='', max_length=80)
+    focus_prompt: str = Field(default='', max_length=1000)
+
+
+class CollectionReportSaveIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+    title: str = Field(default='', max_length=200)
+    scope: Literal['all', 'current_month', 'next_month', 'tracked', 'problems'] = 'all'
+    owner: str = Field(default='', max_length=80)
+    focus_prompt: str = Field(default='', max_length=1000)
+    text: str = Field(default='', max_length=50000)
+
+
+@router.post('/contracts/report-query')
+def contract_report_query(body: ContractReportQueryIn, p: Principal = Depends(get_principal),
+                          db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import query_performance_report
+    return ok(query_performance_report(db, p, body.question, year=body.year, start=body.start, end=body.end), headers=HEADERS)
+
+
+@router.get('/collections/items/{sheet}/{row_number}/execution')
+def collection_item_execution(sheet: str, row_number: int, revision: str = '',
+                              p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    return ok(followups.execution_detail(db, p, sheet, row_number, revision), headers=HEADERS)
+
+
+@router.post('/collections/items/{sheet}/{row_number}/execution')
+def submit_collection_execution(sheet: str, row_number: int, body: CollectionExecutionIn,
+                                background: BackgroundTasks, p: Principal = Depends(get_principal),
+                                db: Session = Depends(get_db)):
+    notices = followups.submit_execution(db, p, sheet, row_number, body)
+    db.commit()
+    if notices:
+        background.add_task(followups.deliver, notices)
+    return ok(followups.execution_detail(db, p, sheet, row_number, body.revision), headers=HEADERS)
+
+
+@router.post('/collections/items/{sheet}/{row_number}/draft')
+def draft_collection_execution(sheet: str, row_number: int, body: CollectionDraftIn,
+                               p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    return ok(followups.draft_execution_text(db, p, sheet, row_number, body.text), headers=HEADERS)
+
+
+@router.post('/collections/summary-report')
+def collection_summary_report(body: CollectionSummaryIn, p: Principal = Depends(get_principal),
+                              db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import build_collection_summary
+    return ok(build_collection_summary(db, p, scope=body.scope, owner=body.owner, focus_prompt=body.focus_prompt), headers=HEADERS)
+
+
+@router.get('/collections/saved-reports')
+def list_collection_reports(p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import list_saved_collection_reports
+    return ok(list_saved_collection_reports(db, p), headers=HEADERS)
+
+
+@router.get('/collections/saved-reports/{report_id}')
+def get_collection_report(report_id: int, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import get_saved_collection_report
+    return ok(get_saved_collection_report(db, p, report_id), headers=HEADERS)
+
+
+@router.post('/collections/saved-reports')
+def save_collection_report(body: CollectionReportSaveIn, p: Principal = Depends(get_principal),
+                           db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import save_collection_report as save_report
+    result = save_report(db, p, title=body.title, scope=body.scope, owner=body.owner,
+                         focus_prompt=body.focus_prompt, text=body.text)
+    db.commit()
+    return ok(result, headers=HEADERS)
 
 
 @router.get('/collections/items/{sheet}/{row_number}/followups')

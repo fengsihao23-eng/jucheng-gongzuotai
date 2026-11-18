@@ -116,8 +116,10 @@ await step('SOURCE-collection-plans', '回款卡片只读原表计划，进入�
     assert.equal(await page.getByText('已收', { exact: true }).count(), 0)
     for (const card of report.collection_cards) {
       await page.getByRole('button', { name: new RegExp(card.title) }).click()
-      const modal = page.getByRole('dialog', { name: card.title, exact: true })
-      await modal.getByRole('link', { name: '项目反馈 / 报告' }).first().click()
+      const inlinePanel = page.getByRole('region', { name: card.title + '明细', exact: true })
+      await inlinePanel.waitFor()
+      assert.equal(await page.getByRole('dialog', { name: card.title, exact: true }).count(), 0)
+      await inlinePanel.getByRole('link', { name: '项目反馈 / 报告' }).first().click()
       await page.getByRole('heading', { name: '对应合同', exact: true }).waitFor()
       await page.getByRole('button', { name: '返回回款情况', exact: true }).click()
     }
@@ -127,6 +129,8 @@ await step('SOURCE-collection-plans', '回款卡片只读原表计划，进入�
       await page.getByRole('button', { name: new RegExp(name) }).click()
       await page.waitForFunction(n => document.querySelector('.workbook-kpis .kpi .v')?.textContent.trim() === String(n), view.quick_stats[key].count)
     }
+    await page.getByRole('button', { name: '查看全年业绩', exact: true }).click()
+    await page.waitForFunction(n => document.querySelector('.workbook-kpis .kpi .v')?.textContent.trim() === String(n), view.summary.count)
   }
 })
 await step('SOURCE-tender-project-cards', '招标与在建分开切换，合并项目点开保留各标段', async () => {

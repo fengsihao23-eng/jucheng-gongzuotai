@@ -56,13 +56,21 @@
                :hint="`${data.summary[field].numeric_count} 条有数值${data.summary[field].missing_count ? '；' + data.summary[field].missing_count + ' 条无独立数值' : ''}`" />
         </div>
         <div v-if="view === 'contracts' && data.quick_stats" class="signing-cards mb-16">
-          <button v-for="(card, key) in data.quick_stats" :key="key" type="button" class="jc-card signing-card" @click="openSigning(card)">
-            <span class="jc-small jc-muted">{{ key === 'month' ? '当月合同金额' : '本周合同金额' }} <b>查看清单</b></span>
+          <button
+            v-for="(card, key) in data.quick_stats"
+            :key="key"
+            type="button"
+            class="jc-card signing-card"
+            :class="{ 'is-active': isSigningActive(card) }"
+            :aria-pressed="String(isSigningActive(card))"
+            @click="openSigning(card)"
+          >
+            <span class="jc-small jc-muted">{{ key === 'month' ? '当月合同金额' : '本周合同金额' }} <b>{{ isSigningActive(card) ? '返回全年' : '查看清单' }}</b></span>
             <span class="jc-num signing-amount">{{ amount(card.amount) }}<small> 元</small></span>
             <span class="jc-muted jc-small">{{ card.count }} 份合同 · {{ card.drill.query.start }} 至 {{ card.drill.query.end }}</span>
           </button>
         </div>
-        <Panel v-if="view === 'contracts'" class="performance-filter-panel">
+        <Panel v-if="view === 'contracts'" class="performance-filter-panel mb-16">
           <div class="filters performance-filters">
             <el-select v-model="filters.year" aria-label="业绩年份" placeholder="年份" class="performance-year" @change="changePerformanceYear">
               <el-option v-for="year in data.years" :key="year" :value="year" :label="year + ' 年'" />
@@ -85,10 +93,24 @@
           </div>
           <div class="performance-period">
             <span>{{ filters.start || filters.end ? '来自下钻：' : '统计期间：' }}</span>
-            <el-tag v-if="filters.start || filters.end" closable @close="clearDrill">{{ filters.start || '…' }} 至 {{ filters.end || '…' }}</el-tag>
+            <template v-if="filters.start || filters.end">
+              <el-tag closable @close="clearDrill">{{ filters.start || '…' }} 至 {{ filters.end || '…' }}</el-tag>
+              <el-button link type="primary" @click="clearDrill">查看全年业绩</el-button>
+            </template>
+            <template v-else-if="filters.sign_month">
+              <el-tag closable @close="changePerformanceMonth('')">{{ data.period?.label }}</el-tag>
+              <el-button link type="primary" @click="changePerformanceMonth('')">查看全年业绩</el-button>
+            </template>
             <el-tag v-else>{{ data.period?.label }}</el-tag>
           </div>
         </Panel>
+        <PerformanceReportSection
+          v-if="view === 'contracts'"
+          :year="filters.year || '2026'"
+          :start="filters.start"
+          :end="filters.end"
+          @open-row="openRow"
+        />
         <Panel v-else-if="canManageSource" title="筛选来源明细">
           <div class="filters">
             <el-select v-model="filters.sheet" aria-label="来源子表" class="sheet-select" @change="changeSheet">
@@ -208,6 +230,7 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, r
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import PerformanceReportSection from '@/components/PerformanceReportSection.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, percent } from '@/utils/format'
 
@@ -252,9 +275,19 @@ async function load(quiet = false) {
   finally { if (id === requestId) loading.value = false }
 }
 function refresh() { page.value = 1; return load() }
+function isSigningActive(card) {
+  const q = card?.drill?.query
+  return Boolean(q && filters.start === q.start && filters.end === q.end)
+}
 function openSigning(card) {
+  if (isSigningActive(card)) return clearDrill()
   Object.assign(filters, { sheet: '', keyword: '', year: '', start: '', end: '', sign_month: '',
     customer: '', region: '', owner: '', status: '', business_line: '', source_type: '', ...card.drill.query })
+  return refresh()
+}
+function clearDrill() {
+  if (view.value === 'contracts' && !filters.year) filters.year = '2026'
+  Object.assign(filters, { start: '', end: '', basis: '', period: '', status: '' })
   return refresh()
 }
 function changePerformanceYear() {
@@ -277,7 +310,6 @@ function changeSheet() {
   filters.raw = data.value?.sheets.find(s => s.id === filters.sheet)?.profile === 'mobile'
   return refresh()
 }
-function clearDrill() { Object.assign(filters, { start: '', end: '', basis: '', period: '', status: '' }); refresh() }
 function changeMode() { filters.year = ''; return refresh() }
 async function syncNow() {
   syncing.value = true
@@ -335,7 +367,8 @@ onBeforeUnmount(() => { clearInterval(timer); requestId++; detailId++ })
 .workbook-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .signing-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .signing-card { display: grid; gap: 9px; text-align: left; padding: 16px 18px; font: inherit; color: var(--jc-ink); cursor: pointer; min-width: 0; }
-.signing-card b { margin-left: 8px; font-weight: 400; color: var(--jc-brand); }.signing-card:hover { border-color: var(--jc-brand); }
+.signing-card b { margin-left: 8px; font-weight: 400; color: var(--jc-brand); }.signing-card:hover, .signing-card.is-active { border-color: var(--jc-brand); }
+.signing-card.is-active { background: color-mix(in srgb, var(--jc-brand) 4%, var(--jc-surface)); }
 .signing-amount { font-size: 27px; font-weight: 600; overflow-wrap: anywhere; }.signing-amount small { font-size: 13px; font-weight: 400; }
 .filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .performance-filters { gap: 8px; flex-wrap: nowrap; }.performance-year { width: 125px; }.performance-keyword { flex: 1 1 230px; width: auto; min-width: 170px; }
