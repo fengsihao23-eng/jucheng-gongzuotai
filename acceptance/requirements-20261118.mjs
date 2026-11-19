@@ -24,15 +24,16 @@ desktop.setDefaultTimeout(12000)
 mobile.setDefaultTimeout(12000)
 const projectUrl = `${WEB}/operations/${project.id}`
 
-await step('REQ-01', '一键报警六项维护及周月报入口可见', async () => {
+await step('REQ-01', '一键报警六项维护及周月报页签可见且无重复顶部入口', async () => {
   await desktop.goto(projectUrl)
-  for (const name of ['设备运维', '欠费维护', '回款维护', '客户资料维护', '仓库物料', '设备报废', '周报', '月报'])
-    await desktop.getByRole('button', { name, exact: true }).waitFor()
+  for (const name of ['设备运维', '欠费维护', '回款维护', '客户资料维护', '仓库物料', '设备报废', '周报 / 月报'])
+    await desktop.getByRole('tab', { name, exact: true }).waitFor()
+  assert.equal(await desktop.locator('.project-shortcuts').count(), 0)
   await shot(desktop, 'alarm-shortcuts-desktop')
 })
 
 await step('REQ-02', '采购十台入库、实际页面出库两台后在库八台', async () => {
-  await desktop.getByRole('button', { name: '仓库物料', exact: true }).click()
+  await desktop.getByRole('tab', { name: '仓库物料', exact: true }).click()
   await desktop.getByRole('button', { name: '登记出入库', exact: true }).click()
   const form = desktop.getByRole('dialog', { name: '登记出入库', exact: true })
   await form.getByRole('combobox', { name: '库存设备' }).click()
@@ -47,7 +48,7 @@ await step('REQ-02', '采购十台入库、实际页面出库两台后在库八�
 })
 
 await step('REQ-03', '报废设备后数量守恒并保留来源', async () => {
-  await desktop.getByRole('button', { name: '设备报废', exact: true }).click()
+  await desktop.getByRole('tab', { name: '设备报废', exact: true }).click()
   await desktop.getByRole('button', { name: '登记设备报废', exact: true }).click()
   const form = desktop.getByRole('dialog', { name: '登记设备报废', exact: true })
   await form.getByRole('combobox', { name: '库存设备' }).click()
@@ -60,7 +61,7 @@ await step('REQ-03', '报废设备后数量守恒并保留来源', async () => {
 })
 
 await step('REQ-04', '设备运维可实际录入跟进和问题', async () => {
-  await desktop.getByRole('button', { name: '设备运维', exact: true }).click()
+  await desktop.getByRole('tab', { name: '设备运维', exact: true }).click()
   await desktop.getByRole('button', { name: '新增设备运维', exact: true }).click()
   const form = desktop.getByRole('dialog', { name: '设备运维 · 新增记录', exact: true })
   await form.getByRole('textbox', { name: '维护事项', exact: true }).fill('报警终端巡检合成验收')
@@ -82,15 +83,16 @@ await step('REQ-04', '设备运维可实际录入跟进和问题', async () => {
 
 await step('REQ-05', '欠费、回款和客户资料维护按钮打开实际模块', async () => {
   for (const name of ['欠费维护', '回款维护', '客户资料维护']) {
-    await desktop.getByRole('button', { name, exact: true }).click()
+    await desktop.getByRole('tab', { name, exact: true }).click()
     await desktop.getByRole('button', { name: `新增${name}`, exact: true }).waitFor()
   }
 })
 
 await step('REQ-06', '周报与月报按钮分别打开对应周期', async () => {
-  await desktop.getByRole('button', { name: '月报', exact: true }).click()
+  await desktop.getByRole('tab', { name: '周报 / 月报', exact: true }).click()
+  await desktop.getByRole('radio', { name: '月报', exact: true }).check()
   assert.equal(await desktop.getByRole('radio', { name: '月报', exact: true }).isChecked(), true)
-  await desktop.getByRole('button', { name: '周报', exact: true }).click()
+  await desktop.getByRole('radio', { name: '周报', exact: true }).check()
   assert.equal(await desktop.getByRole('radio', { name: '周报', exact: true }).isChecked(), true)
 })
 
@@ -131,11 +133,11 @@ await step('REQ-09', '回款节点提醒可设置并显示超时合同', async (
 
 await step('REQ-10', '390px 手机页面无横向溢出，仓库与维护表单可用', async () => {
   await mobile.goto(projectUrl)
-  await mobile.getByRole('button', { name: '仓库物料', exact: true }).click()
+  await mobile.getByRole('tab', { name: '仓库物料', exact: true }).click()
   await mobile.getByRole('cell', { name: '验收专用路由器', exact: true }).first().waitFor()
   assert.ok(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
   await shot(mobile, 'warehouse-mobile')
-  await mobile.getByRole('button', { name: '设备运维', exact: true }).click()
+  await mobile.getByRole('tab', { name: '设备运维', exact: true }).click()
   await mobile.getByRole('button', { name: '查看 / 更新', exact: true }).first().click()
   const dialog = mobile.getByRole('dialog', { name: '设备运维 · 详情与跟进', exact: true })
   await dialog.waitFor()

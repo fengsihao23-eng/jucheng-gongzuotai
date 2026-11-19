@@ -20,6 +20,14 @@ from app.services import project_service as ps
 DUE_LEAD_DAYS = 3
 
 
+@job("key_project_feedback_reminders", "重点项目节点与反馈提醒", {"hour": 9, "minute": 10}, "每天 09:10（北京时间）")
+def key_project_feedback_reminders(db, params):
+    from app.services.key_projects import scan_reminders
+    result = scan_reminders(db)
+    db.commit()
+    return result
+
+
 def _day(params: dict) -> date:
     d = params.get("date")
     return date.fromisoformat(d) if d else today()
@@ -48,7 +56,7 @@ def project_milestone_scan(db, params: dict) -> dict:
     sent = 0
     for m, proj in due_soon:
         u = users.get(m.owner_id)
-        if u:
+        if u and not proj.is_key:
             notify_service.send(db, [u], "milestone_due", "项目节点即将到期",
                                 f"**{proj.name}**\n节点「{m.node_name}」计划 {m.plan_date} 完成，"
                                 f"剩余 {(m.plan_date - T).days} 天。\n岗位职责：{m.duty or '—'}",
@@ -57,7 +65,7 @@ def project_milestone_scan(db, params: dict) -> dict:
     for m, proj in newly_delayed:
         targets = {uid for uid in (m.owner_id, proj.owner_id) if uid}
         us = [users[i] for i in targets if i in users]
-        if us:
+        if us and not proj.is_key:
             notify_service.send(db, us, "milestone_delay", "项目节点延期",
                                 f"**{proj.name}**（{proj.project_code}）\n<font color=\"warning\">节点「{m.node_name}」"
                                 f"计划 {m.plan_date} 未完成，已延期 {(T - m.plan_date).days} 天并标红。</font>\n"

@@ -18,8 +18,13 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
     from app.services.operations_notifications import project_assignment_access
     from app.services.operations_policy import task_access
     from app.services import operations_scope as scope, operations_reports as reports
+    from app.services import project_service
+    from app.models import BizProject, BizProjectMilestone
 
     task_notice = ("ops_task", "ops_task_reminder")
+    visible_key_task = exists(select(BizProjectMilestone.id).join(BizProject, BizProject.id == BizProjectMilestone.project_id).where(
+        cast(BizProjectMilestone.id, String) == SysNotify.ref_id,
+        BizProject.id.in_(project_service.visible_query(p).with_only_columns(BizProject.id)))) & (p.has_menu("market") or p.has_menu("projects"))
     visible_project = exists(select(OpsProject.id).where(
         cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))
     visible_task = exists(select(OpsTask.id).where(
@@ -38,7 +43,8 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
         cast(BizCollectionEntry.id, String) == SysNotify.ref_id,
         BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
     q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
-        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_(("ops_project", *task_notice, *discussion_types, "ops_digest", "collection_entry")),
+        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_(("ops_project", *task_notice, *discussion_types, "ops_digest", "collection_entry", "key_project_task")),
+            (SysNotify.ref_type == "key_project_task") & visible_key_task,
             (SysNotify.ref_type == "ops_project") & visible_project,
             SysNotify.ref_type.in_(task_notice) & visible_task,
             SysNotify.ref_type.in_(discussion_types) & visible_discussion,

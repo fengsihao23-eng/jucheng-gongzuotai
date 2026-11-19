@@ -14,7 +14,7 @@ export const MENU_GROUPS = [
   {
     title: '财务',
     items: [
-      { key: 'receivables', path: '/receivables', label: '开票与收款' },
+      { key: 'receivables', path: '/receivables', label: '开票回款' },
       { key: 'expenses', path: '/expenses', label: '报销归集' },
       { key: 'flows', path: '/flows', label: '流水核对' },
       { key: 'journal', path: '/journal', label: '出纳日记账' },
@@ -26,7 +26,7 @@ export const MENU_GROUPS = [
     title: '市场与项目',
     items: [
       { key: 'operations', path: '/operations', label: '运营项目' },
-      { key: 'market', path: '/market', label: '重点项目跟进' },
+      { key: 'market', path: '/market', label: '重点项目' },
       { key: 'projects', path: '/general-projects', label: '一般项目' },
       { key: 'projects', path: '/history-projects', label: '历史项目' },
       { key: 'intel', path: '/intel', label: '竞品情报' },

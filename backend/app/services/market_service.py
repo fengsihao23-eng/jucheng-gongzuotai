@@ -62,6 +62,7 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
                             .order_by(BizProjectFeedback.feedback_date, BizProjectFeedback.id)):
             latest[f.project_id] = f
     cards = []
+    from app.services import key_projects
     for x in projects:
         b = ps.project_brief(db, x, T, money.get(x.project_code))
         f = latest.get(x.id)
@@ -69,6 +70,11 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
         b["paused"] = x.id in paused
         b["reported_this_week"] = bool(f and week_start <= f.feedback_date <= T)
         b["alert"] = b["delayed_nodes"] > 0 or bool(f and f.risk_level >= 2)
+        task_rows = [key_projects.task_data(db, p, x, m) for m in x.milestones] if p else []
+        b["needs_feedback"] = sum(t["needs_feedback"] for t in task_rows)
+        b["risk_tasks"] = sum(bool(t["problems"]) and t["status"] != 3 for t in task_rows)
+        b["delayed_nodes"] += sum(n["overdue"] for t in task_rows if t["status"] != 3 for n in t["nodes"])
+        b["alert"] = b["alert"] or any(t["alert"] and t["status"] != 3 for t in task_rows)
         cards.append(b)
     cards.sort(key=lambda c: (not c["alert"], c["project_code"]))
     tot_c = sum((c["contract_total"] for c in cards), ZERO)

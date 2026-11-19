@@ -1,20 +1,21 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="市场部 · 重点项目" title="重点项目跟进"
-      desc="每个重点项目的最新节点、延期标记、进展反馈与回款情况；周报 / 月报读取项目进度与合同回款数据自动成稿。">
+    <PageHeader eyebrow="市场部" title="重点项目"
+      desc="明确项目内容、负责人和时间节点，查看进展、风险与回款。">
       <el-button @click="gen('weekly')" :loading="genLoading === 'weekly'">生成周报</el-button>
       <el-button @click="gen('monthly')" :loading="genLoading === 'monthly'">生成月报</el-button>
-      <el-button type="primary" @click="summary">汇总本周周报</el-button>
+      <el-button @click="summary">汇总本周周报</el-button>
+      <el-button v-if="auth.can('project:key')" type="primary" @click="createOpen=true">新建重点项目</el-button>
     </PageHeader>
 
     <el-tabs v-model="tab">
       <el-tab-pane label="跟进看板" name="board">
         <div class="jc-grid c5 mb-16" v-if="board">
-          <Kpi label="重点项目" :value="board.summary.count" unit="个" />
-          <Kpi label="异常项目" :value="board.summary.alert_count" unit="个" hint="存在延期节点或风险反馈" />
-          <Kpi label="延期节点" :value="board.summary.delayed_nodes" unit="个" />
-          <Kpi label="累计合同" :value="wanNum(board.summary.contract_total)" unit="万" />
-          <Kpi label="累计回款" :value="wanNum(board.summary.received)" unit="万" :progress="Number(board.summary.payment_rate || 0)" :hint="`回款率 ${percent(board.summary.payment_rate)}`" />
+          <Kpi label="重点项目" :value="stats.count" unit="个" />
+          <Kpi label="异常项目" :value="stats.alert_count" unit="个" hint="延期、风险或进展待反馈" />
+          <Kpi label="延期节点" :value="stats.delayed_nodes" unit="个" />
+          <Kpi label="累计合同" :value="wanNum(stats.contract_total)" unit="万" />
+          <Kpi label="累计回款" :value="wanNum(stats.received)" unit="万" :progress="Number(stats.payment_rate || 0)" :hint="`回款率 ${percent(stats.payment_rate)}`" />
         </div>
 
         <div class="layout">
@@ -22,11 +23,11 @@
             <template #extra>
               <el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox>
               <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
-              <el-button v-if="board?.summary_text" size="small" @click="summaryOpen = true">重点项目汇总</el-button>
             </template>
             <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
+            <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" aria-label="重点项目搜索" /><el-select v-model="projectStatus" clearable placeholder="全部状态" aria-label="重点项目筛选状态"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
             <div class="cards">
-              <div v-for="p in board?.projects || []" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" @click="$router.push(`/projects/${p.project_code}`)">
+              <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)">
                 <div class="jc-row between">
                   <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
                   <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
@@ -43,6 +44,7 @@
                   <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
                 </div>
                 <div :class="p.reported_this_week ? 'jc-up' : 'jc-warn'" class="jc-small mt-8">{{ p.reported_this_week ? '本周已反馈' : '本周未反馈' }}</div>
+                <div v-if="p.needs_feedback" class="jc-small jc-warn">{{ p.needs_feedback }} 项任务待填写进展</div>
                 <div class="fb jc-small" :class="{ risk: p.latest_feedback?.risk_level >= 2 }">
                   <template v-if="p.latest_feedback"><span class="jc-muted jc-num">{{ shortDate(p.latest_feedback.feedback_date) }}</span> {{ p.latest_feedback.content }}</template>
                   <span v-else class="jc-muted">暂无进展反馈</span>
@@ -57,28 +59,10 @@
                 <el-button v-if="p.is_key && auth.can('project:key')" size="small" link @click.stop="togglePause(p)">{{ p.paused ? '恢复跟进' : '暂停跟进' }}</el-button>
               </div>
             </div>
-            <el-empty v-if="board && !board.projects.length" description="暂无重点项目" />
+            <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="auth.can('project:key')&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
           </Panel>
 
           <div class="jc-stack">
-            <Panel v-if="auth.can('feedback:write')" title="登记进展反馈">
-              <el-form :model="fb" label-position="top" size="default">
-                <el-form-item label="项目">
-                  <el-select v-model="fb.project_code" filterable style="width: 100%" placeholder="选择项目">
-                    <el-option v-for="p in board?.projects || []" :key="p.project_code" :label="p.name" :value="p.project_code" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="类型">
-                  <el-radio-group v-model="fb.kind">
-                    <el-radio-button value="progress">进展</el-radio-button>
-                    <el-radio-button value="event">重点事件</el-radio-button>
-                    <el-radio-button value="risk">风险</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-                <el-form-item label="内容"><el-input v-model="fb.content" type="textarea" :rows="3" /></el-form-item>
-                <el-button type="primary" :loading="fbSaving" @click="addFeedback">提交</el-button>
-              </el-form>
-            </Panel>
             <Panel title="重点事件" sub="近 60 天事件与风险">
               <el-timeline v-if="board?.events?.length" class="tl">
                 <el-timeline-item v-for="e in board.events" :key="e.id" :timestamp="date(e.feedback_date)" :color="e.kind === 'risk' ? '#a63d32' : '#a8741a'">
@@ -119,6 +103,7 @@
         </Panel>
       </el-tab-pane>
     </el-tabs>
+    <KeyProjectForm v-model="createOpen" @saved="p=>router.push(`/market/projects/${p.project_code}`)" />
 
     <el-drawer v-model="pv.show" :title="pv.title" size="720px">
       <div class="md" v-html="pv.html" />
@@ -135,19 +120,25 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
-import { BUSINESS_LINES, date, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
+import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
+import KeyProjectForm from './market/KeyProjectForm.vue'
 
 const auth = useAuth()
 const route = useRoute()
+const router = useRouter(), createOpen = ref(false), keyword = ref(''), projectStatus = ref(null), attentionOnly = ref(false)
 const tab = ref(route.query.tab === 'reports' ? 'reports' : 'board')
 const board = ref(null)
 const loading = ref(false)
 const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
+const filteredProjects = computed(() => (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) && (!attentionOnly.value || p.alert) && `${p.name} ${p.customer_name} ${p.owner_name} ${p.market_owner_name}`.includes(keyword.value.trim())))
+const stats = computed(() => { const rows=filteredProjects.value,contract=rows.reduce((s,p)=>s+Number(p.contract_total||0),0),received=rows.reduce((s,p)=>s+Number(p.received||0),0);return {count:rows.length,alert_count:rows.filter(p=>p.alert).length,delayed_nodes:rows.reduce((s,p)=>s+p.delayed_nodes,0),contract_total:contract,received,payment_rate:contract?received/contract:null} })
+function openProject(p) { router.push(`/${p.is_key?'market/projects':'projects'}/${p.project_code}`) }
 async function togglePause(project) {
   try {
     await api.put('/market/projects/' + project.project_code + '/pause', { paused: !project.paused })
@@ -161,22 +152,6 @@ async function load() {
     board.value = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
   } finally {
     loading.value = false
-  }
-}
-
-// 反馈
-const fb = reactive({ project_code: '', kind: 'progress', content: '' })
-const fbSaving = ref(false)
-async function addFeedback() {
-  if (!fb.project_code || !fb.content.trim()) return ElMessage.warning('请选择项目并填写内容')
-  fbSaving.value = true
-  try {
-    await api.post('/market/feedback', { ...fb })
-    fb.content = ''
-    ElMessage.success('已提交')
-    load()
-  } finally {
-    fbSaving.value = false
   }
 }
 
@@ -241,12 +216,14 @@ onMounted(() => {
   load()
   if (tab.value === 'reports') loadReports()
 })
+useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value })
 </script>
 
 <style scoped>
 .layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%,260px), 1fr)); gap: 14px; }
+.project-filters { display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 18px; }.project-filters .el-input { width:240px; }.project-filters .el-select { width:140px; }
 .pcard { border: 1px solid var(--jc-line); border-radius: var(--jc-radius); padding: 14px 16px; cursor: pointer; background: var(--jc-surface); transition: border-color 0.15s, box-shadow 0.15s; }
 .pcard:hover { border-color: var(--jc-brand-100); box-shadow: var(--jc-shadow-pop); }
 .pcard.alert { border-left: 3px solid var(--jc-down); }

@@ -21,6 +21,8 @@ from app.core.timeutil import today
 from app.models import BizProject, BizProjectFollowSetting, BizProjectReview, MktIntel, RptReport, SysFile, SysUser
 from app.services import market_service as ms
 from app.services import project_service as ps
+from app.services import key_projects as keys
+from app.schemas.key_projects import KeyProjectIn, KeyProjectEditIn, KeyTaskIn, KeyTaskFeedbackIn
 
 router = APIRouter(prefix="/market", tags=["market"])
 Market = Depends(require_menu("market"))
@@ -41,6 +43,57 @@ def board(include_all: bool = False, include_paused: bool = False, p: Principal 
     d = ms.key_board(db, p, include_all, include_paused)
     d["events"] = ms.key_events(db, p, days=60)[:30]
     return ok(d)
+
+
+@router.get("/key-options")
+def key_project_options(p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    return ok(keys.options(db, p))
+
+
+@router.post("/projects")
+def create_key_project(body: KeyProjectIn, p: Principal = Market, db: Session = Depends(get_db)):
+    row = keys.save_project(db, p, body)
+    db.commit()
+    return ok({"project_code": row.project_code, "id": row.id})
+
+
+@router.get("/projects/{project_code}")
+def key_project_detail(project_code: str, period: str = "", p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    return ok(keys.detail(db, p, project_code, period))
+
+
+@router.put("/projects/{project_code}")
+def edit_key_project(project_code: str, body: KeyProjectEditIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    row = keys.save_project(db, p, body, project_code)
+    db.commit()
+    return ok({"project_code": row.project_code})
+
+
+@router.post("/projects/{project_code}/tasks")
+def create_key_task(project_code: str, body: KeyTaskIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    result = keys.save_task(db, p, project_code, body)
+    db.commit()
+    return ok(result)
+
+
+@router.get("/projects/{project_code}/tasks/{task_id}")
+def key_task_detail(project_code: str, task_id: int, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    row = keys.project(db, p, project_code)
+    return ok(keys.task_data(db, p, row, keys.task(db, row, task_id), history=True))
+
+
+@router.put("/projects/{project_code}/tasks/{task_id}")
+def edit_key_task(project_code: str, task_id: int, body: KeyTaskIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    result = keys.save_task(db, p, project_code, body, task_id)
+    db.commit()
+    return ok(result)
+
+
+@router.post("/projects/{project_code}/tasks/{task_id}/feedback")
+def key_task_feedback(project_code: str, task_id: int, body: KeyTaskFeedbackIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    result = keys.feedback(db, p, project_code, task_id, body)
+    db.commit()
+    return ok(result)
 
 
 class PauseIn(BaseModel):

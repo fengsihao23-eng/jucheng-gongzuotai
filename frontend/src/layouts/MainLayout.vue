@@ -1,5 +1,5 @@
 <template>
-  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'personal-work-layout': route.name === 'portal', 'workbook-layout': !!route.meta.workbookView }">
+  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'personal-work-layout': route.name === 'portal', 'workbook-layout': !!route.meta.workbookView, 'key-project-layout': route.path.startsWith('/market') || route.name === 'receivables' }">
     <aside class="side jc-noprint">
       <router-link to="/" class="brand"><JcLogo :size="30" /></router-link>
       <nav>
@@ -188,8 +188,8 @@ nav { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
 .np-more { display: block; text-align: center; padding-top: 10px; font-size: 13px; }
 @media (max-width: 900px) { .side { display: none; } .today { display: none; } .top { padding: 0 16px; } }
 @media (max-width: 560px) {
-  :is(.operations-layout, .personal-work-layout, .workbook-layout) .top { gap: 8px; }
-  :is(.operations-layout, .personal-work-layout, .workbook-layout) .me-t, :is(.operations-layout, .personal-work-layout, .workbook-layout) .top .jc-spacer { display: none; }
-  :is(.operations-layout, .personal-work-layout, .workbook-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .key-project-layout) .top { gap: 8px; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .key-project-layout) .me-t, :is(.operations-layout, .personal-work-layout, .workbook-layout, .key-project-layout) .top .jc-spacer { display: none; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .key-project-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 </style>

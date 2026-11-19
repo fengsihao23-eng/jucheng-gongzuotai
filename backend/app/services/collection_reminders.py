@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.core.audit import log_op
 from app.core.deps import build_principal
 from app.core.response import bad_request, conflict, forbidden
-from app.core.timeutil import TZ, day_bounds, today
+from app.core.timeutil import TZ, day_bounds, now, today
 from app.models import (ContractWorkbook, SysNotify, SysUser, WorkbookCollectionProgress as Progress,
                         WorkbookCollectionReminder as Rule, WorkbookCollectionRequest as Followup)
 from app.services import business_workbook as source, collection_followups as followups
@@ -138,10 +138,12 @@ def scan(db):
                 SysNotify.created_at >= start, SysNotify.created_at < end).limit(1)):
                 continue
             user = db.get(SysUser, uid)
-            notify_service.send(db, [user], NOTICE, "回款节点反馈已超时",
+            notices = notify_service.send(db, [user], NOTICE, "回款节点反馈已超时",
                 f"{item['name']}：应于 {deadline} 反馈，目前仍未完成节点反馈。请记录进展与存在问题。",
                 link=f"/collections/followups/{req.id}", ref_type=REF, ref_id=str(rule.id), defer=True,
                 wecom_content="回款节点反馈已超时，请打开工作台查看合同并反馈进展。")
+            for notice in notices:
+                notice.created_at = now()
             queued += 1
     return {"rows": queued, "message": f"超时合同 {overdue} 份，已为负责人及管理者生成 {queued} 组提醒"}
 

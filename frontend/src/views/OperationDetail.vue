@@ -7,10 +7,6 @@
         <el-button v-if="project.can_manage" @click="projectForm = true">编辑项目</el-button>
         <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
       </PageHeader>
-      <div v-if="maintenanceShortcuts.length || canSection('reports')" class="project-shortcuts" aria-label="项目运营维护">
-        <el-button v-for="s in maintenanceShortcuts" :key="s.key" :type="tab === s.key ? 'primary' : undefined" plain @click="tab = s.key">{{ s.label }}</el-button>
-        <template v-if="canSection('reports')"><el-button @click="openDigest('week')">周报</el-button><el-button @click="openDigest('month')">月报</el-button></template>
-      </div>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
           <el-tab-pane label="任务情况" name="tasks">
@@ -50,7 +46,7 @@
           <el-tab-pane v-for="section in maintenanceSections.filter(s => canSection(s.key))" :key="section.key" :label="section.label" :name="section.key" lazy><OperationsMaintenance :project="project" :kind="section.key" :active="tab === section.key" /></el-tab-pane>
           <el-tab-pane v-if="canSection('warehouse')" label="仓库物料" name="warehouse" lazy><OperationsWarehouse :project="project" :active="tab === 'warehouse'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('scrap')" label="设备报废" name="scrap" lazy><OperationsWarehouse :project="project" :active="tab === 'scrap'" scrap-only /></el-tab-pane>
-          <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" :initial-mode="digestMode" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
           <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" :sections="project.visible_sections" /></el-tab-pane>
         </el-tabs>
@@ -112,10 +108,7 @@ const schoolPreset = ref(null)
 const hasSchools = computed(() => project.value?.feature_settings?.configured || project.value?.category.includes('校园') || project.value?.schools.length)
 const legacyCampusIncome = computed(() => project.value?.feature_settings?.legacy_campus_income ?? project.value?.name === '智慧校园')
 const canSection = section => (project.value?.visible_sections || []).includes(section)
-const digestMode = ref('week')
 const maintenanceSections = [{key:'device_maintenance',label:'设备运维'},{key:'arrears',label:'欠费维护'},{key:'collection_maintenance',label:'回款维护'},{key:'customers',label:'客户资料维护'}]
-const maintenanceShortcuts = computed(() => [...maintenanceSections,{key:'warehouse',label:'仓库物料'},{key:'scrap',label:'设备报废'}].filter(s => canSection(s.key)))
-function openDigest(mode) { digestMode.value = mode; tab.value = 'digest' }
 const taskView = ref('cards')
 watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
 watch(project, value => {
@@ -172,7 +165,6 @@ onBeforeUnmount(() => { version++ })
 </script>
 <style scoped>
 .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
-.project-shortcuts { display:flex;flex-wrap:wrap;gap:8px;margin-top:14px; }.project-shortcuts .el-button { margin-left:0; }
 .board-status { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 15px; }
 .board-status button { --tone: var(--jc-brand); display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--jc-line); border-radius: 7px; padding: 7px 10px; font: inherit; font-size: 12px; color: var(--jc-ink-2); background: var(--jc-bg-2, #f9f8f5); cursor: pointer; }
 .board-status button[data-status="done"] { --tone: var(--jc-up); }

@@ -1,14 +1,14 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="财务台账" title="开票与收款" desc="按实际开票与到账登记，保留审批、凭证和核销记录。">
+    <PageHeader eyebrow="财务台账" title="开票回款" desc="按实际开票与到账登记，保留审批、凭证和核销记录。">
       <el-button @click="refresh" :loading="loading">刷新</el-button>
       <el-button v-if="tab === 'invoices' && can('invoice')" type="primary" @click="open('invoice')">登记已开票</el-button>
       <el-button v-if="tab === 'receipts' && can('receipt')" type="primary" @click="open('receipt')">确认到账</el-button>
     </PageHeader>
 
     <div class="jc-grid c4">
-      <Kpi label="所选月有效开票" :value="money(summary.net_issued)" unit="元" />
-      <Kpi label="所选月实际到账" :value="money(summary.total_received)" unit="元"
+      <Kpi :label="periodLabel ? `${periodLabel} 开票` : '当月开票'" :value="money(summary.net_issued)" unit="元" hint="已确认开票金额，扣除红冲" />
+      <Kpi :label="periodLabel ? `${periodLabel} 到账` : '当月到账'" :value="money(summary.total_received)" unit="元"
            :hint="`合同 ${money(summary.contract_received)} / 其他及待匹配 ${money(summary.other_received)}`" />
       <Kpi label="当前已开票未收" :value="money(summary.invoice_outstanding_now)" unit="元" />
       <Kpi label="当前应收计划逾期" :value="money(summary.plan_overdue_now)" unit="元" />
@@ -48,6 +48,7 @@
       </p>
       <p v-if="tab === 'receipts'" class="jc-muted jc-small">旧合同回款仍可在合同台账查看。关联已有回款 ID 只补来源和核销信息，不再新增合同回款。</p>
 
+      <h3 v-if="tab === 'invoices'">开票清单</h3>
       <el-table v-if="tab === 'invoices'" :data="rows" row-key="id" empty-text="没有符合条件的开票记录">
         <el-table-column label="客户 / 发票号码" min-width="220"><template #default="{ row }">
           <div>{{ row.customer }}</div><small class="jc-muted">{{ row.invoice_no || '待开票' }}</small>
@@ -136,6 +137,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
+import dayjs from 'dayjs'
 
 const auth = useAuth(), route = useRoute()
 const can = (key) => auth.can(`receivables:${key}`)
@@ -150,6 +152,7 @@ const titles = { invoice: '登记实际开票', issue: '确认实际开票', rec
 const formFields = { invoice: ['customer', 'contract_no', 'approval_no', 'invoice_no', 'issued_on', 'amount', 'note'], issue: ['invoice_no', 'issued_on', 'amount'], receipt: ['kind', 'payer', 'account', 'reference', 'received_on', 'amount', 'contract_no', 'payment_id', 'note'], assign: ['contract_no'], correct: ['reduced_total', 'reason'], void: ['reason'] }
 const tab = ref('invoices'), summary = ref({}), rows = ref([]), total = ref(0), page = ref(1)
 const filter = reactive({ keyword: '', period: '', state: '', kind: '', sourceState: '' })
+const periodLabel = computed(() => filter.period && filter.period !== dayjs().format('YYYY-MM') ? filter.period : '')
 const loading = ref(false), busy = ref(false), sourceKind = ref('invoice'), filePicker = ref(null), selected = ref([])
 const syncStatus = ref(null)
 const dialog = ref(false), action = ref(''), target = ref(null), form = ref({})

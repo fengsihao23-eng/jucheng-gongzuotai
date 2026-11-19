@@ -27,7 +27,7 @@ MODULES = {
     "reports": ("报表与项目利润", "/reports"), "projects": ("项目与进度", "/projects"),
     "receivables": ("开票与收款", "/receivables"),
     "collections": ("经营回款与跟进", "/collections"),
-    "market": ("市场情报与复盘", "/market"), "opportunities": ("商机管理", "/opportunities"),
+    "market": ("重点项目、市场情报与复盘", "/market"), "opportunities": ("商机管理", "/opportunities"),
     "performance": ("业绩与运营", "/performance"), "clean": ("数据清洗导入", "/clean"),
     "hr": ("人事考勤与招聘", "/hr"), "service": ("客服工单", "/service"),
     "tender": ("标书与方案", "/tender"), "kb": ("知识库", "/kb"),
@@ -65,6 +65,10 @@ ROUTE_EXCLUSIONS = {
     "source_checks.verify_source", "source_checks.robot_state", "source_checks.save_robot",
 }
 LABELS = {
+    "key_project_options": "查询重点项目负责人选项", "create_key_project": "新建重点项目与准备完成计划",
+    "key_project_detail": "读取重点项目任务、阶段节点、进展风险与开票回款", "edit_key_project": "调整重点项目资料与准备完成日期",
+    "create_key_task": "安排重点项目任务与阶段节点", "key_task_detail": "读取重点项目任务进展与过程记录",
+    "edit_key_task": "调整重点项目任务计划", "key_task_feedback": "记录重点项目任务执行、问题和节点完成情况",
     "warehouse": "查询仓库在库、在运营和已报废设备数量与流转记录", "stock_movement": "登记出入库、退库或设备报废",
     "maintenance_records": "查询运营设备运维、欠费、回款或客户资料维护", "maintenance_history": "读取运营维护过程记录",
     "create_maintenance": "新增项目运营维护记录", "update_maintenance": "更新本人负责的运营维护进展",
@@ -270,6 +274,7 @@ def _effect(module, method, path, name):
     if module == "business_workbook" and name == "save_collection_reminder": return "confirm"
     if module == "operations":
         return "query" if name in {"draft_feedback", "draft_proposal"} else "confirm"
+    if module == "market" and name in {"create_key_project", "edit_key_project", "create_key_task", "edit_key_task", "key_task_feedback"}: return "confirm"
     if module == "imports" and name in {"wecom_search", "wecom_preview"}: return "query"
     if module == 'imports' and name in {'upload', 'analyze'}: return 'execute'
     if module in {"admin", "mcp_config", "contracts", "journal", "expenses", "finance_data", "imports", "receivables", "collections", "wecom_approval"}: return "confirm"
