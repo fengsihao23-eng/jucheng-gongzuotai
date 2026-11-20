@@ -62,6 +62,10 @@ def save_features(db, p, project, sections, expected_revision, *, creating, lega
 def view(db, p, project):
     from app.services import operations_service as ops
     enabled = enabled_features(db, project)
+    if not ops.has_project_content(db, p, project):
+        return {"sections": [], "task_scope": "self", "revision": 0, "managed": False}
+    if not ops.is_superuser(p):
+        enabled = {key for key in enabled if p.has_section("operations", key)}
     if ops.can_view_all(p) or ops.role(db, p, project) == "manager":
         return {"sections": [key for key in SECTIONS if key in enabled], "task_scope": "team", "revision": 0, "managed": True}
     member = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
@@ -91,13 +95,14 @@ def members_config(db, p, project):
     from app.services import operations_service as ops
     from app.core.deps import build_principal
     ops.manage(db, p, project)
+    require(db, p, project, "team")
     rows = {r.user_id: r for r in db.scalars(select(OpsMemberView).where(OpsMemberView.project_id == project.id))}
     enabled = enabled_features(db, project)
     return {"sections": {k: v for k, v in SECTIONS.items() if k in enabled}, "items": [{**m,
         "sections": [k for k in (rows[m["user_id"]].sections if m["user_id"] in rows else SECTIONS) if k in enabled],
         "task_scope": rows[m["user_id"]].task_scope if m["user_id"] in rows else "team",
         "revision": rows[m["user_id"]].revision if m["user_id"] in rows else 0,
-        "locked": m["is_owner"] or m["role"] in {"manager", "co_owner"} or ops.can_view_all(build_principal(db.get(SysUser, m["user_id"])))}
+        "locked": ops.role(db, build_principal(db.get(SysUser, m["user_id"])), project) == "manager"}
         for m in ops.members(db, project)]}
 
 
@@ -106,8 +111,9 @@ def save_member_view(db, p, project_id, user_id, body):
     from app.core.deps import build_principal
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
+    require(db, p, project, "team")
     member = db.scalar(select(OpsMember).where(OpsMember.project_id == project_id, OpsMember.user_id == user_id))
-    if project.owner_id == user_id or not member or member.role in {"manager", "co_owner"} or ops.can_view_all(build_principal(ops.user(db, user_id))):
+    if not member or ops.role(db, build_principal(ops.user(db, user_id)), project) == "manager":
         raise bad_request("项目管理者保留完整管理范围；请为普通成员配置可见内容")
     row = db.get(OpsMemberView, (project_id, user_id))
     if body.expected_revision != (row.revision if row else 0):
@@ -137,6 +143,7 @@ def save_controls(db, p, project_id, body):
     from app.services import operations_service as ops, project_service
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
+    require_settings(p)
     before = controls(db, project_id)
     if body.expected_revision != before["revision"]:
         raise conflict("项目设置已变化，请刷新后重试")
@@ -166,6 +173,12 @@ def save_controls(db, p, project_id, body):
 def content_project_ids(db, p, section):
     from app.services import operations_service as ops
     return [r.id for r in db.scalars(ops.visible_projects(p)) if can(db, p, r, section)]
+
+
+def require_settings(p):
+    from app.services import operations_service as ops
+    if not ops.is_superuser(p) and not p.has_section("operations", "settings"):
+        raise forbidden("未授权使用运营项目工作设置")
 
 
 def redact_schools(rows, sections):

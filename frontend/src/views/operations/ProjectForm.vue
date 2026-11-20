@@ -16,6 +16,7 @@
       </div>
       <p v-if="initial?.id" class="jc-small jc-muted">更换项目负责人后，原负责人保留执行成员权限，可在项目团队中调整。</p>
       <p v-else class="jc-small jc-muted">创建后会通知所选项目负责人。已绑定公司通讯录的负责人还会收到企业微信通知。</p>
+      <p v-if="!initial?.id" class="jc-small jc-muted">普通管理者为他人创建项目时，会以项目管理员身份加入团队。</p>
       <el-form-item label="标准功能">
         <div class="feature-box" v-loading="loadingOptions">
           <div v-if="features.length" class="feature-heading">

@@ -19,6 +19,9 @@ def member_clause(p):
 def task_access(p, *, archive=False):
     from app.services import operations_service as ops
 
+    if not p.has_section("operations", "tasks") and not ops.is_superuser(p):
+        from sqlalchemy import false
+        return false()
     base = (archived() if archive else ~archived()) & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted"))
     if ops.can_view_all(p):
         return base
@@ -34,8 +37,6 @@ def task_access(p, *, archive=False):
                                OpsMemberView.task_scope == "self")
     managers = or_(OpsTask.project_id.in_(owner_project), OpsTask.project_id.in_(managed))
     regular = belongs & or_(~restricted & ~self_only, managers, participants)
-    if p.can("operations:approve"):
-        return base & or_(regular, OpsTask.company_reviewer_id == p.id)
     return base & regular
 
 
@@ -78,7 +79,7 @@ def update_policy(db, p, project, task, values):
 def can_archive(db, p, project):
     from app.services import operations_service as ops
 
-    return (p.is_admin or p.can("operations:archive")) and ops.role(db, p, project) == "manager"
+    return (ops.is_superuser(p) or p.is_admin or p.can("operations:archive")) and ops.role(db, p, project) == "manager"
 
 
 def archive(db, p, task_id, reason, *, restore=False):

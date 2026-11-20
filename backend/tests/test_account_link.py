@@ -128,6 +128,28 @@ def test_invalid_alias_never_grants_access(linked_setup):
     with pytest.raises(BizError): resolve_account(db, source)
 
 
+def test_permission_reset_preserves_verified_login_alias_without_its_own_permissions(linked_setup):
+    from sqlalchemy import delete
+    from app.core.accounts import RESET_ALIAS_KEY, RESET_ALIAS_POLICY
+    from app.models import SysUserPermission
+    db, source, target, root, *_ = linked_setup
+    service.apply(db, source.id, target.id, target.wecom_userid, root / "backup", source.id)
+    db.commit()
+    source.workbench_enabled = False
+    db.execute(delete(SysUserRole).where(SysUserRole.user_id == source.id))
+    db.add(SysUserPermission(user_id=source.id, menus=[], buttons=[], sections={}, data_scope="self"))
+    source.preferences = {**source.preferences, LINK_KEY: {
+        **source.preferences[LINK_KEY], RESET_ALIAS_KEY: RESET_ALIAS_POLICY}}
+    db.flush()
+    db.expire_all()
+    assert not build_principal(source).menus and not source.roles
+    assert resolve_account(db, source).id == target.id
+    source.preferences = {**source.preferences, LINK_KEY: {
+        **source.preferences[LINK_KEY], RESET_ALIAS_KEY: "unverified"}}
+    with pytest.raises(BizError):
+        resolve_account(db, source)
+
+
 def test_file_failure_rolls_back_database_and_original_file(linked_setup):
     db, source, target, root, *_ = linked_setup
     session = xiaoju_sessions.create(source.id, '冲突测试')

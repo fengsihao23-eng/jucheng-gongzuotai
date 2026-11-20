@@ -19,7 +19,7 @@ def role_by_code(db: Session, code: str) -> SysRole:
 
 
 def ensure_default_role(db: Session, user: SysUser) -> None:
-    if user.roles:
+    if user.roles or user.workbench_enabled is False:
         return
     code = DEPT_DEFAULT_ROLE.get(user.dept_code or "", "EMP")
     db.add(SysUserRole(user_id=user.id, role_id=role_by_code(db, code).id))

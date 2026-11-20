@@ -48,7 +48,7 @@ def _abs(path: str) -> str:
 
 def _bound_user(db: Session, wecom_userid: str) -> SysUser | None:
     u = db.scalar(select(SysUser).where(SysUser.wecom_userid == wecom_userid))
-    if not u or u.status != 1 or u.is_deleted:
+    if not u or u.status != 1 or u.is_deleted or not u.workbench_enabled:
         return None
     if settings.source_mode("wecom") == "live":
         marker = (u.preferences or {}).get("company_directory")

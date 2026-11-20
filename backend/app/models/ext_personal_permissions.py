@@ -14,6 +14,7 @@ class SysUserPermission(Base):
     menus: Mapped[list[str]] = mapped_column(JSON)
     buttons: Mapped[list[str]] = mapped_column(JSON)
     data_scope: Mapped[str] = mapped_column(String(8))
+    sections: Mapped[dict[str, list[str]] | None] = mapped_column(JSON, nullable=True)
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id", ondelete="SET NULL"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     __table_args__ = (CheckConstraint("data_scope IN ('self', 'dept', 'all')", name="ck_user_permission_scope"),)

@@ -5,6 +5,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Strin
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import JSON, Base, SoftDeleteMixin, TimestampMixin
+from app.core.config import settings
 
 
 class SysDepartment(TimestampMixin, Base):
@@ -40,6 +41,10 @@ class SysUser(TimestampMixin, SoftDeleteMixin, Base):
     email: Mapped[str | None] = mapped_column(String(128))
     mobile: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[int] = mapped_column(Integer, default=1)  # 1 在职 2 离职
+    # 生产新账号默认等待单独授权；迁移保留旧账号，再由一次性名单脚本收回授权。
+    workbench_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=lambda: settings.environment != "prod",
+        server_default="false")
     password_hash: Mapped[str | None] = mapped_column(String(256))
     access_token: Mapped[str | None] = mapped_column(String(128), unique=True)  # MCP 个人令牌（存 sha256）
     access_token_hint: Mapped[str | None] = mapped_column(String(16))

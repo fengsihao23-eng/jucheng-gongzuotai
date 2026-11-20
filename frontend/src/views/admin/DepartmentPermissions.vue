@@ -73,10 +73,12 @@
               <h3>{{ effective.name }}</h3>
               <p class="jc-muted jc-small">{{ [effective.department || '未分配部门', effective.position, effective.userid].filter(Boolean).join(' · ') }}</p>
             </div>
-            <StatusPill :text="effective.active ? '在职' : '停用'" :tone="effective.active ? 'up' : 'down'" dot />
+            <StatusPill :text="effective.active ? '已开通' : effective.workbench_enabled ? '停用' : '未授权'" :tone="effective.active ? 'up' : 'down'" dot />
           </div>
 
           <section v-if="canManage" class="grant">
+            <el-checkbox v-model="workbenchEnabled" :disabled="saving || stale" aria-label="允许使用工作台">允许此人查看和使用工作台</el-checkbox>
+            <p v-if="!workbenchEnabled" class="jc-muted jc-small">当前禁止使用工作台；重新配置权限后勾选此项并保存，即可开通。</p>
             <label for="employee-role-grants">角色身份</label>
             <el-select id="employee-role-grants" v-model="draft" aria-label="授予角色" multiple filterable
                        placeholder="选择这个人的角色" :disabled="saving || stale" style="width: 100%">
@@ -106,15 +108,9 @@
                 </el-radio-group>
                 <span class="jc-muted jc-small scope-note">合同、商机和项目按此范围查询；运营项目仍按成员授权。</span>
               </el-form-item>
-              <el-form-item label="可见菜单">
-                <el-checkbox-group v-model="permissionDraft.menus" aria-label="个人可见菜单" class="menu-choices">
-                  <el-checkbox v-for="(label, key) in menus" :key="key" :value="key" :disabled="key === 'portal'">{{ label }}</el-checkbox>
-                </el-checkbox-group>
-              </el-form-item>
-              <el-form-item label="操作权限">
-                <el-select v-model="permissionDraft.buttons" aria-label="个人操作权限" multiple filterable placeholder="选择允许执行的操作" style="width: 100%">
-                  <el-option v-for="(label, key) in actionOptions" :key="key" :label="label" :value="key" />
-                </el-select>
+              <el-form-item label="模块、功能小项与操作权限">
+                <PermissionGroups :model-value="permissionDraft" :groups="permissionGroups"
+                                  @update:model-value="value => Object.assign(permissionDraft, value)" />
               </el-form-item>
               <el-button link type="primary" @click="copyRoleDefaults">重新带入角色默认权限</el-button>
             </el-form>
@@ -130,9 +126,10 @@
             <p v-if="changed" class="jc-small jc-muted">上方选择尚未保存；这里显示账号当前实际生效的权限。</p>
             <div class="role-tags"><span v-for="label in effective.menus" :key="label" class="jc-pill">{{ label }}</span></div>
             <p class="jc-small jc-muted">可执行操作：{{ effective.buttons.map(key => privileges[key] || key).join('、') || '基础查看操作' }}</p>
+            <p v-for="(selected, menu) in effective.sections || {}" :key="menu" class="jc-small jc-muted">{{ menus[menu] }}功能：{{ sectionLabels(menu, selected).join('、') || '未授权任何小项' }}</p>
             <p v-for="note in effective.access_notes || []" :key="note" class="jc-small access-note">{{ note }}</p>
           </section>
-          <p v-if="!effective.active" class="jc-muted">账号已停用，启用后角色权限才会生效。</p>
+          <p v-if="!effective.active" class="jc-muted">{{ effective.workbench_enabled ? '账号已停用，启用后角色权限才会生效。' : '当前账号无法查看和使用工作台，需要单独重新配置权限。' }}</p>
           <template v-if="!canManage && effective.active">
             <dl class="permission-sections">
               <div><dt>当前生效角色</dt><dd>{{ effective.roles.map(roleName).join('、') }}</dd></div>
@@ -195,6 +192,7 @@ import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { useAuth } from '@/store/auth'
 import { announcePermissionChange } from '@/composables/usePermissionRefresh'
+import PermissionGroups from './PermissionGroups.vue'
 
 const props = defineProps({
   roles: { type: Array, required: true },
@@ -203,6 +201,7 @@ const props = defineProps({
   canManage: Boolean,
   privileges: { type: Object, required: true },
   menus: { type: Object, required: true },
+  permissionGroups: { type: Array, default: () => [] },
   publicMenus: { type: Array, default: () => ['portal', 'kb', 'imports', 'mcp', 'operations'] },
 })
 const emit = defineEmits(['roles-changed', 'edit-role'])
@@ -214,7 +213,9 @@ const open = ref(false), roster = ref(null), person = ref(null), rosterTab = ref
 const people = ref({ items: [], total: 0, page: 1 }), keyword = ref(''), roleFilter = ref('')
 const membersLoading = ref(false), membersError = ref('')
 const effective = ref(null), permissionLoading = ref(false), permissionError = ref('')
-const draft = ref([]), mode = ref('role'), permissionDraft = reactive({ menus: [], buttons: [], data_scope: 'self' })
+const draft = ref([]), mode = ref('role'), workbenchEnabled = ref(true)
+const permissionDraft = reactive({ menus: [], buttons: [], data_scope: 'self', sections: null })
+watch(workbenchEnabled, value => { if (value && !permissionDraft.menus.includes('portal')) permissionDraft.menus.push('portal') })
 const saving = ref(false), saveError = ref(''), saveNotice = ref(''), stale = ref(false)
 const needsIdentity = ref(false), passwordAvailable = ref(false), identityOpen = ref(false)
 const verifying = ref(false), password = ref(''), identityError = ref('')
@@ -227,7 +228,9 @@ const departmentRoles = computed(() => {
 })
 const added = computed(() => draft.value.filter(code => !effective.value?.assigned_roles.includes(code)))
 const removed = computed(() => (effective.value?.assigned_roles || []).filter(code => !draft.value.includes(code)))
-const normalized = value => value ? ({ menus: [...new Set(value.menus)].sort(), buttons: [...new Set(value.buttons)].sort(), data_scope: value.data_scope }) : null
+const normalized = value => value ? ({ menus: [...new Set(value.menus)].sort(), buttons: [...new Set(value.buttons)].sort(), data_scope: value.data_scope,
+  sections: value.sections ? Object.fromEntries(Object.entries(value.sections).sort(([a], [b]) => a.localeCompare(b)).map(([key, items]) => [key, [...new Set(items)].sort()])) : null }) : null
+const sectionLabels = (menu, selected) => selected.map(key => props.permissionGroups.find(group => group.key === menu)?.sections[key] || key)
 const administrator = computed(() => draft.value.includes('ADMIN-01'))
 watch(administrator, value => { if (value) mode.value = 'role' })
 const actionOptions = computed(() => Object.fromEntries(Object.entries(props.privileges).filter(([key]) => key !== '*')))
@@ -246,13 +249,13 @@ const roleDefaults = computed(() => {
   }
   return normalized({ menus: [...menus], buttons: [...buttons], data_scope })
 })
-const changed = computed(() => Boolean(added.value.length || removed.value.length) ||
+const changed = computed(() => Boolean(added.value.length || removed.value.length) || Boolean(effective.value && workbenchEnabled.value !== effective.value.workbench_enabled) ||
   Boolean(effective.value && JSON.stringify(mode.value === 'personal' ? normalized(permissionDraft) : null) !==
     JSON.stringify(normalized(effective.value.individual_permissions))))
-watch([draft, mode, permissionDraft], () => { saveNotice.value = '' }, { deep: true, flush: 'sync' })
+watch([draft, mode, permissionDraft, workbenchEnabled], () => { saveNotice.value = '' }, { deep: true, flush: 'sync' })
 function copyRoleDefaults() {
   const value = roleDefaults.value
-  Object.assign(permissionDraft, { menus: [...value.menus], buttons: value.buttons.filter(key => key !== '*'), data_scope: value.data_scope })
+  Object.assign(permissionDraft, { menus: [...value.menus], buttons: value.buttons.filter(key => key !== '*'), data_scope: value.data_scope, sections: null })
 }
 function changeMode(value) { if (value === 'personal') copyRoleDefaults() }
 
@@ -312,10 +315,12 @@ function filterRole(code) { roleFilter.value = code; loadMembers(1) }
 function backToRoster() { permissionRequest++; person.value = null; effective.value = null }
 function acceptPermissions(result) {
   effective.value = result
+  workbenchEnabled.value = result.workbench_enabled
   draft.value = [...result.assigned_roles]
   mode.value = result.individual_permissions ? 'personal' : 'role'
   const config = result.individual_permissions || result.inherited_permissions
-  Object.assign(permissionDraft, { menus: [...config.menus], buttons: config.buttons.filter(key => key !== '*'), data_scope: config.data_scope })
+  Object.assign(permissionDraft, { menus: [...config.menus], buttons: config.buttons.filter(key => key !== '*'), data_scope: config.data_scope,
+    sections: config.sections ? structuredClone(config.sections) : null })
 }
 async function inspect(row) {
   const current = ++permissionRequest
@@ -355,6 +360,7 @@ async function save() {
     }
     const result = await api.put('/admin/users/' + row.id + '/permissions',
       { role_codes: draft.value, permissions: mode.value === 'personal' ? normalized(permissionDraft) : null,
+        workbench_enabled: workbenchEnabled.value,
         expected_revision: effective.value.permission_revision }, { silent: true })
     acceptPermissions(result)
     needsIdentity.value = false
@@ -395,6 +401,7 @@ function loginAgain() {
     sessionStorage.setItem(pendingKey(), JSON.stringify({
       actor: auth.profile.id, person: { id: person.value.id, name: person.value.name }, at: Date.now(),
       roles: [...draft.value], mode: mode.value, config: normalized(permissionDraft),
+      workbenchEnabled: workbenchEnabled.value,
       revision: effective.value.permission_revision,
     }))
     window.location.assign('/login?redirect=' + encodeURIComponent('/admin?tab=users'))
@@ -421,6 +428,7 @@ onMounted(async () => {
   draft.value = [...pending.roles]
   mode.value = pending.mode
   Object.assign(permissionDraft, pending.config)
+  workbenchEnabled.value = pending.workbenchEnabled ?? current.workbench_enabled
   stale.value = current.permission_revision !== pending.revision
   if (stale.value) saveError.value = '登录期间权限已更新，请先重新查看核对'
   else saveNotice.value = '已恢复刚才的选择，请点击保存'

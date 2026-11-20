@@ -6,8 +6,8 @@
     </PageHeader>
     <Panel class="mt-16" :loading="loading && !data.today">
       <el-tabs v-model="tab">
-        <el-tab-pane label="月度任务总表" name="monthly" lazy><MonthlyPlan :today="data.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
-        <el-tab-pane label="项目与个人总结" name="digest" lazy><OpsDigest :active="tab === 'digest'" /></el-tab-pane>
+        <el-tab-pane v-if="auth.hasSection('operations', 'tasks')" label="月度任务总表" name="monthly" lazy><MonthlyPlan :today="data.today" :active="tab === 'monthly'" @open-task="openTask" /></el-tab-pane>
+        <el-tab-pane v-if="auth.hasSection('operations', 'reports')" label="项目与个人总结" name="digest" lazy><OpsDigest :active="tab === 'digest'" /></el-tab-pane>
         <el-tab-pane label="项目总览" name="projects">
           <section v-if="attention" class="attention-line" aria-label="需要关注">
             <button type="button" class="attention-task" @click="openTask(attention.task)">
@@ -36,7 +36,7 @@
             <el-button v-if="data.can_create" type="primary" @click="createOpen = true">建立智慧校园项目</el-button>
           </el-empty>
         </el-tab-pane>
-        <el-tab-pane label="当前需要做什么" name="todos">
+        <el-tab-pane v-if="auth.hasSection('operations', 'tasks')" label="当前需要做什么" name="todos">
           <div class="filters">
             <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button><el-radio-button v-if="data.delay_review_inbox.length || todoFilter === 'delay_review'" value="delay_review">待我复核延期</el-radio-button></el-radio-group>
             <el-button :type="todoFilter === 'pending_replies' ? 'primary' : 'default'" @click="todoFilter = todoFilter === 'pending_replies' ? 'all' : 'pending_replies'">待我回复（{{ data.todos.filter(t => t.pending_replies).length }}）</el-button>
@@ -53,13 +53,14 @@
         </el-tab-pane>
       </el-tabs>
     </Panel>
+    <PasswordDeleteDialog v-model="deleteOpen" title="删除运营项目" :name="menu.project?.name" :endpoint="`/operations/${menu.project?.id}`" @deleted="load()" />
     <ProjectForm v-model="createOpen" @saved="p => router.push(`/operations/${p.id}`)" />
     <TaskDialog v-model="taskOpen" :task-id="selectedTask" @edit="editTask" />
     <TaskForm v-if="editProject" v-model="editOpen" :project="editProject" :initial="editingTask" @closed="popupPaused = false" />
     <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false">
       <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
         <div class="ctx-title">{{ menu.project?.name }}</div>
-        <button type="button" class="ctx-item danger" @click="removeProject">删除项目</button>
+        <button type="button" class="ctx-item danger" @click="menu.open = false; deleteOpen = true">删除项目</button>
       </div>
     </div>
   </div>
@@ -68,11 +69,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
+import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 import MonthlyPlan from './operations/MonthlyPlan.vue'
 import OpsDigest from './operations/OpsDigest.vue'
 import TaskDialog from './operations/TaskDialog.vue'
@@ -81,7 +82,7 @@ import { PROJECT_STATUS, TASK_STATUS, completionLabel, deadlineTone, tone } from
 const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
 const data = reactive({ items: [], todos: [], delay_review_inbox: [], can_create: false, can_delete: false })
-const menu = reactive({ open: false, x: 0, y: 0, project: null })
+const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = ref(false)
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)
 const taskOpen = computed({ get: () => Boolean(selectedTask.value) && !popupPaused.value, set: value => { if (!value && !popupPaused.value) closeTask() } })
@@ -120,22 +121,6 @@ function openMenu(event, project) {
   menu.x = Math.min(event.clientX, window.innerWidth - 190)
   menu.y = Math.min(event.clientY, window.innerHeight - 80)
   menu.open = true
-}
-async function removeProject() {
-  const project = menu.project
-  menu.open = false
-  if (!project) return
-  try {
-    await ElMessageBox.confirm(
-      `「${project.name}」将从运营项目列表移除。项目下的任务与数据不会物理删除，管理员可追溯恢复。`,
-      '删除运营项目', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
-  } catch { return }
-  try {
-    await api.del(`/operations/${project.id}`)
-    ElMessage.success('已删除')
-    if (project.id === Number(route.params.id)) router.push('/operations')
-    await load()
-  } catch {}
 }
 function showTodos(filter = 'all') { todoFilter.value = filter; mine.value = false; tab.value = 'todos' }
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }

@@ -29,16 +29,22 @@ POLICY_FIELDS = {"visibility", "viewer_ids", "kind"}
 
 
 def can_create(p):
-    return p.is_admin or p.can("operations:manage")
+    return p.has_menu("operations") and (is_superuser(p) or p.is_admin or p.can("operations:manage"))
 
 
 # 删除运营项目是点名授权（2026-11-16 需求）：只给这三个人，不走角色。
 PROJECT_DELETE_USERIDS = {"ken", "FengSiHao", "SZGLY"}
-PROJECT_DELETE_NAMES = {"梁道灿", "冯思皓", "聚成数智管理员"}
+
+
+def is_superuser(p):
+    from app.core.config import settings
+    # 本地演示管理员仅供测试/开发；生产按已核对的企业账号标识识别三位最高权限人员。
+    return p.workbench_enabled and (p.user.wecom_userid in PROJECT_DELETE_USERIDS or (
+        settings.environment != "prod" and p.user.wecom_userid == "admin" and p.is_admin))
 
 
 def can_delete_project(p) -> bool:
-    return p.user.wecom_userid in PROJECT_DELETE_USERIDS or p.user.name in PROJECT_DELETE_NAMES
+    return p.workbench_enabled and p.user.wecom_userid in PROJECT_DELETE_USERIDS
 
 
 def delete_project(db, p, project):
@@ -56,17 +62,15 @@ def delete_project(db, p, project):
 
 
 def can_view_all(p):
-    return can_create(p) or p.can("operations:view_all")
+    return p.has_menu("operations") and is_superuser(p)
 
 
 def visible_projects(p, *, members_only=False):
     q = select(OpsProject).where(OpsProject.status != "deleted")
-    if not can_view_all(p):
-        conditions = [policy.member_clause(p)]
-        if not members_only and p.can("operations:approve"):
-            conditions.append(OpsProject.id.in_(select(OpsTask.project_id).where(
-                OpsTask.company_reviewer_id == p.id, ~policy.archived())))
-        q = q.where(or_(*conditions))
+    if not p.has_menu("operations"):
+        q = q.where(False)
+    elif not can_view_all(p):
+        q = q.where(policy.member_clause(p))
     return q
 
 
@@ -85,9 +89,13 @@ def get_project(db, p, project_id, *, lock=False):
 
 
 def role(db, p, project):
-    if can_create(p) or project.owner_id == p.id:
+    if not p.has_menu("operations"):
+        return None
+    if is_superuser(p) or project.owner_id == p.id:
         return "manager"
     raw = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
+    if raw and (p.is_admin or p.can("operations:manage")):
+        return "manager"
     return "manager" if raw == "co_owner" else raw  # 联合负责人与项目管理员同权
 
 
@@ -144,6 +152,7 @@ def save_project(db, p, body, project_id=None):
     if project_id:
         project = get_project(db, p, project_id, lock=True)
         manage(db, p, project)
+        content_scope.require_settings(p)
         if project.owner_id != body.owner_id and not db.scalar(select(OpsMember.id).where(
                 OpsMember.project_id == project.id, OpsMember.user_id == project.owner_id)):
             # 保留原负责人的任务访问权，可在团队中另行移除。
@@ -156,6 +165,9 @@ def save_project(db, p, body, project_id=None):
     legacy_campus_income = bool(project_id and project.name == "智慧校园")
     owner = user(db, body.owner_id)
     project = _write(db, p, project, body.model_dump(include=set(PROJECT_FIELDS)), PROJECT_FIELDS)
+    if not project_id and owner.id != p.id and not is_superuser(p):
+        db.add(OpsMember(project_id=project.id, user_id=p.id, role="manager"))
+        db.flush()
     if body.enabled_sections is not None:
         content_scope.save_features(db, p, project, body.enabled_sections, body.expected_features_revision,
                                     creating=not project_id, legacy_campus_income=legacy_campus_income)
@@ -230,6 +242,7 @@ def members(db, project):
 def set_member(db, p, project_id, body):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "team")
     user(db, body.user_id)
     if body.user_id == project.owner_id:
         raise bad_request("项目负责人的权限随负责人设置维护")
@@ -252,6 +265,7 @@ def delete_task(db, p, task_id: int) -> None:
 def remove_member(db, p, project_id, user_id, transfer: bool = False):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
+    content_scope.require(db, p, project, "team")
     if user_id == project.owner_id:
         raise bad_request("请先更换项目负责人")
     row = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == user_id))
@@ -465,6 +479,7 @@ def _create_project_plan(db, p, project, entry):
 def create_task(db, p, project_id, body):
     from app.services import operations_plans as plans
     project = get_project(db, p, project_id, lock=True)
+    content_scope.require(db, p, project, "tasks")
     active(project)
     if body.kind == "outreach":
         content_scope.require(db, p, project, "outreach")
@@ -637,7 +652,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
             **deadlines.view(p, task, my_role, delay, day),
             **access, "viewer_ids": access["viewer_ids"] if my_role == "manager" else [],
-            "can_archive": (p.is_admin or p.can("operations:archive")) and my_role == "manager",
+            "can_archive": (is_superuser(p) or p.is_admin or p.can("operations:archive")) and my_role == "manager",
             "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
             "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale, **cadence,
@@ -764,7 +779,9 @@ def project_detail(db, p, project_id):
     batches = [{"id": b.id, "source_name": b.source_name, "created_at": b.created_at, "result": {k: v for k, v in b.result.items() if k != "created_ids"}} for b in db.scalars(
         select(OpsImportBatch).where(OpsImportBatch.project_id == project.id, OpsImportBatch.kind.in_(
             (["income"] if can_income else []) + (["equipment"] if can_procurement else []))).order_by(OpsImportBatch.id.desc()))] if shared else []
-    return {**project_dict(db, p, project), "latest_progress": progress_dict(progress) if progress else None,
+    return {**project_dict(db, p, project),
+            "can_configure": role(db, p, project) == "manager" and (is_superuser(p) or p.has_section("operations", "settings")),
+            "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],
             "can_record_visits": "outreach" in sections and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
             "visible_sections": sorted(sections), "task_scope": access["task_scope"],

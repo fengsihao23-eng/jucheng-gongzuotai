@@ -16,7 +16,7 @@ MENUS = {
 
 # Known business actions, also used by the per-person authorization form.
 BUTTONS = {
-    "operations:manage": "管理全部运营项目", "operations:view_all": "查看全部运营项目",
+    "operations:manage": "新建及管理参与的运营项目", "operations:view_all": "跨项目查看（仅三位最高权限人员）",
     "operations:archive": "作废与恢复运营任务", "operations:approve": "审核运营任务",
     "project:key": "管理重点项目", "project:weekly": "导出项目周进度", "milestone:write": "维护项目节点",
     "feedback:write": "登记项目进展", "review:write": "编辑项目复盘", "intel:write": "维护竞品情报",

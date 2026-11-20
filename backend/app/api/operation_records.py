@@ -50,12 +50,12 @@ def ui_event(body:UiEvent,request:Request,p:Principal=Depends(get_principal)):
 
 @router.get("/options")
 def options(p=Depends(records_viewer),db:Session=Depends(get_db)):
-    return ok(service.options(db),headers=HEADERS)
+    return ok(service.options(db,p),headers=HEADERS)
 
 
 @router.get("/export")
 def export(f:dict=Depends(filters),p=Depends(records_viewer),db:Session=Depends(get_db)):
-    payload=service.export_csv(db,**f)
+    payload=service.export_csv(db,p=p,**f)
     return Response(payload,media_type="text/csv; charset=utf-8",
                     headers={**HEADERS,"Content-Disposition":f"attachment; filename*=UTF-8''{quote(f'操作记录_{today():%Y%m%d}.csv')}"})
 
@@ -63,9 +63,9 @@ def export(f:dict=Depends(filters),p=Depends(records_viewer),db:Session=Depends(
 @router.get("")
 def listing(f:dict=Depends(filters),page:int=Query(1,ge=1),size:int=Query(30,ge=1,le=100),
             p=Depends(records_viewer),db:Session=Depends(get_db)):
-    return ok(service.listing(db,page=page,size=size,**f),headers=HEADERS)
+    return ok(service.listing(db,page=page,size=size,p=p,**f),headers=HEADERS)
 
 
 @router.get("/{key}")
 def detail(key:str,p=Depends(records_viewer),db:Session=Depends(get_db)):
-    return ok(service.detail(db,key),headers=HEADERS)
+    return ok(service.detail(db,key,p),headers=HEADERS)

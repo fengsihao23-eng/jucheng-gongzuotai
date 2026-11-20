@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from app.core.audit import log_op
 from app.core.deps import build_principal
 from app.core.permissions import BUTTONS, MENUS, ROLE_DEFS
+from app.core.permission_catalog import MENU_SECTIONS
 from app.core.response import bad_request, conflict
 from app.models import SysRole, SysUserPermission, SysUserRole
 from app.services import user_service
@@ -19,6 +20,7 @@ class PersonalPermissionsIn(BaseModel):
     menus: list[str] = Field(max_length=100)
     buttons: list[str] = Field(max_length=200)
     data_scope: Literal["self", "dept", "all"]
+    sections: dict[str, list[str]] | None = None
 
 
 class PersonalGrantIn(BaseModel):
@@ -26,6 +28,7 @@ class PersonalGrantIn(BaseModel):
     role_codes: list[str] = Field(max_length=50)
     permissions: PersonalPermissionsIn | None = None
     expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    workbench_enabled: bool | None = None
 
 
 def options(db):
@@ -38,19 +41,22 @@ def options(db):
 
 
 def configured(principal):
-    return {"menus": sorted(principal.menus), "buttons": sorted(principal.buttons), "data_scope": principal.data_scope}
+    return {"menus": sorted(principal.menus), "buttons": sorted(principal.buttons), "data_scope": principal.data_scope,
+            "sections": principal.sections}
 
 
 def individual(user):
     setting = user.permission_override
     return {"menus": sorted(setting.menus), "buttons": sorted(setting.buttons),
-            "data_scope": setting.data_scope} if setting else None
+            "data_scope": setting.data_scope,
+            **({"sections": setting.sections} if setting.sections is not None else {})} if setting else None
 
 
 def view(user):
     inherited = configured(build_principal(user, inherit_only=True))
     saved = individual(user)
-    raw = {"user_id": user.id, "active": user.status, "roles": sorted(r.role_code for r in user.roles),
+    raw = {"user_id": user.id, "active": user.status, "workbench_enabled": user.workbench_enabled,
+           "roles": sorted(r.role_code for r in user.roles),
            "inherited": inherited, "individual": saved}
     revision = hashlib.sha256(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {"individual_permissions": saved, "inherited_permissions": inherited,
@@ -58,8 +64,9 @@ def view(user):
 
 
 def update(db, actor, user, body, keep_admin, ip):
-    db.refresh(user, attribute_names=["status", "roles", "permission_override"])
-    before = {"role_codes": sorted(r.role_code for r in user.roles), "permissions": individual(user)}
+    db.refresh(user, attribute_names=["status", "workbench_enabled", "roles", "permission_override"])
+    before = {"role_codes": sorted(r.role_code for r in user.roles), "permissions": individual(user),
+              "workbench_enabled": user.workbench_enabled}
     if view(user)["permission_revision"] != body.expected_revision:
         raise conflict("此人的权限或角色规则已更新，请重新查看后再保存")
     codes = sorted(set(body.role_codes))
@@ -75,13 +82,26 @@ def update(db, actor, user, body, keep_admin, ip):
         unknown_buttons = set(body.permissions.buttons) - allowed_buttons.keys()
         if unknown_menus or unknown_buttons:
             raise bad_request("菜单或操作权限无效，请重新读取可选权限")
+        sections = body.permissions.sections
+        if sections is not None:
+            for menu, selected in sections.items():
+                if menu not in MENU_SECTIONS or set(selected) - MENU_SECTIONS[menu].keys():
+                    raise bad_request("功能小项无效，请重新读取可选权限")
+                if selected and menu not in body.permissions.menus:
+                    raise bad_request("请先勾选功能小项所属的菜单")
+            sections = {menu: sorted(set(selected)) for menu, selected in sections.items()}
         saved = {"menus": sorted(set(body.permissions.menus) | {"portal"}),
-                 "buttons": sorted(set(body.permissions.buttons)), "data_scope": body.permissions.data_scope}
+                 "buttons": sorted(set(body.permissions.buttons)), "data_scope": body.permissions.data_scope,
+                 **({"sections": sections} if sections is not None else {})}
 
-    keep_admin(db, user, "ADMIN-01" not in codes)
-    after = {"role_codes": codes, "permissions": saved}
+    enabled = user.workbench_enabled if body.workbench_enabled is None else body.workbench_enabled
+    keep_admin(db, user, "ADMIN-01" not in codes or not enabled)
+    after = {"role_codes": codes, "permissions": saved, "workbench_enabled": enabled}
     if before == after:
         return
+    user.workbench_enabled = enabled
+    if not enabled:
+        user.access_token = user.access_token_hint = None
     if before["role_codes"] != codes:
         db.execute(delete(SysUserRole).where(SysUserRole.user_id == user.id))
         for code in codes:
@@ -93,6 +113,7 @@ def update(db, actor, user, body, keep_admin, ip):
     else:
         record = record or SysUserPermission(user_id=user.id)
         record.menus, record.buttons, record.data_scope = saved["menus"], saved["buttons"], saved["data_scope"]
+        record.sections = saved.get("sections")
         record.updated_by = actor.id
         db.add(record)
     db.flush()

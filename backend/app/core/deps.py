@@ -22,6 +22,11 @@ class Principal:
     buttons: set[str] = field(default_factory=set)
     data_scope: str = "self"
     portal: str = "employee"
+    sections: dict[str, list[str]] | None = None
+
+    @property
+    def workbench_enabled(self) -> bool:
+        return self.user.workbench_enabled is not False
 
     @property
     def id(self) -> int:
@@ -33,13 +38,16 @@ class Principal:
 
     @property
     def is_admin(self) -> bool:
-        return "ADMIN-01" in self.role_codes
+        return self.workbench_enabled and "ADMIN-01" in self.role_codes
 
     def can(self, button: str) -> bool:
-        return "*" in self.buttons or button in self.buttons
+        return self.workbench_enabled and ("*" in self.buttons or button in self.buttons)
 
     def has_menu(self, menu: str) -> bool:
-        return menu in self.menus
+        return self.workbench_enabled and menu in self.menus
+
+    def has_section(self, menu: str, section: str) -> bool:
+        return self.has_menu(menu) and (self.sections is None or menu not in self.sections or section in self.sections[menu])
 
 
 def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
@@ -60,15 +68,19 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
         rank = list(ROLE_DEFS).index(code) if code in ROLE_DEFS else 99
         if best_portal_rank == -1 or rank < best_portal_rank:
             best_portal_rank, portal = rank, perm.get("portal", portal)
+    sections = None
     individual = user.permission_override if not inherit_only and "ADMIN-01" not in codes else None
     if individual is not None:
         menus = set(individual.menus) & set(MENUS)
         menus.add("portal")
         buttons = set(individual.buttons) - {"*"}
         scope = individual.data_scope
+        sections = individual.sections
     if "ADMIN-01" in codes:
         menus.add("operation_records")
-    return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal)
+    if not inherit_only and user.workbench_enabled is False:
+        menus, buttons, scope = set(), set(), "self"
+    return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal, sections=sections)
 
 
 def owner_scope(column, p):
@@ -105,6 +117,8 @@ def get_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
         if binding(user.id) or (user.preferences or {}).get("company_directory"):
             raise BizError(40102, "账号连接已更新，请重新登录")
     p = build_principal(user)
+    if not p.workbench_enabled and request.url.path not in {"/api/v1/auth/me", "/api/v1/auth/logout"}:
+        raise forbidden("当前账号无法查看和使用工作台，请联系管理员单独配置权限")
     request.state.principal = p
     from app.core.operation_audit import bind_actor
     bind_actor(db, user)

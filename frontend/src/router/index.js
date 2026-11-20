@@ -47,7 +47,6 @@ const pages = [
   { path: 'admin/wecom-api', name: 'wecom-api', component: () => import('@/views/WecomApi.vue'), meta: { menu: 'admin', title: '企业微信接口' } },
   { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue'), meta: { title: '消息通知' } },
   { path: 'account', name: 'account', component: () => import('@/views/Account.vue'), meta: { title: '个人中心' } },
-  { path: '403', name: 'forbidden', component: () => import('@/views/Forbidden.vue'), meta: { title: '无权限' } },
 ]
 
 const router = createRouter({
@@ -56,6 +55,7 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { public: true, title: '登录' } },
     { path: '/login/callback', name: 'login-callback', component: () => import('@/views/LoginCallback.vue'), meta: { public: true } },
+    { path: '/403', name: 'forbidden', component: () => import('@/views/Forbidden.vue'), meta: { title: '无权限' } },
     { path: '/xiaoju/:id?', name: 'xiaoju', component: () => import('@/views/Xiaoju.vue'), meta: { title: '小聚' } },
     { path: '/board/screen', name: 'board-screen', component: () => import('@/views/BoardScreen.vue'), meta: { menu: 'board', workbookView: 'board', title: '经营大屏' } },
     { path: '/', component: () => import('@/layouts/MainLayout.vue'), children: pages },
@@ -73,6 +73,7 @@ router.beforeEach(async (to) => {
   catch {
     if (!getToken() || !auth.profile) return { name: 'login', query: { redirect: to.fullPath } }
   }
+  if (auth.profile?.workbench_enabled === false && to.name !== 'forbidden') return { name: 'forbidden' }
   if (to.meta.adminOnly && !auth.profile?.is_admin) return { name: 'forbidden' }
   if ((to.meta.menu && !auth.hasMenu(to.meta.menu)) || (to.meta.anyMenu && !to.meta.anyMenu.some(k => auth.hasMenu(k)))) return { name: 'forbidden' }
   return true

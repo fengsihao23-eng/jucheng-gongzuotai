@@ -4,12 +4,12 @@
     <template v-if="project">
       <PageHeader :eyebrow="`${project.category} · ${PROJECT_STATUS[project.status]}`" :title="project.name" :desc="project.objective || '明确阶段目标，推进关键任务。'">
         <el-button @click="ask">问小聚</el-button>
-        <el-button v-if="project.can_manage" @click="projectForm = true">编辑项目</el-button>
-        <el-button v-if="project.can_manage && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
+        <el-button v-if="project.can_configure" @click="projectForm = true">编辑项目</el-button>
+        <el-button v-if="project.can_manage && canSection('tasks') && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
       </PageHeader>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
-          <el-tab-pane label="任务情况" name="tasks">
+          <el-tab-pane v-if="canSection('tasks')" label="任务情况" name="tasks">
             <div class="filters">
               <el-input v-model="query" placeholder="搜索任务 / 学校 / 负责人" clearable style="width: 240px" />
               <el-checkbox v-model="mine">我负责的</el-checkbox><el-checkbox v-model="keyOnly">仅重点</el-checkbox><el-checkbox v-model="attention">需要关注</el-checkbox>
@@ -48,7 +48,7 @@
           <el-tab-pane v-if="canSection('scrap')" label="设备报废" name="scrap" lazy><OperationsWarehouse :project="project" :active="tab === 'scrap'" scrap-only /></el-tab-pane>
           <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
-          <el-tab-pane v-if="project.can_manage" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" :sections="project.visible_sections" /></el-tab-pane>
+          <el-tab-pane v-if="project.can_configure" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" :sections="project.visible_sections" /></el-tab-pane>
         </el-tabs>
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
@@ -114,7 +114,10 @@ watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { 
 watch(project, value => {
   if (!value) return
   const section = tab.value === 'digest' ? 'reports' : tab.value
-  if (tab.value !== 'controls' && !canSection(section)) tab.value = 'tasks'
+  if ((tab.value === 'controls' && !value.can_configure) || (tab.value !== 'controls' && !canSection(section))) {
+    const first = value.visible_sections?.[0]
+    tab.value = first === 'reports' ? 'digest' : first || (value.can_configure ? 'controls' : '')
+  }
 })
 const delayOpen = ref(false), pendingDelay = ref(null)
 const statuses = { ongoing: '进行中', done: '已完成' }

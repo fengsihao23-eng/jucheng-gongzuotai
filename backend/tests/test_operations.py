@@ -21,9 +21,13 @@ def uid(db, name):
 
 @pytest.fixture
 def project(client, login, db):
-    return data(client.post(BASE, headers=login("admin"), json={
+    result = data(client.post(BASE, headers=login("admin"), json={
         "name": f"智慧校园验收-{uuid.uuid4().hex[:8]}", "owner_id": uid(db, "wujun"),
         "objective": "完成目标学校对接和设备建设", "category": "智慧校园"}))
+    # 公司审核人也必须显式加入团队，角色本身不再开放所有项目。
+    data(client.post(f"{BASE}/{result['id']}/members", headers=login("admin"),
+                     json={"user_id": uid(db, "zhangzhenhua"), "role": "member"}))
+    return result
 
 
 def member(client, login, db, project, name="xiekai", role="member"):

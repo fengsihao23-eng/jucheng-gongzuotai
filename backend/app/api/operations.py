@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import Principal, require_menu, require_recent_login
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.response import forbidden, ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
 from app.schemas.operations import (ArchiveIn, BatchMembersIn, DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
@@ -146,9 +147,10 @@ def create_operation(body: ProjectIn, p: Principal = Menu, db: Session = Depends
 
 
 @router.delete("/{project_id}")
-def delete_operation(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+def delete_operation(project_id: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """删除运营项目：仅梁道灿、冯思皓、聚成数智管理员，软删除并留审计。"""
     project = ops.get_project(db, p, project_id)
+    verify_deletion(body)
     return ok(ops.delete_project(db, p, project))
 
 
@@ -173,8 +175,8 @@ def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: 
 
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
-    require_recent_login(request)
+def delete_task(task_id: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    verify_deletion(body)
     ops.delete_task(db, p, task_id)
     db.commit()
     return ok()
@@ -388,6 +390,7 @@ def save_member_visibility(project_id: int, user_id: int, body: MemberViewIn, p:
 def project_controls(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     project = ops.get_project(db, p, project_id)
     ops.manage(db, p, project)
+    content_scope.require_settings(p)
     from app.services import project_service
     projects = list(db.scalars(project_service.visible_query(p))) if p.has_menu("projects") else []
     return ok({**content_scope.controls(db, project_id), "members": ops.members(db, project),

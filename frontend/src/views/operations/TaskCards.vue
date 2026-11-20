@@ -1,6 +1,6 @@
 <template>
   <div class="cards" :class="{ single }">
-    <button v-for="task in rows" :key="task.id" type="button" class="task-card" :data-status="taskStatus(task)" @click="$emit('open-task', task)" @contextmenu.prevent.stop="$emit('menu', task, $event)">
+    <button v-for="task in rows" :key="task.id" type="button" class="task-card" :data-status="taskStatus(task)" @click="$emit('open-task', task)" @contextmenu.prevent.stop="openMenu(task, $event)">
       <div class="card-top">
         <StatusPill :text="task.status === 'done' ? completionLabel(task) : statusLabel(task)" :tone="task.status === 'done' ? deadlineTone(task) : task.approval_status === 'approved' ? tone(task.status) : task.approval_status === 'rejected' ? 'down' : 'warn'" dot />
         <span v-if="task.priority === 'key'" class="key">重点</span>
@@ -27,17 +27,38 @@
       <span v-if="task.carryover" class="carryover">从 {{ task.plan_month }} 延续</span>
       <div class="card-foot"><span class="owner">{{ task.owner_name }}<small>截止 {{ task.due_date }}</small><small v-if="task.completed_on">完成 {{ task.completed_on }}</small></span><span class="action">{{ task.can_review_delay ? '复核延期' : task.can_review ? '处理审核' : task.can_feedback ? '反馈进展' : '查看详情' }} <span aria-hidden="true">→</span></span></div>
     </button>
+  <Teleport to="body">
+    <div v-if="menu.open" class="task-menu-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false" @keydown.esc="menu.open = false">
+      <div class="task-context-menu" role="menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
+        <button role="menuitem" type="button" @click="deleteOpen = true; menu.open = false">删除任务</button>
+      </div>
+    </div>
+  </Teleport>
+  <PasswordDeleteDialog v-model="deleteOpen" :name="menu.task?.title" :endpoint="`/operations/tasks/${menu.task?.id}`" />
   </div>
 </template>
 
 <script setup>
 import { datetime } from '@/utils/format'
+import { reactive, ref } from 'vue'
+import PasswordDeleteDialog from './PasswordDeleteDialog.vue'
 import { TASK_SOURCES, completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'
 defineProps({ rows: { type: Array, required: true }, showProject: Boolean, single: Boolean })
-defineEmits(['open-task', 'menu'])
+const emit = defineEmits(['open-task', 'menu'])
+const deleteOpen = ref(false), menu = reactive({ open: false, x: 0, y: 0, task: null })
+function openMenu(task, event) {
+  emit('menu', task, event)
+  if (!task.can_archive || task.archived_at) return
+  Object.assign(menu, { open: true, task, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 170)),
+    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 65)) })
+}
 </script>
 
 <style scoped>
+.task-menu-mask { position: fixed; inset: 0; z-index: 3000; }
+.task-context-menu { position: fixed; min-width: 150px; padding: 6px; border: 1px solid var(--jc-line); border-radius: 8px; background: var(--jc-surface); box-shadow: 0 8px 28px #0002; }
+.task-context-menu button { width: 100%; padding: 10px 14px; border: 0; border-radius: 5px; text-align: left; background: none; color: var(--el-color-danger); cursor: pointer; font: inherit; }
+.task-context-menu button:hover { background: var(--jc-surface-2); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px; }
 .cards.single { grid-template-columns: minmax(0, 1fr); }
 .task-card { --state: var(--jc-brand); display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: 14px 15px 13px; position: relative; border: 1px solid var(--jc-line); border-top: 3px solid var(--state); border-radius: var(--jc-radius); background: var(--jc-surface); color: var(--jc-ink); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }

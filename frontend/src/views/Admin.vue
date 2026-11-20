@@ -10,7 +10,7 @@
       <el-tab-pane label="账号与角色" name="users">
         <Panel title="公司人员接入" sub="从公司授权的通讯录读取真实人员，预览后确认建档。">
           <div class="jc-row between"><p class="directory-message">{{ directory.message }}</p><StatusPill :text="directory.ready ? '公司应用已配置' : '等待公司授权'" :tone="directory.ready ? 'up' : 'info'" /></div>
-          <p class="jc-muted jc-small">{{ directory.scope_note }} 新成员默认普通员工权限，可在下方按部门查看和分配角色。</p>
+          <p class="jc-muted jc-small">{{ directory.scope_note }} 新成员默认无法使用工作台，需在下方按人配置权限并开启工作台使用权限。</p>
           <div class="jc-row"><el-button size="small" @click="connectDirectory">配置公司应用</el-button><el-button size="small" @click="copyDirectoryGuide">复制授权清单</el-button><span v-if="roles.directory_total" class="jc-muted jc-small">已建档 {{ roles.directory_total }} 名公司成员</span></div>
         </Panel>
 
@@ -236,7 +236,7 @@
     </el-dialog>
 
     <DepartmentPermissions ref="peopleCard" :roles="roles.roles" :departments="matrixDepartments" :source="accountScope"
-                           :can-manage="canManage" :privileges="permissionOptions" :menus="roles.menus" :public-menus="roles.public_menus" @roles-changed="refreshPersonRoles" @edit-role="editRole" />
+                           :can-manage="canManage" :privileges="permissionOptions" :menus="roles.menus" :permission-groups="roles.permission_groups" :public-menus="roles.public_menus" @roles-changed="refreshPersonRoles" @edit-role="editRole" />
 
     <!-- 角色权限 -->
     <el-dialog v-model="roleDlg" :title="`调整共享角色规则：${roleForm.name}`" width="min(680px, 94vw)" append-to-body>
@@ -311,7 +311,7 @@ const matrixLoading = ref(false), matrixError = ref('')
 let matrixRequest = 0, userRequest = 0, sourceResolved = false
 const PRIVILEGES = {
   '*': '全部操作权限',
-  'operations:manage': '管理全部运营项目', 'operations:view_all': '查看全部运营项目',
+  'operations:manage': '新建及管理参与的运营项目', 'operations:view_all': '跨项目查看（仅三位最高权限人员）',
   'operations:archive': '作废与恢复运营任务', 'operations:approve': '审核运营任务',
   'project:key': '管理重点项目', 'project:weekly': '导出项目周进度', 'milestone:write': '维护项目节点',
   'feedback:write': '登记项目进展', 'review:write': '编辑项目复盘', 'intel:write': '维护竞品情报',
@@ -514,7 +514,7 @@ async function connectAndPreview() {
   finally { connecting.value = false }
 }
 async function copyDirectoryGuide() {
-  const guide = `聚成工作台公司通讯录接入\n网站：${window.location.origin}\n请为“聚成工作台”自建应用配置通讯录读取范围，将需导入的公司员工和部门加入应用可见范围。\n请由管理员在工作台“小聚 → 企业微信接入”安全配置 CorpID、AgentID 和对应应用 Secret，并设置服务器出口公网 IP 为企业可信 IP。\n网页登录需配置本站域名为可信域名。同步内容：企业 UserID、姓名、部门、岗位，以及接口获准返回的工作邮箱和手机。先预览，再确认导入；新成员默认普通员工权限。新建应用的手机及邮箱通常不会直接返回。`
+  const guide = `聚成工作台公司通讯录接入\n网站：${window.location.origin}\n请为“聚成工作台”自建应用配置通讯录读取范围，将需导入的公司员工和部门加入应用可见范围。\n请由管理员在工作台“小聚 → 企业微信接入”安全配置 CorpID、AgentID 和对应应用 Secret，并设置服务器出口公网 IP 为企业可信 IP。\n网页登录需配置本站域名为可信域名。同步内容：企业 UserID、姓名、部门、岗位，以及接口获准返回的工作邮箱和手机。先预览，再确认导入；新成员默认未授权，需按人单独配置。新建应用的手机及邮箱通常不会直接返回。`
   try { await navigator.clipboard.writeText(guide); ElMessage.success('授权清单已复制') } catch { ElMessage.warning('复制失败，请从页面说明中手动复制') }
 }
 

@@ -143,10 +143,9 @@ class FileChanges:
             else: path.unlink(missing_ok=True)
 
 
-def _scope(target):
+def _scope(db, target):
     p = build_principal(target)
-    actor = xiaoju_business.digest({"menus": sorted(p.menus), "buttons": sorted(p.buttons),
-                                    "scope": p.data_scope, "department": target.department_id})
+    actor = xiaoju_business.principal_signature(db, p)
     binding = cli.binding(target.id)
     return {"actor": actor, "password": password_version(target.password_hash),
             "source": xiaoju_business.source_signature(), "connection": binding.get("binding_id") if binding else None,
@@ -184,7 +183,7 @@ def apply(db, source_id, target_id, expected_userid, backup, operator_id):
         # No historical message is sent as a side effect of ownership transfer.
         db.execute(update(SysNotify).where(SysNotify.id.in_(old_message_ids)).values(send_status=2, retry_count=3,
             error_msg="账号关联后的历史消息仅保留记录，不自动补发"))
-        scope = _scope(target)
+        scope = _scope(db, target)
         migrated = {"source_id": source.id, "at": time.time()}
         for path, record in _owned_files(source.id):
             value = {**record, "user_id": target.id, "account_migration": migrated}

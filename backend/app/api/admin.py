@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.db import get_db, get_or_404
 from app.core.deps import Principal, build_principal, client_ip, get_principal, require_menu, require_recent_login
 from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS
+from app.core.permission_catalog import permission_groups
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found, ok, page_data
 from app.jobs import registry
 from app.models import LogOperation, OpsMember, OpsProject, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
@@ -31,7 +32,8 @@ def _keep_admin(db, u, removing):
         return
     others = db.scalar(select(SysUser.id).join(SysUserRole, SysUserRole.user_id == SysUser.id)
                        .join(SysRole, SysRole.id == SysUserRole.role_id).where(SysRole.role_code == "ADMIN-01",
-                       SysUser.status == 1, SysUser.is_deleted.is_(False), SysUser.id != u.id).limit(1))
+                        SysUser.status == 1, SysUser.workbench_enabled.is_(True),
+                        SysUser.is_deleted.is_(False), SysUser.id != u.id).limit(1))
     if not others:
         raise conflict("必须保留至少一个有效的平台管理员")
 
@@ -75,7 +77,7 @@ def users(keyword: str = Query("", max_length=100), dept: str = "", source: Acco
     for u in rows:
         item = {"id": u.id, "userid": u.wecom_userid, "name": u.name, "dept_code": u.dept_code,
                 "dept_name": u.department.name if u.department else None, "position": u.position,
-                "status": u.status, "roles": sorted(r.role_code for r in u.roles)}
+                "status": u.status, "workbench_enabled": u.workbench_enabled, "roles": sorted(r.role_code for r in u.roles)}
         if not compact:
             prefs = u.preferences or {}
             item.update(last_login_at=u.last_login_at, mobile=u.mobile, email=u.email,
@@ -165,7 +167,9 @@ def roles(source: AccountSource = "", p: Principal = Admin, db: Session = Depend
         out.append({"code": code, "name": d["name"], "dept": d["dept"], "menus": eff["menus"], "buttons": eff["buttons"],
                     "data_scope": eff["data_scope"], "portal": eff["portal"], "users": counts.get(code, 0),
                     "customized": bool(override)})
-    return ok({"roles": out, "menus": MENUS, "buttons": personal.options(db), "public_menus": PUBLIC_MENUS, "departments": departments,
+    return ok({"roles": out, "menus": MENUS, "buttons": personal.options(db),
+               "permission_groups": permission_groups(MENUS, personal.options(db)),
+               "public_menus": PUBLIC_MENUS, "departments": departments,
                "directory_total": _count_users(db, _user_query("directory"))})
 
 
@@ -198,8 +202,13 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                              .where(OpsMember.user_id == u.id, OpsProject.owner_id != u.id)))
     last = db.scalar(select(LogOperation).where(LogOperation.user_id == u.id, LogOperation.action == "auth.login")
                      .order_by(LogOperation.id.desc()).limit(1))
-    active = u.status == 1
+    active = u.status == 1 and u.workbench_enabled
+    visible_ids = set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.id)))
+    visible_owned = [(name, pid) for name, pid in owned if pid in visible_ids]
+    visible_joined = [(name, pid, role) for name, pid, role in joined if pid in visible_ids]
     access_notes = []
+    if not u.workbench_enabled:
+        access_notes.append("当前账号无法查看和使用工作台；请单独配置权限并开启工作台使用权限。")
     if active and "operations" in runtime["menus"] and not ops.can_view_all(target) and not (owned or joined):
         access_notes.append("运营项目入口已开放；尚未加入任何运营项目，列表暂为空。请在对应项目的团队里添加此人。")
     from app.services import business_workbook
@@ -212,17 +221,18 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                     access_notes.append(label + "：菜单已勾选，来源数据仍需授权。当前个人数据范围尚未满足此来源的读取条件。")
     except BizError as exc:
         access_notes.append(exc.message)
-    return ok({"name": u.name, "userid": u.wecom_userid, "active": active, "roles": target.role_codes, **personal.view(u),
+    return ok({"name": u.name, "userid": u.wecom_userid, "active": active,
+               "workbench_enabled": u.workbench_enabled, "sections": target.sections, "roles": target.role_codes, **personal.view(u),
                "assigned_roles": sorted(r.role_code for r in u.roles),
                "department": u.department.name if u.department else None, "position": u.position,
                "menus": [MENUS[key] for key in runtime["menus"]] if active else [],
                "menu_keys": runtime["menus"] if active else [], "access_notes": access_notes,
                "login_permission_revision": runtime["permission_revision"],
                "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
-               "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_create(target),
+                "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_view_all(target),
                "operations_archive": active and (target.is_admin or target.can("operations:archive")),
-               "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in owned] +
-                            [{"name": name, "id": pid, "role": role} for name, pid, role in joined]) if active else [],
+                "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in visible_owned] +
+                             [{"name": name, "id": pid, "role": role} for name, pid, role in visible_joined]) if active else [],
                "last_login": {"at": last.created_at, "method": (last.after or {}).get("method")} if last else None})
 
 
@@ -393,7 +403,8 @@ def review_approval(sp_no: str, reason: str = Body(..., embed=True, min_length=1
 @router.get("/audit")
 def audit(action: str = "", user_id: int | None = None, page: int = 1, page_size: int = 30, p: Principal = Admin,
           db: Session = Depends(get_db)):
-    q = select(LogOperation)
+    from app.services.operation_records import legacy_visibility
+    q = select(LogOperation).where(legacy_visibility(p))
     if action:
         q = q.where(LogOperation.action.startswith(action))
     if user_id:

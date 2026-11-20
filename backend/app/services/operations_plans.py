@@ -33,6 +33,8 @@ def validate_reviewers(db, project, owner_id, department_id, company_id):
         raise bad_request("部门审核人须为项目负责人、项目管理员或团队中指定的部门审核人")
     if not company_reviewer(build_principal(company)):
         raise bad_request("公司审核人须具有公司审核权限")
+    if ops.role(db, build_principal(company), project) is None:
+        raise bad_request("公司审核人须加入本项目团队，或为三位最高权限人员")
 
 
 def review_stage(db, p, project, task):
@@ -52,7 +54,7 @@ def options(db, p, project):
     return {"department_reviewers": [{"id": m["user_id"], "name": m["name"], "dept": m["dept"]}
                                      for m in team if m["active"] and m["role"] in {"manager", "co_owner", "reviewer"}],
             "company_reviewers": [{"id": u.id, "name": u.name, "dept": u.dept_code}
-                                  for u in candidates if company_reviewer(build_principal(u))],
+                                  for u in candidates if company_reviewer(build_principal(u)) and ops.role(db, build_principal(u), project) is not None],
             "can_propose": ops.role(db, p, project) in {"manager", "member", "reviewer"}}
 
 

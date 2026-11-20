@@ -50,5 +50,8 @@ export const useAuth = defineStore('auth', {
     hasMenu(key) {
       return this.menus.has(key)
     },
+    hasSection(menu, section) {
+      return this.hasMenu(menu) && (!this.profile?.sections?.[menu] || this.profile.sections[menu].includes(section))
+    },
   },
 })

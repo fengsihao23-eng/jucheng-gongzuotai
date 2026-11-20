@@ -29,7 +29,14 @@ def since(db):
     return datetime.fromisoformat(setting.value["since"]) if setting else datetime.now(timezone.utc)
 
 
-def combined(db):
+def legacy_visibility(p):
+    from app.services import operations_service as ops
+    if p is None or ops.is_superuser(p):
+        return True
+    return ~or_(LogOperation.action.startswith("operations."), func.coalesce(LogOperation.target_type, "").startswith("ops_"))
+
+
+def combined(db, p=None):
     cutoff=since(db)
     def col(value,label):
         return (literal(value) if not hasattr(value,"label") else value).label(label)
@@ -47,6 +54,23 @@ def combined(db):
         ).outerjoin(SysUser,SysUser.id==LogMcpAudit.user_id).where(LogMcpAudit.called_at<cutoff)
     jobs=select(*shape("job",SyncJobLog.id,None,"系统任务",None,"系统任务",SyncJobLog.job_name,"job_history",
         SyncJobLog.status,SyncJobLog.run_at,SyncJobLog.job_name)).where(SyncJobLog.run_at<cutoff)
+    from app.services import operations_service as ops
+    if p is not None and not ops.is_superuser(p):
+        # 全局审计可能在一条记录里混有多项目快照，不能按操作人等同项目成员。
+        # 成员在项目内读取本项目历史；跨项目的完整运营审计仅供三位最高权限人员。
+        operational_change = select(AuditChange.id).where(AuditChange.event_key == AuditEvent.event_key,
+            or_(AuditChange.table_name.startswith("ops_"),
+                func.coalesce(cast(AuditChange.before, String), "").contains('"ops_'),
+                func.coalesce(cast(AuditChange.after, String), "").contains('"ops_'))).exists()
+        events = events.where(~operational_change,
+            func.coalesce(AuditEvent.module, "") != "运营项目",
+            ~func.coalesce(AuditEvent.path, "").contains("/operations"),
+            ~func.coalesce(cast(AuditEvent.detail, String), "").contains("operations."),
+            ~func.coalesce(cast(AuditEvent.detail, String), "").contains("ops."),
+            ~func.coalesce(cast(AuditEvent.detail, String), "").contains("ops_"))
+        old = old.where(legacy_visibility(p))
+        tools = tools.where(~LogMcpAudit.tool_code.startswith("ops."))
+        jobs = jobs.where(~SyncJobLog.job_name.startswith("operations"), ~SyncJobLog.job_name.startswith("ops_"))
     return union_all(events,old,tools,jobs).subquery()
 
 
@@ -75,8 +99,8 @@ def _filters(table, *, actor="", keyword="", module="", source="", outcome="", s
     return conditions
 
 
-def listing(db, *, page=1,size=30,**filters):
-    table=combined(db)
+def listing(db, *, page=1,size=30,p=None,**filters):
+    table=combined(db,p)
     where=_filters(table,**filters)
     total=db.scalar(select(func.count()).select_from(table).where(*where))
     page=min(page,max(1,(total+size-1)//size))
@@ -91,8 +115,8 @@ def listing(db, *, page=1,size=30,**filters):
     return {"items":rows,"total":total,"page":page,"size":size,"since":since(db)}
 
 
-def options(db):
-    table=combined(db)
+def options(db,p=None):
+    table=combined(db,p)
     modules=list(db.scalars(select(table.c.module).distinct().order_by(table.c.module)))
     return {"modules":modules,"since":since(db),"coverage_tables":db.scalar(
         __import__("sqlalchemy").text("SELECT count(*) FROM pg_trigger WHERE tgname='jc_operation_audit' AND NOT tgisinternal")),
@@ -100,7 +124,7 @@ def options(db):
                    "maintenance":"已确认的数据维护","legacy":"历史操作","mcp_history":"历史智能工具","job_history":"历史任务"}}
 
 
-def detail(db,key):
+def detail(db,key,p=None):
     kind,_,raw=key.partition(":")
     if kind not in ("event","legacy","mcp","job") or not raw.isascii() or not raw.isdigit():
         raise not_found("操作记录")
@@ -108,6 +132,10 @@ def detail(db,key):
     row=db.get(cls,int(raw))
     if not row:
         raise not_found("操作记录")
+    if p is not None:
+        visible = combined(db,p)
+        if not db.scalar(select(visible.c.key).where(visible.c.key == key)):
+            raise not_found("操作记录")
     cutoff=since(db)
     if kind!="event" and (row.created_at if kind=="legacy" else row.called_at if kind=="mcp" else row.run_at)>=cutoff:
         raise not_found("历史记录")

@@ -25,7 +25,7 @@ def send(db: Session, users: Iterable[SysUser], msg_type: str, title: str, conte
          ref_type: str | None = None, ref_id: str | None = None, wecom: bool = True, md: bool = True,
          defer: bool = False, wecom_content: str | None = None) -> list[SysNotify]:
     """对每个用户写一条站内通知；wecom=True 时同时推企微（每人一条 wecom_app 记录，便于逐条追踪状态）。"""
-    users = [u for u in users if u and u.status == 1 and not u.is_deleted]
+    users = [u for u in users if u and u.status == 1 and not u.is_deleted and u.workbench_enabled]
     rows: list[SysNotify] = []
     for u in users:
         rows.append(SysNotify(user_id=u.id, channel="inapp", msg_type=msg_type, title=title, content=content,
@@ -43,6 +43,14 @@ def send(db: Session, users: Iterable[SysUser], msg_type: str, title: str, conte
 
 def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> None:
     by_user = {u.id: u for u in db.scalars(select(SysUser).where(SysUser.id.in_({r.user_id for r in rows})))}
+    allowed = []
+    for row in rows:
+        user = by_user.get(row.user_id)
+        if user and user.status == 1 and not user.is_deleted and user.workbench_enabled:
+            allowed.append(row)
+        else:
+            row.send_status, row.error_msg, row.retry_count = 2, "账号未获工作台使用权限或已停用", MAX_RETRY
+    rows = allowed
     if settings.source_mode("wecom") == "live":
         allowed = []
         for r in rows:

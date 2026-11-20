@@ -40,6 +40,8 @@ def principal(user_id):
         user = db.get(SysUser, user_id)
         if not user or user.is_deleted or user.status != 1:
             raise forbidden("账号已停用，不能执行业务操作")
+        if not user.workbench_enabled:
+            raise forbidden("当前账号无法查看和使用工作台，请联系管理员单独配置权限")
         return build_principal(user)
 
 
@@ -55,7 +57,21 @@ def digest(value):
 
 def actor_signature(user_id):
     p = principal(user_id)
-    return digest({"menus": sorted(p.menus), "buttons": sorted(p.buttons), "scope": p.data_scope, "department": p.user.department_id})
+    with SessionLocal() as db:
+        return principal_signature(db, p)
+
+
+def principal_signature(db, p):
+    value = {"menus": sorted(p.menus), "buttons": sorted(p.buttons), "scope": p.data_scope, "department": p.user.department_id}
+    if p.sections is not None:
+        value["sections"] = p.sections
+    from app.services import operations_service as ops, operations_scope as scope
+    if p.has_menu("operations") and not ops.can_view_all(p):
+        from app.models import OpsProject
+        value["operations_access"] = [
+            [project.id, scope.view(db, p, project)]
+            for project in db.scalars(ops.visible_projects(p).order_by(OpsProject.id))]
+    return digest(value)
 
 
 def source_signature():

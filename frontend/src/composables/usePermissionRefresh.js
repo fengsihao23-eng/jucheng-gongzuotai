@@ -23,7 +23,7 @@ export function usePermissionRefresh() {
   const stored = event => { if (event.key === storageKey) refresh() }
   watch(() => auth.profile?.permission_revision, (value, prior) => {
     if (!value || !prior || value === prior || route.meta.public) return
-    if ((route.meta.menu && !auth.hasMenu(route.meta.menu)) ||
+    if (auth.profile?.workbench_enabled === false || (route.meta.menu && !auth.hasMenu(route.meta.menu)) ||
         (route.meta.anyMenu && !route.meta.anyMenu.some(key => auth.hasMenu(key))) ||
         (route.meta.adminOnly && !auth.profile.is_admin)) {
       router.replace('/403')

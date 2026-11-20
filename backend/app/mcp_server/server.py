@@ -156,6 +156,8 @@ def _run(tool: str, ctx: Context, params: dict, impl) -> str:
             _audit(db, None, tool, params, "unauthorized", "无有效令牌", 0, ip)
             return json.dumps({"ok": False, "message": "未认证：请在工作台「WorkBuddy 接入」页获取个人 Access Token"}, ensure_ascii=False)
         p = build_principal(user)
+        if not p.workbench_enabled or user.status != 1 or user.is_deleted:
+            raise ToolDenied("denied", "当前账号无法查看和使用工作台，请联系管理员单独配置权限")
         from app.core.operation_audit import bind_actor
         bind_actor(db, user)
         reg = db.scalar(select(McpTool).where(McpTool.tool_code == tool))
@@ -604,7 +606,7 @@ def _lookup_user(token: str) -> int | None:
         u = db.scalar(select(SysUser).where(SysUser.access_token == hash_token(token)))
         from app.core.accounts import resolve_account
         u = resolve_account(db, u)
-        return u.id if u and u.status == 1 and not u.is_deleted else None
+        return u.id if u and u.status == 1 and not u.is_deleted and u.workbench_enabled else None
     except BizError:
         return None
     finally:

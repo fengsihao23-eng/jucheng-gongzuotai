@@ -274,7 +274,7 @@ def _run(root, task_id, message, context, user_id, history=None, attachment_ids=
     try:
         with SessionLocal() as db:
             user = db.get(SysUser, user_id)
-            if not user or user.status != 1 or user.is_deleted:
+            if not user or user.status != 1 or user.is_deleted or not user.workbench_enabled:
                 raise ValueError("inactive account")
             is_admin = build_principal(user).is_admin
         _change(root, task_id, lambda t: t.update(state="running", message="小聚正在分析并调用工具"))

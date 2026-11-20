@@ -185,6 +185,8 @@ class XiaoJuTools:
                 user = db.get(SysUser, self.user_id)
                 if not user or user.status != 1 or user.is_deleted:
                     return {"ok": False, "message": "账号已停用"}
+                if not user.workbench_enabled:
+                    return {"ok": False, "message": "当前账号无法查看和使用工作台，请联系管理员单独配置权限"}
                 if self._credential_version != password_version(user.password_hash):
                     return {"ok": False, "message": "账号密码已更新，请重新发起任务"}
                 if not build_principal(user).is_admin and name not in {"inspect_environment", "connect_enterprise", "find_page", "prepare_personal_workbuddy", "list_business_capabilities", "describe_business_operation", "execute_business_operation", "read_business_action", "read_business_result"}:

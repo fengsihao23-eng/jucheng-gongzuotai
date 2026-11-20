@@ -84,13 +84,15 @@ def profile(p: Principal, db: Session | None = None) -> dict:
     from app.services.personal_permission_service import view
     u = p.user
     menus = visible_menus(db, p) if db is not None else sorted(p.menus, key=list(MENUS).index)
-    permission_revision = hashlib.sha256(json.dumps({"configuration": view(u)["permission_revision"], "menus": menus},
+    permission_revision = hashlib.sha256(json.dumps({"configuration": view(u)["permission_revision"], "menus": menus,
+        "workbench_enabled": p.workbench_enabled, "sections": p.sections},
         sort_keys=True).encode()).hexdigest()
     return {"id": u.id, "userid": u.wecom_userid, "name": u.name, "position": u.position,
             "dept_code": u.dept_code, "dept_name": u.department.name if u.department else None,
             "roles": [{"code": r.role_code, "name": r.name} for r in u.roles] or [{"code": "EMP", "name": "普通员工"}],
             "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
             "portal": p.portal, "is_admin": p.is_admin, "preferences": u.preferences or {},
+            "workbench_enabled": p.workbench_enabled, "sections": p.sections,
             "mcp_token_hint": u.access_token_hint, "permission_revision": permission_revision}
 
 
