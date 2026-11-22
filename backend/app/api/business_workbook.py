@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
-from app.core.deps import Principal, client_ip, get_principal
+from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.response import forbidden, not_found, ok
 from app.core.timeutil import today
 from app.services import business_workbook as svc, collection_followups as followups, contract_workbook_sync as sync
@@ -18,6 +18,34 @@ from app.services import business_workbook as svc, collection_followups as follo
 router = APIRouter(prefix="/business-workbook", tags=["固定表格经营数据"])
 View = Literal["contracts", "collections", "opportunities", "tender", "board"]
 HEADERS = {"Cache-Control": "no-store"}
+TrackedView = Literal["opportunities", "tender"]
+
+
+class ProjectFeedbackIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    revision: str = Field(min_length=1, max_length=64)
+    expected_latest_id: int | None = Field(default=None, gt=0)
+    status: Literal["doing", "blocked", "done"] = "doing"
+    content: str = Field(min_length=1, max_length=2000)
+    problems: str = Field(default="", max_length=2000)
+    next_step: str = Field(default="", max_length=2000)
+    next_due_on: date | None = None
+
+
+@router.get("/{view}/rows/{sheet}/{row_number}/feedback")
+def project_tracking_history(view: TrackedView, sheet: str, row_number: int, revision: str,
+                             p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.workbook_project_feedback import history
+    return ok(history(db, p, view, sheet, row_number, revision), headers=HEADERS)
+
+
+@router.post("/{view}/rows/{sheet}/{row_number}/feedback")
+def record_project_feedback(view: TrackedView, sheet: str, row_number: int, body: ProjectFeedbackIn,
+                            p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    from app.services.workbook_project_feedback import history
+    result = history(db, p, view, sheet, row_number, body.revision, body=body)
+    db.commit()
+    return ok(result, headers=HEADERS)
 
 
 @router.post("/sync")
@@ -122,6 +150,7 @@ class CollectionReminderIn(BaseModel):
     recipient_id: int = Field(gt=0)
     manager_ids: list[int] = Field(default_factory=list, max_length=30)
     due_on: date
+    payment_due_on: date | None = None
     cadence: Literal['daily', 'weekly'] = 'weekly'
     enabled: bool = True
     expected_revision: int = Field(ge=0)
@@ -220,6 +249,14 @@ def collection_summary_report(body: CollectionSummaryIn, p: Principal = Depends(
                               db: Session = Depends(get_db)):
     from app.services.workbook_query_report import build_collection_summary
     return ok(build_collection_summary(db, p, scope=body.scope, owner=body.owner, focus_prompt=body.focus_prompt), headers=HEADERS)
+
+
+@router.get('/collections/progress-brief')
+def collection_progress_brief(page: int = Query(1, ge=1), size: int = Query(5, ge=1, le=30),
+                              project_name: str = Query("", max_length=500),
+                              p: Principal = Depends(require_menu("contracts", "receivables")), db: Session = Depends(get_db)):
+    from app.services.workbook_query_report import collection_progress_brief as brief
+    return ok(brief(db, p, page=page, size=size, project_name=project_name), headers=HEADERS)
 
 
 @router.get('/collections/saved-reports')

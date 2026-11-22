@@ -19,7 +19,7 @@
     <p v-if="savedReport" class="jc-small jc-muted">已保存版本 {{ savedReport.version }} · {{ datetime(savedReport.created_at) }} · {{ savedReport.automatic ? '自动生成' : '手动生成' }}</p>
     <template v-if="report">
       <el-tabs v-model="view">
-        <el-tab-pane label="文字汇报" name="text"><pre class="digest-text">{{ report.text }}</pre></el-tab-pane>
+        <el-tab-pane :label="report.project_income || report.project_progress ? '综合汇报' : '文字汇报'" name="text"><pre class="digest-text">{{ report.text }}</pre></el-tab-pane>
         <el-tab-pane label="来源明细" name="sources">
           <p class="jc-small jc-muted">{{ report.start }} 至 {{ report.end }} · {{ report.note }}</p>
           <el-table :data="report.items" empty-text="此期间没有符合条件的任务">

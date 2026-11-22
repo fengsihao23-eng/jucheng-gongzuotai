@@ -165,7 +165,7 @@
                 </el-form-item>
 
                 <el-form-item
-                  :label="`存在问题及需协调事项（${hasProblem ? '必填' : '可选'}）`"
+                  :label="needsReason ? '到期未收原因（必填）' : `存在问题及需协调事项（${hasProblem ? '必填' : '可选'}）`"
                   prop="problems"
                 >
                   <el-input
@@ -320,6 +320,7 @@ function onStageChange(val) {
 }
 
 const hasHistory = computed(() => !!(item.value?.updates?.length || item.value?.notification_deliveries?.length))
+const needsReason = computed(() => item.value?.reminder?.payment_due && outcome.value !== 'done')
 const primaryPlan = computed(() => item.value?.plans?.[0] || null)
 const moneyText = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 
@@ -388,9 +389,9 @@ function goReport() {
 
 function withXiaoju() {
   if (!item.value) return
-  const refName = `「${item.value.contract.name}」（负责人：${item.value.contract.owner || '待确认'}）`
+  const refName = `「${item.value.contract.name}」`
   visible.value = false
-  assistant.openDraft(`帮我查看并梳理回款项目${refName}的执行情况、存在问题及下一步催收建议。`)
+  assistant.open(`请汇报${refName}的回款进展`)
 }
 
 async function polishDraft() {
@@ -414,6 +415,7 @@ async function polishDraft() {
 async function submit() {
   if (!item.value || saving.value) return
   if (!await formRef.value?.validate().catch(() => false)) return
+  if (needsReason.value && !form.problems.trim()) return ElMessage.warning('回款已到期，请填写未收原因')
   if (hasProblem.value && !form.problems.trim()) {
     return ElMessage.warning('勾选“遇到阻碍 / 存在问题”时，请填写具体存在的问题')
   }

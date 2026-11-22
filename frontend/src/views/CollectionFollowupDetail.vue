@@ -28,6 +28,7 @@
         <el-button v-if="item.can_cancel" link type="danger" :loading="saving" @click="withdraw">撤回要求</el-button>
       </Panel>
       <Panel title="跟进情况" class="mt-16">
+        <el-alert v-if="item.payment_due_on" :title="`约定或预计回款日 ${item.payment_due_on}，仍有未收余额，请填写跟进情况和未收原因。`" type="warning" :closable="false" />
         <p v-if="item.stage" class="jc-small">当前流程：{{ item.stages.find(s => s.value === item.stage)?.label }}</p>
         <p class="jc-small jc-muted">联系沟通 → 付款审批 → 等待付款 → 回款反馈；遇到问题可记录为“需协调”。</p>
         <template v-if="item.reply">
@@ -44,14 +45,14 @@
           <el-form-item label="跟进情况">
             <el-input v-model="content" aria-label="回复跟进情况" type="textarea" :rows="4" maxlength="1600" show-word-limit placeholder="例如：已与客户确认付款流程，目前在走付款审批" />
           </el-form-item>
-          <el-form-item label="存在问题及需协调事项（可选）">
+          <el-form-item :label="needsReason ? '到期未收原因（必填）' : '存在问题及需协调事项（可选）'">
             <el-input v-model="problems" aria-label="存在问题" type="textarea" :rows="2" maxlength="2000" placeholder="若遇到审批阻碍、资料缺失等需要协调解决的问题，请在此注明" />
           </el-form-item>
           <el-form-item label="预计回款日（可选）">
             <el-date-picker v-model="expectedOn" aria-label="预计回款日" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
           </el-form-item>
           <el-form-item label="下一步安排"><el-input v-model="nextStep" aria-label="下一步安排" maxlength="1600" placeholder="下一步联系谁，安排什么" /></el-form-item>
-          <el-button type="primary" native-type="submit" :disabled="saving || !content.trim()" :loading="saving">{{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}</el-button>
+          <el-button type="primary" native-type="submit" :disabled="saving || !content.trim() || (needsReason && !problems.trim())" :loading="saving">{{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}</el-button>
         </el-form>
         <el-empty v-else-if="!item.reply" :description="item.state === 'cancelled' ? '此要求已撤回' : '等待负责人回复'" :image-size="55" />
       </Panel>
@@ -83,6 +84,7 @@ const route = useRoute(), router = useRouter()
 const item = ref(null), error = ref(''), content = ref(''), expectedOn = ref(''), loading = ref(false), saving = ref(false)
 const stage = ref('contact')
 const problems = ref('')
+const needsReason = computed(() => Boolean(item.value?.payment_due_on) && stage.value !== 'reported_paid')
 const nextStep = ref('')
 const number = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 const states = { pending: '待回复', replied: '已回复', cancelled: '已撤回' }

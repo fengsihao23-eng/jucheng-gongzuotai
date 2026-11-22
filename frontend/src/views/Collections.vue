@@ -3,6 +3,17 @@
     <PageHeader eyebrow="经营 · 回款" title="回款情况" desc="从应收余额查到合同分期，记录预计回款、催办和负责人回复。">
       <el-button v-if="auth.hasMenu('receivables')" @click="router.push('/receivables')">开票与到账</el-button>
     </PageHeader>
+    <el-radio-group v-model="view" class="mb-16" aria-label="回款视图">
+      <el-radio-button value="month">当月回款</el-radio-button><el-radio-button value="unpaid">未收跟进</el-radio-button>
+    </el-radio-group>
+    <Panel v-if="view === 'month'" title="当月回款清单" :sub="monthly ? `${monthly.period} · ${monthly.count} 笔，合计 ${money(monthly.amount)} 元` : ''" :padding="false">
+      <el-table :data="monthly?.items || []" empty-text="本月暂无已登记的实际到账">
+        <el-table-column prop="date" label="到账日期" width="140" /><el-table-column prop="contract_name" label="合同名称" min-width="200" />
+        <el-table-column prop="customer" label="客户" min-width="160" /><el-table-column label="实际回款金额（元）" align="right" width="170"><template #default="{row}">{{ money(row.amount) }}</template></el-table-column>
+      </el-table>
+      <el-pagination v-if="monthly?.count > 30" v-model:current-page="monthPage" :page-size="30" :total="monthly.count" layout="prev, pager, next" @current-change="loadMonth" />
+    </Panel>
+    <template v-else>
     <div class="jc-grid c5 buckets" v-loading="loading && !board.totals.length">
       <button v-for="entry in board.totals" :key="entry.key" type="button" :aria-pressed="filters.bucket === entry.key"
         @click="filters.bucket = filters.bucket === entry.key || entry.key === 'all' ? '' : entry.key; refresh()">
@@ -46,6 +57,7 @@
       </el-table>
     </Panel>
     <el-pagination v-model:current-page="page" :page-size="30" :total="board.total" layout="total, prev, pager, next" @current-change="load" />
+    </template>
     <el-drawer v-model="opened" title="回款跟进" size="min(640px, 100vw)" @closed="clearDetail">
       <div v-loading="detailLoading" style="min-height: 90px">
         <template v-if="detail">
@@ -96,6 +108,13 @@ import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 
 const auth = useAuth(), route = useRoute(), router = useRouter()
+const view = ref(route.query.contract || route.query.basis === 'unpaid' ? 'unpaid' : 'month'), monthly = ref(null), monthPage = ref(1)
+let monthRequest = 0
+async function loadMonth() {
+  const current = ++monthRequest
+  const result = await api.get('/collections/monthly-receipts', { page: monthPage.value })
+  if (current === monthRequest) monthly.value = result
+}
 const filters = reactive({ keyword: '', owner_id: undefined, basis: 'due', bucket: '', state: 'open', year: undefined })
 const states = { open: '待回款', pending: '待回复', unreported: '本周未反馈', settled: '已结清', all: '全部' }
 const actions = { note: '记录进展', request: '催办', reply: '回复催办' }
@@ -143,6 +162,7 @@ async function save() {
   } catch {} finally { saving.value = false }
 }
 onMounted(() => {
+  loadMonth()
   load()
   if (/^[1-9][0-9]*$/.test(String(route.query.contract)) && /^[0-9]+$/.test(String(route.query.plan))) {
     open({ contract_id: route.query.contract, plan_key: route.query.plan })

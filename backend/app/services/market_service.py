@@ -111,6 +111,14 @@ def add_feedback(db: Session, proj: BizProject, data: dict, reporter_id: int | N
     content = (data.get("content") or "").strip()
     if not content:
         raise bad_request("反馈内容必填")
+    if problems := (data.get("problems") or "").strip():
+        content += f"\n问题：{problems}"
+    if step := (data.get("next_step") or "").strip():
+        content += f"\n下一步：{step}"
+        if data.get("next_due_on"):
+            content += f"（{data['next_due_on']}）"
+    elif data.get("next_due_on"):
+        raise bad_request("请填写跟进日期对应的下一步安排")
     kind = data.get("kind") or "progress"
     if kind not in ("progress", "event", "risk"):
         raise bad_request("反馈类型无效（progress/event/risk）")

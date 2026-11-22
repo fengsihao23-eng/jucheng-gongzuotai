@@ -24,6 +24,7 @@
         class="focus-input"
       />
       <el-button type="primary" native-type="submit" :loading="loading">生成阶段性总结</el-button>
+      <el-button @click="assistant.open('逐笔回款汇报')">小聚逐笔汇报</el-button>
       <el-button plain @click="openHistoryTab">已留档报告{{ history.length ? `（${history.length}）` : '' }}</el-button>
       <el-button v-if="report || activeTab === 'history' && showBody" @click="closeBody">收起</el-button>
     </form>
@@ -120,12 +121,14 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useAssistant } from '@/store/assistant'
 import { datetime } from '@/utils/format'
 
 defineProps({
   owners: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['open-execution'])
+const assistant = useAssistant()
 
 const scope = ref('all')
 const owner = ref('')

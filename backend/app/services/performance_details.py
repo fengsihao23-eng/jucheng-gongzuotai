@@ -124,6 +124,8 @@ def detail(db, p, sheet_id, number, revision='', *, view='contracts'):
                 if error.code not in {40301, 40401}:
                     raise
     return {'contract': item, 'revision': wb.revision, 'source_status': source.source_info(wb, p),
+            'can_track_collection': source.can_access_view(p, wb.config, 'collections') and
+                any(s.id == sheet_id for s in source.collection_sheets(wb)),
             'notes': notes, 'attachments': _attachments(sheet, numbers), 'collection': collection,
             'project_type': sheet.display(number, 7) if sheet.profile == 'sales' else None,
             'last_received_on': sheet.display(number, 14) if sheet.profile == 'sales' else None,

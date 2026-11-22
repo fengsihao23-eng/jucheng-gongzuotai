@@ -16,6 +16,18 @@ router = APIRouter(prefix="/collections", tags=["回款台账"])
 Menu = Depends(require_menu("contracts", "receivables"))
 
 
+@router.get("/monthly-receipts")
+def monthly_receipts(page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100),
+                     p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import business_workbook, collection_workbook
+    wb = business_workbook.active_source(db, p, "collections")
+    if wb:
+        result = collection_workbook.page(db, wb, p, basis="current", page=page, size=size)
+        return ok({"period": today().strftime("%Y-%m"), "count": result["total"], "amount": result["summary"]["received"]["value"],
+                   "items": result["items"], "warning": result["sheet"]["warning"]})
+    return ok(service.monthly_receipts(db, p, page, size))
+
+
 @router.get("")
 def collection_board(year: int | None = Query(None, ge=2000, le=2099), basis: Literal["due", "sign"] = "due",
                      bucket: Literal["", "all", "before", "current", "future", "undated"] = "",

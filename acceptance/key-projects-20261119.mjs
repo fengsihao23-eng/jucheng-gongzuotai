@@ -19,8 +19,10 @@ async function settled(page){await page.waitForFunction(()=>document.getAnimatio
 await step('KEY-01','重点项目看板名称、三项报告操作及新建入口保持清楚',async()=>{
   await desktop.goto(WEB+'/market')
   await desktop.getByRole('heading',{name:'重点项目',exact:true}).first().waitFor()
-  for(const name of ['生成周报','生成月报','汇总本周周报','新建重点项目'])await desktop.getByRole('button',{name,exact:true}).waitFor()
-  await desktop.getByRole('tab',{name:'周报 / 月报',exact:true}).waitFor()
+  await desktop.getByRole('button',{name:'新建重点项目',exact:true}).waitFor()
+  await desktop.getByRole('tab',{name:'周报 / 月报',exact:true}).click()
+  for(const name of ['生成周报','生成月报','汇总本周周报'])await desktop.getByRole('button',{name,exact:true}).waitFor()
+  await desktop.getByRole('tab',{name:'跟进看板',exact:true}).click()
   await shot(desktop,'key-board-desktop')
 })
 

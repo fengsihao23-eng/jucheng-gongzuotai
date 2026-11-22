@@ -76,11 +76,13 @@
       </template>
     </div>
     <el-dialog v-model="historyOpen" title="过程记录" width="min(720px, calc(100vw - 24px))" align-center append-to-body destroy-on-close class="task-history-dialog">
-      <h3 v-if="task" class="history-count">过程记录 <small>{{ task.updates.length }} 条</small></h3>
-      <el-timeline v-if="task?.updates.length" class="history-timeline">
-        <el-timeline-item v-for="u in task.updates" :key="u.id" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">
-          <b>{{ updateTitle(u) }}{{ u.node_id ? ' · ' + task.nodes.find(n => n.id === u.node_id)?.name : '' }}</b>
+      <h3 v-if="task" class="history-count">过程记录 <small>{{ timeline.length }} 条</small></h3>
+      <el-timeline v-if="timeline.length" class="history-timeline">
+        <el-timeline-item v-for="u in timeline" :key="u.key" :timestamp="`${datetime(u.created_at)} · ${u.author_name}`" placement="top">
+          <b>{{ u.title }}{{ u.node_id ? ' · ' + (task.nodes.find(n => n.id === u.node_id)?.name || '历史节点') : '' }}</b>
+          <span v-if="u.recipient_name" class="jc-small jc-muted"> · 给 {{ u.recipient_name }}</span>
           <p class="plain">{{ u.content }}</p>
+          <p v-if="u.reply_to_id" class="jc-small jc-muted">回复要求 #{{ u.reply_to_id }}</p>
           <p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
         </el-timeline-item>
       </el-timeline>
@@ -121,7 +123,14 @@ const emit = defineEmits(['update:modelValue', 'edit'])
 const historyOpen = ref(false)
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const assistant = useAssistant(), task = ref(null), loading = ref(false), unavailable = ref(false), saving = ref(false)
-const hasHistory = computed(() => !!(task.value?.updates?.length || task.value?.notification_deliveries?.length))
+const timeline = computed(() => {
+  if (!task.value) return []
+  const labels = { note: '留言', request: '办理要求', reply: '回复' }
+  return [...task.value.updates.map(u => ({ ...u, key: `update-${u.id}`, title: updateTitle(u) })),
+    ...(task.value.discussions || []).map(d => ({ ...d, key: `discussion-${d.id}`, title: labels[d.kind] }))]
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)
+})
+const hasHistory = computed(() => !!(timeline.value.length || task.value?.notification_deliveries?.length))
 const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
 const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '', node_id: null })
 const blocked = computed({ get: () => form.status === 'blocked', set: value => { form.status = value ? 'blocked' : 'doing' } })

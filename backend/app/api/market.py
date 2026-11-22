@@ -129,6 +129,9 @@ class FeedbackIn(BaseModel):
     kind: str = "progress"
     risk_level: int | None = None
     feedback_date: date | None = None
+    problems: str = ""
+    next_step: str = ""
+    next_due_on: date | None = None
 
 
 @router.post("/feedback")

@@ -37,6 +37,7 @@ def can_read(db, p, row):
     if row.audience == "personal" and row.owner_id != p.id and not manager:
         return False
     ids = {r["id"] for r in row.facts.get("items", [])}
+    ids.update(r["task_id"] for r in row.facts.get("project_progress", []) if r.get("task_id"))
     allowed = set(db.scalars(select(OpsTask.id).where(OpsTask.id.in_(ids), policy.task_access(p))))
     if ids != allowed:
         return False

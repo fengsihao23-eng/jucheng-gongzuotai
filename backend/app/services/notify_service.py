@@ -66,14 +66,14 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
             return
     from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
     from app.services.collection_followups import NOTICE_TYPES as COLLECTION_TYPES, eligible_notice as collection_eligible
-    from app.services.collection_reminders import NOTICE as REMINDER_TYPE, eligible as reminder_eligible
+    from app.services.collection_reminders import NOTICE as REMINDER_TYPE, PAYMENT_NOTICE, eligible as reminder_eligible
     from app.services.key_projects import NOTICE as KEY_TYPE, eligible_notice as key_eligible
     pending_rows = []
     for r in rows:
         if r.msg_type == KEY_TYPE and not key_eligible(db, r):
             r.send_status, r.error_msg, r.retry_count = 2, "重点项目、负责人或节点状态已变化", MAX_RETRY
             continue
-        if r.msg_type == REMINDER_TYPE and not reminder_eligible(db, r):
+        if r.msg_type in (REMINDER_TYPE, PAYMENT_NOTICE) and not reminder_eligible(db, r):
             r.send_status, r.error_msg, r.retry_count = 2, "回款节点、负责人或权限已变化", MAX_RETRY
         else:
             pending_rows.append(r)

@@ -1,7 +1,7 @@
 """Daily/weekly feedback deadlines on stable workbook rows, queued with delivery rechecks."""
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, text
 
 from app.core.audit import log_op
 from app.core.deps import build_principal
@@ -14,6 +14,7 @@ from app.services.collection_service import can_request
 
 NOTICE = "workbook_collection_overdue"
 REF = "collection_reminder"
+PAYMENT_NOTICE = "workbook_payment_due"
 
 
 def _deadline(db, rule):
@@ -44,7 +45,10 @@ def info(db, wb, p, sheet, keys):
         result["rule"] = {"id": rule.id, "enabled": rule.enabled, "cadence": rule.cadence, "due_on": rule.due_on,
                           "next_due_on": due, "overdue": rule.enabled and today() > due, "manager_ids": rule.manager_ids,
                           "recipient_id": req.recipient_id, "recipient_name": owner.name if owner else "历史成员",
-                          "revision": rule.revision, "request_id": req.id}
+                          "revision": rule.revision, "request_id": req.id, "payment_due_on": rule.payment_due_on}
+    due = payment_node(db, wb, sheet, keys, rule)
+    result["payment_due_on"] = due["due_on"] if due else None
+    result["payment_due"] = bool(due and due["due_on"] <= today())
     return result
 
 
@@ -76,12 +80,85 @@ def save(db, p, sheet, row_number, body):
         db.flush()
     rule = rule or Rule(workbook_id=wb.id, sheet_id=sheet, row_key=keys[0], revision=0)
     rule.request_id, rule.cadence, rule.due_on, rule.enabled = req.id, body.cadence, body.due_on, body.enabled
+    if "payment_due_on" in body.model_fields_set:
+        rule.payment_due_on = body.payment_due_on
     rule.manager_ids, rule.updated_by, rule.revision = sorted(set(body.manager_ids)), p.id, rule.revision + 1
     db.add(rule)
     db.flush()
     log_op(db, p.id, "collections.reminder.settings", REF, rule.id,
            after={"enabled": rule.enabled, "cadence": rule.cadence, "recipient_id": recipient.id, "due_on": str(rule.due_on)})
     return info(db, wb, p, sheet, keys)
+
+
+def payment_node(db, wb, sheet_id, keys, rule=None):
+    """An explicit contract deadline takes precedence over the latest follow-up estimate."""
+    if not keys:
+        return None
+    rule = rule or find(db, wb, sheet_id, keys)
+    latest = db.scalar(followups._row_query(wb, sheet_id, keys).order_by(Followup.id.desc()).limit(1))
+    req = db.get(Followup, rule.request_id) if rule else latest
+    if not req or req.cancelled_at or (rule and not rule.enabled):
+        return None
+    if rule and rule.payment_due_on:
+        return {"due_on": rule.payment_due_on, "request": req, "managers": rule.manager_ids}
+    estimate = db.scalar(select(Progress.expected_on).join(Followup, Progress.request_id == Followup.id).where(
+        Followup.workbook_id == wb.id, Followup.sheet_id == sheet_id, Followup.row_key.in_(keys),
+        Followup.cancelled_at.is_(None), Progress.expected_on.is_not(None)).order_by(Progress.id.desc()).limit(1))
+    due = estimate or req.expected_on
+    if not due:
+        return None
+    return {"due_on": due, "request": req, "managers": rule.manager_ids if rule else []}
+
+
+def _payment_nodes(db, wb, candidates=None):
+    """Resolve only contracts with a rule or a recorded payment estimate in the current snapshot."""
+    from app.services.collection_workbook import state
+    if candidates is None:
+        candidates = set(db.execute(select(Rule.sheet_id, Rule.row_key).where(Rule.workbook_id == wb.id)).all())
+        candidates.update(db.execute(select(Followup.sheet_id, Followup.row_key).where(
+            Followup.workbook_id == wb.id, Followup.cancelled_at.is_(None), Followup.expected_on.is_not(None))).all())
+        candidates.update(db.execute(select(Followup.sheet_id, Followup.row_key).join(Progress, Progress.request_id == Followup.id)
+            .where(Followup.workbook_id == wb.id, Followup.cancelled_at.is_(None), Progress.expected_on.is_not(None)).distinct()).all())
+    if not candidates:
+        return {}
+    sheets = {s.id: s for s in source.collection_sheets(wb)}
+    nodes = {}
+    for item in source.module_rows(wb, "collections"):
+        sheet = sheets.get(item["sheet_id"])
+        if not sheet or state(item) != "open":
+            continue
+        keys = followups._keys(sheet.rows[item["row"]].get("record"))
+        if not any((sheet.id, key) in candidates for key in keys):
+            continue
+        node = payment_node(db, wb, sheet.id, keys)
+        if node and node["due_on"] <= today():
+            nodes[node["request"].id] = {**node, "item": item}
+    return nodes
+
+
+def request_payment_due(db, req):
+    wb = source.configured_source(db)
+    if not wb or wb.id != req.workbook_id:
+        return None
+    node = _payment_nodes(db, wb, {(req.sheet_id, req.row_key)}).get(req.id)
+    return node["due_on"] if node else None
+
+
+def _needs_payment_report(db, node):
+    start, end = day_bounds(today())
+    req = node["request"]
+    return not db.scalar(select(Progress.id).where(Progress.request_id == req.id, Progress.author_id == req.recipient_id,
+        Progress.created_at >= start, Progress.created_at < end,
+        or_(Progress.problems != "", Progress.stage == "reported_paid")).limit(1))
+
+
+def _payment_recipient(db, wb, node, uid):
+    user = db.get(SysUser, uid)
+    if not followups._approved_user(user) or not user.workbench_enabled:
+        return False
+    principal = build_principal(user)
+    return uid == node["request"].recipient_id or (
+        uid in node["managers"] and can_request(principal) and source.can_access_view(principal, wb.config, "collections"))
 
 
 def _active_item(db, rule):
@@ -104,6 +181,11 @@ def _active_item(db, rule):
 
 
 def eligible(db, notice):
+    if notice.msg_type == PAYMENT_NOTICE:
+        wb = source.configured_source(db)
+        req = db.get(Followup, int(notice.ref_id)) if str(notice.ref_id).isdigit() else None
+        node = _payment_nodes(db, wb, {(req.sheet_id, req.row_key)}).get(req.id) if req and wb and req.workbook_id == wb.id else None
+        return bool(node and _payment_recipient(db, wb, node, notice.user_id) and _needs_payment_report(db, node))
     try:
         rule = db.get(Rule, int(notice.ref_id))
     except (TypeError, ValueError):
@@ -124,7 +206,29 @@ def scan(db):
     from app.services import notify_service
     queued, overdue = 0, 0
     start, end = day_bounds(today())
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('collection_feedback_reminders'))"))
+    wb = source.configured_source(db)
+    nodes = _payment_nodes(db, wb) if wb else {}
+    for ident, node in nodes.items():
+        if not _needs_payment_report(db, node):
+            continue
+        req = node["request"]
+        for uid in {req.recipient_id, *node["managers"]}:
+            already = db.scalar(select(SysNotify.id).where(SysNotify.user_id == uid, SysNotify.msg_type == PAYMENT_NOTICE,
+                SysNotify.ref_id == str(ident), SysNotify.created_at >= start, SysNotify.created_at < end).limit(1))
+            if already or not _payment_recipient(db, wb, node, uid):
+                continue
+            notices = notify_service.send(db, [db.get(SysUser, uid)], PAYMENT_NOTICE, "回款到期仍有未收款项",
+                f"{node['item']['name']} · 回款日 {node['due_on']}，未收 {node['item']['outstanding']} 元。请汇报跟进情况、未收原因和下一步。",
+                link=f"/collections/followups/{ident}", ref_type=followups.REF_TYPE, ref_id=str(ident), defer=True,
+                wecom_content="有合同到期未收款，请打开工作台填写跟进情况、未收原因和下一步。")
+            for notice in notices:
+                notice.created_at = now()
+            queued += 1
     for rule in db.scalars(select(Rule).where(Rule.enabled.is_(True))):
+        if rule.request_id in nodes:
+            continue
         item = _active_item(db, rule)
         deadline = _deadline(db, rule)
         if not item or today() <= deadline:
@@ -145,15 +249,25 @@ def scan(db):
             for notice in notices:
                 notice.created_at = now()
             queued += 1
-    return {"rows": queued, "message": f"超时合同 {overdue} 份，已为负责人及管理者生成 {queued} 组提醒"}
+    return {"rows": queued, "message": f"到期未收 {len(nodes)} 份，反馈超时 {overdue} 份，共生成 {queued} 组提醒"}
 
 
 def overdue_items(db, p):
     wb = source.active_source(db, p, "collections")
     if wb is None:
         return {"items": []}
+    nodes = _payment_nodes(db, wb)
     items = []
+    for node in nodes.values():
+        item, req = node["item"], node["request"]
+        owner = db.get(SysUser, req.recipient_id)
+        items.append({"sheet_id": item["sheet_id"], "row": item["row"], "name": item["name"], "kind": "payment",
+                      "recipient_name": owner.name if owner else "历史成员", "due_on": node["due_on"],
+                      "overdue_days": (today() - node["due_on"]).days, "outstanding": item["outstanding"],
+                      "reported_today": not _needs_payment_report(db, node)})
     for rule in db.scalars(select(Rule).where(Rule.workbook_id == wb.id, Rule.enabled.is_(True))):
+        if rule.request_id in nodes:
+            continue
         item = _active_item(db, rule)
         due = _deadline(db, rule)
         if item and today() > due:

@@ -185,14 +185,18 @@ def progress_dict(row):
             **snapshot(row, PROJECT_PROGRESS_FIELDS)}
 
 
+def visible_progress(p, project_id):
+    return select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id,
+        or_(OpsProjectProgress.task_id.is_(None),
+            OpsProjectProgress.task_id.in_(select(OpsTask.id).where(OpsTask.project_id == project_id, policy.task_access(p)))))
+
+
 def project_progress(db, p, project_id, before_id=None):
     project = get_project(db, p, project_id)
     content_scope.require(db, p, project, "progress")
     if not has_project_content(db, p, project):
         raise forbidden("仅项目成员可查看项目进度")
-    query = select(OpsProjectProgress).where(OpsProjectProgress.project_id == project_id,
-        or_(OpsProjectProgress.task_id.is_(None),
-            OpsProjectProgress.task_id.in_(select(OpsTask.id).where(OpsTask.project_id == project_id, policy.task_access(p)))))
+    query = visible_progress(p, project_id)
     if before_id is not None:
         query = query.where(OpsProjectProgress.id < before_id)
     rows = db.scalars(query.order_by(OpsProjectProgress.id.desc()).limit(26)).all()

@@ -9,7 +9,7 @@ from app.core.audit import log_op
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.response import bad_request, conflict, forbidden, not_found
-from app.core.timeutil import utcnow
+from app.core.timeutil import now, today, utcnow
 from app.integration import llm
 from app.models import (
     ContractWorkbook,
@@ -60,7 +60,7 @@ def _sheet_item(wb, sheet_id, row_number):
 
 
 def _approved_user(user):
-    if not user or user.status != 1 or user.is_deleted:
+    if not user or user.status != 1 or user.is_deleted or not user.workbench_enabled:
         return False
     if settings.source_mode('wecom') != 'live':
         return True
@@ -276,14 +276,16 @@ def thread(db, p, ident):
         for n in db.scalars(select(SysNotify).where(SysNotify.ref_type == REF_TYPE, SysNotify.ref_id == str(ident),
                                                   SysNotify.channel == 'wecom_app', SysNotify.msg_type.in_(NOTICE_TYPES)).order_by(SysNotify.id))}
     latest_prog = reports[-1] if reports else None
-    return {**_brief(row, p, latest_prog), 'contract_name': row.contract_name, 'author_name': names.get(row.author_id),
+    from app.services.collection_reminders import request_payment_due
+    due = request_payment_due(db, row)
+    return {**_brief(row, p, latest_prog), 'payment_due_on': due, 'contract_name': row.contract_name, 'author_name': names.get(row.author_id),
             'recipient_name': names.get(row.recipient_id), 'content': row.content, 'created_at': row.created_at,
             'reply': row.reply, 'replied_at': row.replied_at, 'expected_on': row.expected_on,
             'can_cancel': row.author_id == p.id and _state(row) == 'pending', 'request_delivery': deliveries.get(NOTICE_REQUEST),
             'reply_delivery': deliveries.get(NOTICE_REPLY), 'contract_link': contract_link, 'contract': contract,
             'reports': timeline, 'stage': stage,
             'stages': [{'value': k, 'label': v} for k, v in STAGES.items()],
-            'can_update': row.recipient_id == p.id and not row.cancelled_at and stage != 'reported_paid',
+            'can_update': row.recipient_id == p.id and not row.cancelled_at and (stage != 'reported_paid' or bool(due)),
             'progress_delivery': deliveries.get(NOTICE_PROGRESS)}
 
 
@@ -297,9 +299,12 @@ def reply(db, p, ident, body):
     stage = getattr(body, 'stage', 'contact')
     if stage not in STAGES:
         raise bad_request('请选择有效的回款跟进阶段')
+    from app.services.collection_reminders import request_payment_due
     problems = getattr(body, 'problems', None)
+    if stage != 'reported_paid' and not problems and request_payment_due(db, row):
+        raise bad_request('回款已到期，请填写未收原因')
     db.add(Progress(request_id=row.id, author_id=p.id, stage=stage, content=body.content,
-                    problems=problems, expected_on=body.expected_on, next_step=body.next_step))
+                    problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now()))
     notices = _notify(db, row, db.get(SysUser, row.author_id), NOTICE_REPLY) if row.author_id != p.id else []
     log_op(db, p.id, 'collections.reply_followup', REF_TYPE, row.id)
     return notices
@@ -314,13 +319,19 @@ def progress(db, p, ident, body):
     last = db.scalar(select(Progress).where(Progress.request_id == ident).order_by(Progress.id.desc()).limit(1))
     if body.expected_report_id != (last.id if last else None):
         raise conflict('进度已有更新，请刷新后继续填写')
-    if last and last.stage == 'reported_paid':
+    from app.services.collection_reminders import request_payment_due
+    due = request_payment_due(db, row)
+    if last and last.stage == 'reported_paid' and not due:
         raise conflict('本轮回款已反馈，后续请由发起人核对')
     if body.stage not in STAGES:
         raise bad_request('请选择有效的回款跟进阶段')
     problems = getattr(body, 'problems', None)
+    if due and body.stage != 'reported_paid' and not problems:
+        raise bad_request('回款已到期，请填写未收原因')
+    if body.expected_on:
+        row.expected_on = body.expected_on
     db.add(Progress(request_id=ident, author_id=p.id, stage=body.stage, content=body.content,
-                    problems=problems, expected_on=body.expected_on, next_step=body.next_step))
+                    problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now()))
     log_op(db, p.id, 'collections.progress', REF_TYPE, row.id, after={'stage': body.stage})
     return _notify(db, row, db.get(SysUser, row.author_id), NOTICE_PROGRESS) if row.author_id != p.id else []
 
@@ -433,8 +444,10 @@ def execution_detail(db, p, sheet_id, row_number, revision=''):
     matched = [u.id for u in choices if owner_norm and source.layout.norm(u.name) == owner_norm]
 
     from app.services import collection_reminders
+    reminder = collection_reminders.info(db, wb, p, sheet_id, keys)
+    reminder['payment_due'] = reminder['payment_due'] and c_state == 'open'
     return {
-        'reminder': collection_reminders.info(db, wb, p, sheet_id, keys),
+        'reminder': reminder,
         'sheet_id': sheet_id,
         'row': row_number,
         'revision': wb.revision,
@@ -497,10 +510,16 @@ def submit_execution(db, p, sheet_id, row_number, body):
         stage = 'blocked'
     if stage == 'blocked' and not problems:
         raise bad_request('遇到阻碍或需协调时，请填写具体存在的问题')
+    from app.services import collection_amounts, collection_reminders
+    from app.services.collection_workbook import state
+    node = collection_reminders.payment_node(db, wb, sheet_id, keys)
+    past_due = node and node["due_on"] <= today() and state(collection_amounts.apply(wb, [item])[0]) == 'open'
+    if past_due and stage != 'reported_paid' and not problems:
+        raise bad_request('回款已到期，请填写未收原因')
 
     records = list(db.scalars(_row_query(wb, sheet_id, keys).order_by(Followup.id.desc())))
     req_ids = [r.id for r in records]
-    if getattr(body, 'expected_progress_id', None) is not None:
+    if 'expected_progress_id' in body.model_fields_set:
         last_prog = db.scalar(select(Progress).where(Progress.request_id.in_(req_ids)).order_by(Progress.id.desc()).limit(1)) if req_ids else None
         if body.expected_progress_id != (last_prog.id if last_prog else None):
             raise conflict('该条目跟进记录已有新变化，请刷新后继续提交')
@@ -517,7 +536,8 @@ def submit_execution(db, p, sheet_id, row_number, body):
         if target.author_id != p.id:
             notices = _notify(db, target, db.get(SysUser, target.author_id), NOTICE_REPLY)
     else:
-        replied_req = next((r for r in records if _state(r) == 'replied'), None)
+        replied_req = (node["request"] if past_due and node["request"].recipient_id == p.id and _state(node["request"]) == "replied"
+                       else next((r for r in records if _state(r) == 'replied'), None))
         if replied_req:
             target = replied_req
             if body.expected_on:
@@ -548,6 +568,7 @@ def submit_execution(db, p, sheet_id, row_number, body):
         problems=problems,
         next_step=(body.next_step or '').strip() or None,
         expected_on=body.expected_on,
+        created_at=now(),
     )
     db.add(prog)
     db.flush()

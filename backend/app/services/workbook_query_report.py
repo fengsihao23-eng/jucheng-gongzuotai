@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.audit import log_op
 from app.core.response import bad_request, forbidden, not_found
-from app.core.timeutil import month_of, month_range, today, week_range
+from app.core.timeutil import TZ, month_of, month_range, today, week_range
 from app.integration import llm
 from app.models import SysUser, WorkbookCollectionReport
 from app.services import (
@@ -441,7 +441,8 @@ SCOPE_LABELS = {
 }
 
 
-def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focus_prompt: str = ""):
+def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focus_prompt: str = "",
+                             include_cleared=False, project_name="", offset=0, limit=150):
     """Build a structured text summary + item table of current collection follow-up status."""
     if scope not in SCOPE_LABELS:
         raise bad_request("汇总范围参数无效")
@@ -457,6 +458,10 @@ def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focu
     all_rows = source.module_rows(wb, "collections")
     overall = collection_amounts.summary(sheets[0], all_rows)
     actual_month = metrics.collection_metrics(wb, cur_period, ref_date)
+    actual_by_row = {}
+    for receipt in actual_month["rows"]:
+        key = (receipt["sheet_id"], receipt["row"])
+        actual_by_row[key] = actual_by_row.get(key, Decimal(0)) + Decimal(receipt["received"])
 
     plan_periods = collection_plans.periods(ref_date)
     plan_buckets = {}
@@ -479,8 +484,9 @@ def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focu
     owner_norm = source.layout.norm(owner) if owner else ""
     unpaid_rows = [
         r for r in all_rows
-        if (r.get("outstanding") is None or _dec(r["outstanding"]) != 0 or r["id"] in plan_item_map or r["id"] in tracked_map)
+        if (include_cleared or r.get("outstanding") is None or _dec(r["outstanding"]) != 0 or r["id"] in plan_item_map or r["id"] in tracked_map)
         and (not owner_norm or source.layout.norm(r.get("owner")) == owner_norm)
+        and (not project_name or source.layout.norm(r["name"]) == source.layout.norm(project_name))
     ]
 
     if scope == "current_month":
@@ -520,6 +526,7 @@ def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focu
             "owner": r.get("owner") or "待确认",
             "amount": r.get("amount"),
             "outstanding": r.get("outstanding"),
+            "month_received": _plain_dec(actual_by_row.get((r["sheet_id"], r["row"]), Decimal(0))) if actual_month["available"] else None,
             "current_plan_amount": cur_plan_amt,
             "next_plan_amount": nxt_plan_amt,
             "source_progress": src_progress,
@@ -651,6 +658,7 @@ def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focu
         "scope_label": scope_title,
         "owner_filter": owner or None,
         "revision": wb.revision,
+        "synced_at": wb.synced_at.astimezone(TZ).isoformat() if wb.synced_at else None,
         "total_items": len(scoped_rows),
         "tracked_count": len(progressed_items),
         "problem_count": len(problem_items),
@@ -667,9 +675,41 @@ def build_collection_summary(db, p, *, scope: str = "all", owner: str = "", focu
         "text": final_text,
         "assisted": assisted,
         "facts": facts,
-        "items": table_items[:150],
+        "items": table_items[offset:offset + limit],
         "total_items": len(table_items),
     }
+
+
+def collection_progress_brief(db, p, *, page=1, size=5, project_name=""):
+    report = build_collection_summary(db, p, include_cleared=True, project_name=project_name,
+                                      offset=(page - 1) * size, limit=size)
+    facts, total = report["facts"], report["total_items"]
+    def yuan(value):
+        if value is None:
+            return "待核对"
+        return f"{Decimal(value):,f} 元"
+
+    lines = [f"回款进展汇报 · {facts['date']}",
+             f"全部合同当月实收 {yuan(facts['month_actual_received'])}，当月预估 {yuan(facts['current_plan']['amount'])}。",
+             f"本次共 {total} 份合同，已登记跟进 {facts['tracked_count']} 份，存在问题 {facts['problem_count']} 份。"]
+    for index, item in enumerate(report["items"], (page - 1) * size + 1):
+        lines.extend(["", f"{index}. {item['name']} · {item['owner']}",
+                      f"当月实收 {yuan(item['month_received'])}，未收余额 {yuan(item['outstanding'])}。",
+                      f"{item['stage_name']} · {item['content'] or item['source_progress'] or '暂无进展记录'}"])
+        if item["problems"]:
+            lines.append("未收原因或问题：" + item["problems"])
+        if item["next_step"]:
+            lines.append("下一步：" + item["next_step"])
+        if item["expected_on"]:
+            lines.append("预计回款日：" + item["expected_on"])
+    next_page = page + 1 if page * size < total else None
+    if next_page:
+        request = f"汇报「{project_name}」的回款进展" if project_name else "逐笔回款汇报"
+        lines.append(f"\n继续查看可输入「{request} 第{next_page}页」。")
+    lines.append(f"\n来源：固定经营工作簿 · 版本 {facts['revision']}" +
+                 (f" · 同步于 {facts['synced_at'][:16].replace('T', ' ')}" if facts["synced_at"] else ""))
+    return {"text": "\n".join(lines), "items": report["items"], "total": total, "page": page,
+            "next_page": next_page, "revision": facts["revision"], "synced_at": facts["synced_at"]}
 
 
 def _report_brief(row: WorkbookCollectionReport, author_name: str | None) -> dict:

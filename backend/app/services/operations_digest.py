@@ -1,12 +1,13 @@
 """Period summaries generated from visible task records and timestamped feedback."""
 from datetime import date, datetime
+from decimal import Decimal
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.response import bad_request
 from app.core.timeutil import TZ, day_bounds, last_week, month_range, now, prev_month, today, week_range
-from app.models import OpsTaskUpdate, OpsSchoolVisit, OpsSchool, SysUser
+from app.models import OpsIncome, OpsProjectIncome, OpsProjectProgress, OpsTaskUpdate, OpsSchoolVisit, OpsSchool, SysUser
 from app.services import operations_service as ops
 from app.services import operations_followup as followups
 from app.services import operations_scope as scope
@@ -109,10 +110,35 @@ def period_summary(db, p, mode, period, project_id=None, mine=False, owner_id=No
               "generated_at": now(), "person": p.user.name if mine else ops.user(db, owner_id).name if owner_id else "项目团队",
               "note": "预览按当前权限和归属展示，反馈按所选期间登记记录统计；保存后保留当时的报告版本。未反馈不推测进展。"}
     from app.services.operations_assets import report_facts
-    report.update(report_facts(db, p, [pid for pid in permitted_report_projects if project_id is None or pid == project_id],
-                              start, end, start_at, end_exclusive, p.id if mine else owner_id))
+    report_ids = [pid for pid in permitted_report_projects if project_id is None or pid == project_id]
+    report.update(report_facts(db, p, report_ids, start, end, start_at, end_exclusive, p.id if mine else owner_id))
+    if not mine and not owner_id:
+        report.update(project_business(db, p, report_ids, start, end, start_at, end_exclusive, report["content_sections"]))
     report["text"] = render_text(report)
     return report
+
+
+def project_business(db, p, project_ids, start, end, start_at, end_at, sections):
+    incomes, progress, used = [], [], set(sections)
+    for pid in sorted(project_ids):
+        project = ops.get_project(db, p, pid)
+        allowed = scope.view(db, p, project)["sections"]
+        if "income" in allowed:
+            school_amount, school_count = db.execute(select(func.sum(OpsIncome.amount), func.count(OpsIncome.id))
+                .join(OpsSchool, OpsIncome.school_id == OpsSchool.id).where(OpsSchool.project_id == pid,
+                    OpsIncome.income_date.between(start, end))).one()
+            common_amount, common_count = db.execute(select(func.sum(OpsProjectIncome.amount), func.count(OpsProjectIncome.id))
+                .where(OpsProjectIncome.project_id == pid, OpsProjectIncome.income_date.between(start, end))).one()
+            incomes.append({"project_id": pid, "project_name": project.name, "count": school_count + common_count,
+                            "school_amount": school_amount, "common_amount": common_amount,
+                            "amount": (school_amount or Decimal(0)) + (common_amount or Decimal(0)) if school_count + common_count else None})
+            used.add("income")
+        if "progress" in allowed:
+            query = ops.visible_progress(p, pid).where(OpsProjectProgress.created_at >= start_at, OpsProjectProgress.created_at < end_at)
+            for row in db.scalars(query.order_by(OpsProjectProgress.id)):
+                progress.append({**ops.progress_dict(row), "project_name": project.name})
+                used.add("progress")
+    return {"project_income": incomes, "project_progress": progress, "content_sections": sorted(used)}
 
 
 def render_text(report):
@@ -120,6 +146,21 @@ def render_text(report):
     lines = [f"{report.get('person', '项目团队')} · {report['period']} {'周报' if report.get('mode') == 'week' else '月报'}",
              f"统计期间：{report['start']} 至 {report['end']}",
              f"本期纳入 {stats['total']} 项任务，完成 {stats['done']} 项（其中延期完成 {stats.get('late_done', 0)} 项），受阻 {stats['blocked']} 项，未反馈 {stats['unreported']} 项。"]
+    if report.get("project_income"):
+        lines.extend(["", "本期登记营收"])
+        for item in report["project_income"]:
+            value = (f"{Decimal(item['amount']):,.2f} 元（学校收入 {Decimal(item['school_amount'] or 0):,.2f} 元，"
+                     f"项目公共收入 {Decimal(item['common_amount'] or 0):,.2f} 元，共 {item['count']} 条）"
+                     if item["count"] else "本期暂无收入登记")
+            lines.append(f"• {item['project_name']}｜{value}")
+    if report.get("project_progress"):
+        lines.extend(["", "项目进度跟踪"])
+        for item in report["project_progress"]:
+            lines.append(f"• {item['project_name']}｜{item['author_name']}：{item['progress']}")
+            if item["problems"]:
+                lines.append(f"  问题：{item['problems']}")
+            if item["next_plan"]:
+                lines.append(f"  下一步：{item['next_plan']}（{item['next_due_date']}）")
     for title, predicate in (("一、完成事项", lambda r: r["done"]), ("二、进行中与未完成", lambda r: not r["done"])):
         lines.extend(["", title])
         selected = [r for r in report["items"] if predicate(r)]

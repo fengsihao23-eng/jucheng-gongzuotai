@@ -80,6 +80,7 @@
     <el-drawer v-model="detailOpen" :title="selected?.name || '项目详情'" size="min(650px, 100vw)" destroy-on-close @close="closeDetail">
       <div class="project-detail" v-loading="detailLoading">
         <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+        <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" />
         <Panel v-for="(record, index) in detail?.rows || []" :key="record.row"
           :title="detail.rows.length > 1 ? `标段明细 ${index + 1}` : '项目详情'" class="project-detail-panel">
           <dl class="project-detail-fields">
@@ -101,6 +102,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 

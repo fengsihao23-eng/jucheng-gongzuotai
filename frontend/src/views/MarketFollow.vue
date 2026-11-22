@@ -2,9 +2,6 @@
   <div class="jc-page">
     <PageHeader eyebrow="市场部" title="重点项目"
       desc="明确项目内容、负责人和时间节点，查看进展、风险与回款。">
-      <el-button @click="gen('weekly')" :loading="genLoading === 'weekly'">生成周报</el-button>
-      <el-button @click="gen('monthly')" :loading="genLoading === 'monthly'">生成月报</el-button>
-      <el-button @click="summary">汇总本周周报</el-button>
       <el-button v-if="auth.can('project:key')" type="primary" @click="createOpen=true">新建重点项目</el-button>
     </PageHeader>
 
@@ -77,8 +74,11 @@
       </el-tab-pane>
 
       <el-tab-pane label="周报 / 月报" name="reports">
-        <Panel title="报告历史" sub="每周一 10:30 自动生成上周周报，每月 1 日 11:00 生成上月月报" :padding="false">
+        <Panel class="report-history" title="报告历史" sub="每周一 10:30 自动生成上周周报，每月 1 日 11:00 生成上月月报" :padding="false">
           <template #extra>
+            <el-button @click="gen('weekly')" :loading="genLoading === 'weekly'">生成周报</el-button>
+            <el-button @click="gen('monthly')" :loading="genLoading === 'monthly'">生成月报</el-button>
+            <el-button @click="summary">汇总本周周报</el-button>
             <el-select v-model="rtype" clearable placeholder="全部类型" style="width: 140px" @change="loadReports">
               <el-option label="市场周报" value="market_weekly" /><el-option label="市场月报" value="market_monthly" /><el-option label="竞品简报" value="intel_brief" />
             </el-select>
@@ -221,6 +221,8 @@ useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board'
 
 <style scoped>
 .layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.report-history :deep(.hd), .report-history :deep(.extra) { flex-wrap: wrap; }
+.report-history :deep(.el-button + .el-button) { margin-left: 0; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%,260px), 1fr)); gap: 14px; }
 .project-filters { display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 18px; }.project-filters .el-input { width:240px; }.project-filters .el-select { width:140px; }

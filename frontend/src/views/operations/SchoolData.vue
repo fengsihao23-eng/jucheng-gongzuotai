@@ -11,7 +11,21 @@
     <div v-if="mode === 'income' && project.can_manage" class="jc-row mt-8" style="margin-bottom: 12px"><IncomeFile :project-id="project.id" @saved="emit('saved')" /></div>
     <div v-if="mode === 'outreach'" class="toolbar"><el-radio-group v-model="lifecycle" aria-label="学校阶段分组"><el-radio-button value="prospect">待开拓学校</el-radio-button><el-radio-button value="existing">存量学校</el-radio-button><el-radio-button value="all">全部学校</el-radio-button></el-radio-group></div>
     <p v-if="mode === 'income'" class="jc-small jc-muted">最近登记收款日：{{ project.financials.last_income_date || '尚无记录' }}。{{ project.financials.income_note }}</p>
-    <el-table :data="schools" @row-click="s => selectedId = s.id" @row-contextmenu="openMenu">
+    <template v-if="mode === 'outreach' && lifecycle === 'prospect'">
+      <div v-if="schools.length" class="prospect-cards" aria-label="待开拓学校任务卡">
+        <button v-for="school in schools" :key="school.id" type="button" class="prospect-card"
+          :aria-label="`查看学校跟进：${school.name}`" @click="selectedId = school.id" @contextmenu.prevent="openMenu(school, null, $event)">
+          <span class="jc-row between"><strong>{{ school.name }}</strong><StatusPill :text="STAGES[school.stage]" tone="brand" /></span>
+          <span class="jc-muted jc-small">{{ school.region }} · {{ POTENTIAL[school.potential] }}意向</span>
+          <span>{{ school.latest_visit?.content || '尚未登记实际跟进' }}</span>
+          <span v-if="school.next_action" class="jc-small">下一步：{{ school.next_action }}</span>
+          <span class="card-footer jc-small"><span>{{ marketTasks(school.id).length ? [...new Set(marketTasks(school.id).map(t => t.owner_name))].join('、') : '待安排市场任务' }}</span>
+            <time v-if="school.next_contact_date" :class="{ 'jc-down': school.next_contact_date < project.today }">{{ school.next_contact_date }} 跟进</time></span>
+        </button>
+      </div>
+      <el-empty v-else description="没有符合条件的待开拓学校" :image-size="60" />
+    </template>
+    <el-table v-else :data="schools" @row-click="s => selectedId = s.id" @row-contextmenu="openMenu">
       <el-table-column prop="name" label="学校" min-width="190" />
       <el-table-column v-if="mode !== 'procurement'" prop="region" label="区域" width="100" />
       <el-table-column v-if="mode === 'directory' || mode === 'outreach'" label="阶段 / 意向" width="150"><template #default="{ row }">{{ STAGES[row.stage] }}<div class="jc-small jc-muted">意向 · {{ POTENTIAL[row.potential] }}</div></template></el-table-column>
@@ -193,6 +207,10 @@ async function save() {
 <style scoped>
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 22px 0 16px; }.section-head { margin: 12px 0 20px; gap: 16px; flex-wrap: wrap; }.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }.plain { white-space: pre-wrap; line-height: 1.8; }
 .follow-task { border: 1px solid var(--jc-line); padding: 12px 16px; margin: 12px 0; cursor: pointer; border-radius: var(--jc-radius); }
+.prospect-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,270px),1fr)); gap: 14px; }
+.prospect-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px; text-align: left; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: var(--jc-radius); color: var(--jc-ink); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.prospect-card:hover, .prospect-card:focus-visible { border-color: var(--jc-brand); }
+.prospect-card strong { font-family: var(--jc-font-serif); font-size: 16px; }.card-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; border-top: 1px solid var(--jc-line); padding-top: 9px; margin-top: auto; color: var(--jc-ink-3); }
 .ctx-mask { position: fixed; inset: 0; z-index: 3000; }
 .ctx-menu { position: fixed; min-width: 160px; padding: 6px; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, .16); }
 .ctx-title { padding: 6px 10px 8px; font-size: 12px; color: var(--jc-ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 220px; border-bottom: 1px solid var(--jc-line-2); margin-bottom: 4px; }

@@ -58,8 +58,11 @@ def page(db, wb, p, *, sheet_id='', keyword='', year='', page=1, size=30, raw=Fa
         raise bad_request('回款情况展示业务清单，请从项目详情查看内容')
     if source_type not in ('', 'wecom', '4'):
         raise bad_request('回款情况仅使用指定企微工作簿')
-    if basis not in ('', 'monthly'):
+    if basis not in ('', 'monthly', 'current'):
         raise bad_request('回款清单类型无效')
+    current_period = today().strftime('%Y-%m')
+    if basis == 'current':
+        basis, period, end = 'monthly', current_period, str(today())
     if period_kind not in ('', 'month', 'week', 'year', 'custom'):
         raise bad_request('期间筛选无效')
     year = year or 'all'
@@ -94,10 +97,15 @@ def page(db, wb, p, *, sheet_id='', keyword='', year='', page=1, size=30, raw=Fa
     common = {'active': True, 'source': source.source_info(wb, p), 'sheets': briefs,
               'years': years, 'filter_options': options, 'quick_stats': quick, 'current_year': today().year,
               'can_request_followup': followups.can_request(p)}
-    if unpaid_only and basis != 'monthly':
+    if unpaid_only:
         from app.services.collection_plans import cards
         common['overall_summary'] = collection_amounts.summary(sheets[0], base)
         common['collection_cards'] = cards(wb)
+        allowed = {(r['sheet_id'], r['row']) for r in base}
+        monthly = metrics.collection_page(wb, current_period, 1, 1, allowed_rows=allowed, end=str(today()))
+        common['current_receipts'] = {'period': current_period, 'amount': monthly['summary']['received']['value'],
+                                      'count': monthly['total'], 'warning': monthly['sheet']['warning']}
+    if unpaid_only and basis != 'monthly':
         # A signing year does not scope an outstanding balance.
         year, sign_month, start, end, period_kind = 'all', '', '', '', ''
         base = [r for r in base if r.get('outstanding') is None or Decimal(r['outstanding']) != 0]

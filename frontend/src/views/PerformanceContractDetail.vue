@@ -7,6 +7,7 @@
       </div></template>
       <el-button @click="router.push(backTarget)">返回{{ sectionTitle }}</el-button>
       <el-button :loading="loading" @click="load">刷新详情</el-button>
+      <el-button v-if="detail?.can_track_collection" type="primary" plain @click="executionOpen = true">回款跟踪反馈</el-button>
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="mb-16" />
     <template v-if="detail">
@@ -98,6 +99,7 @@
           <el-table-column prop="remark" label="备注" min-width="250" show-overflow-tooltip />
         </el-table>
       </Panel>
+      <CollectionExecutionDialog v-if="detail.can_track_collection" v-model="executionOpen" :sheet="contract.sheet_id" :row="contract.row" :revision="detail.revision" @saved="load" />
     </template>
   </div>
 </template>
@@ -107,10 +109,12 @@ import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
 import api from '@/api/client'
 import CollectionFollowups from '@/components/CollectionFollowups.vue'
+import CollectionExecutionDialog from '@/components/CollectionExecutionDialog.vue'
 import {datetime,money,percent} from '@/utils/format'
 
 const route=useRoute(),router=useRouter(),detail=ref(null),loading=ref(false),error=ref('')
 const contract=computed(()=>detail.value?.contract)
+const executionOpen = ref(false)
 const isCollections=computed(()=>route.meta.workbookView==='collections')
 const sectionTitle=computed(()=>isCollections.value?'回款情况':'经营业绩')
 const listPath=computed(()=>isCollections.value?'/collections':'/contracts')

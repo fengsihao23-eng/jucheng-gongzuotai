@@ -1,7 +1,7 @@
 <template>
   <LegacyCollections v-if="data?.active === false" />
   <div v-else class="jc-page collection-page">
-    <PageHeader eyebrow="经营数据 · 回款" title="回款情况" desc="查看全部合同金额、未收金额和当月/次月预估回款金额，按项目记录执行情况与阶段总结。">
+    <PageHeader eyebrow="经营数据 · 回款" title="回款情况" desc="按到账月份核对实际回款，查看合同未收余额、预计回款和跟进情况。">
       <el-button v-if="canManageSource && data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canManageSource" :loading="syncing" @click="syncNow">检查表格更新</el-button>
       <el-button :loading="loading" @click="load()">刷新页面</el-button>
@@ -18,11 +18,18 @@
         <el-alert v-if="data.source.stale" :title="data.source.last_error || '显示最近一次完整数据。'" type="warning" :closable="false" />
       </div>
 
-      <div class="collection-kpis mb-16" :class="{ 'receipt-kpis': receipts }">
-        <Kpi v-if="receipts" label="回款笔数" :value="data.summary.count" unit="条" />
-        <Kpi v-if="!receipts" label="全部金额" :value="moneyText(overall.amount.value)" unit="元" :hint="coverage(overall.amount)" />
-        <Kpi v-if="receipts" label="实际回款金额" :value="moneyText(data.summary.received.value)" unit="元" />
-        <Kpi v-if="!receipts" label="未收金额" :value="moneyText(overall.outstanding.value)" unit="元" :hint="coverage(overall.outstanding)" />
+      <div class="collection-kpis mb-16">
+        <button type="button" class="jc-card quick-card" :aria-pressed="currentReceipts" :class="{ 'is-active': currentReceipts }" @click="showReceipts">
+          <span class="quick-title">当月回款<span class="quick-link">查看到账</span></span>
+          <b class="quick-number jc-num">{{ moneyText(data.current_receipts.amount) }}<small> 元</small></b>
+          <span class="jc-small jc-muted">{{ data.current_receipts.period }} · {{ data.current_receipts.warning ? '原表待核对' : `${data.current_receipts.count} 笔实际回款` }}</span>
+        </button>
+        <Kpi label="全部金额" :value="moneyText(overall.amount.value)" unit="元" :hint="coverage(overall.amount)" />
+        <button type="button" class="jc-card quick-card" :aria-pressed="!receipts" :class="{ 'is-active': !receipts }" @click="showUnpaid">
+          <span class="quick-title">未收金额<span class="quick-link">跟进合同</span></span>
+          <b class="quick-number jc-num">{{ moneyText(overall.outstanding.value) }}<small> 元</small></b>
+          <span class="jc-small jc-muted">{{ coverage(overall.outstanding) || '查看未收项目清单' }}</span>
+        </button>
         <button
           v-for="card in quickCards"
           :key="card.key"
@@ -127,7 +134,7 @@
           <el-select v-model="draft.owner" aria-label="负责人" placeholder="负责人" clearable filterable class="owner-filter" @change="applyFilters">
             <el-option v-for="owner in data.filter_options.owners" :key="owner" :label="owner" :value="owner" />
           </el-select>
-          <el-select v-model="draft.collection_state" aria-label="未收情况" placeholder="未收情况" clearable class="state-filter" @change="applyFilters">
+          <el-select v-if="!receipts" v-model="draft.collection_state" aria-label="未收情况" placeholder="未收情况" clearable class="state-filter" @change="applyFilters">
             <el-option v-for="state in data.filter_options.collection_states.filter(s => s.value !== 'cleared')" :key="state.value" :label="state.label" :value="state.value" />
           </el-select>
           <el-select v-model="draft.sheet" aria-label="来源" class="sheet-filter" :fit-input-width="false" @change="applyFilters">
@@ -141,7 +148,6 @@
 
       <CollectionOverduePanel ref="overduePanel" @open-execution="openExecution" />
       <CollectionReportSection
-        v-if="!receipts"
         ref="reportSection"
         :owners="data.filter_options?.owners || []"
         @open-execution="openExecution"
@@ -149,8 +155,8 @@
 
       <section id="collection-list" ref="list" class="collection-results" aria-label="回款情况明细" tabindex="-1">
         <el-alert v-if="data.sheet.warning" :title="data.sheet.warning" type="warning" :closable="false" show-icon class="mb-16" />
-        <Panel :title="listTitle" :sub="`共 ${data.total} 条 · 金额单位：元 · 点击条目可查看和填写具体执行情况`" :loading="loading" :padding="false">
-          <template v-if="receipts" #extra><el-button link type="primary" @click="forPeriod()">返回合同清单</el-button></template>
+        <Panel :title="listTitle" :sub="receipts ? `${data.period.label} · ${data.sheet.warning ? '合计待核对' : `${data.total} 笔，合计 ${moneyText(data.summary.received.value)} 元`}` : `共 ${data.total} 条 · 金额单位：元`" :loading="loading" :padding="false">
+          <template v-if="receipts" #extra><el-button link type="primary" @click="showUnpaid">查看未收合同</el-button></template>
           <el-table
             :key="data.collection_mode"
             :data="data.items"
@@ -190,10 +196,9 @@
             <el-table-column label="来源" min-width="116" show-overflow-tooltip>
               <template #default="{ row }">{{ row.profile === 'sales' ? '2026年销售合同' : '2026年前合同' }}</template>
             </el-table-column>
-            <el-table-column label="操作" :width="receipts ? 90 : 145">
+            <el-table-column label="操作" width="145">
               <template #default="{ row }">
-                <router-link v-if="receipts" :to="detailLink(row)" @click.stop>查看详情</router-link>
-                <div v-else class="row-ops">
+                <div class="row-ops">
                   <el-button link type="primary" @click.stop="openExecution(row)">执行情况</el-button>
                   <router-link :to="reportLink(row)" @click.stop>项目报告</router-link>
                 </div>
@@ -244,8 +249,9 @@ const applied = () => Object.fromEntries([...Object.keys(defaults), ...periodKey
 const clean = input => Object.fromEntries(Object.entries(input).filter(([key, value]) => value && value !== defaults[key] && !(key === 'page' && String(value) === '1')))
 const canManageSource = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
 const receipts = computed(() => data.value?.collection_mode === 'receipts')
+const currentReceipts = computed(() => receipts.value && data.value.period.label.startsWith(data.value.current_receipts.period))
 const overall = computed(() => data.value?.overall_summary || data.value?.summary)
-const listTitle = computed(() => receipts.value ? '实际回款清单' : '未收项目清单')
+const listTitle = computed(() => currentReceipts.value ? '当月回款清单' : receipts.value ? '实际回款清单' : '未收项目清单')
 const quickCards = computed(() => data.value?.collection_cards || [])
 const periodOpen = ref(false), activePeriod = ref(null), periodData = ref(null), periodLoading = ref(false), periodError = ref('')
 const execOpen = ref(false), execTarget = reactive({ sheet: '', row: 0 })
@@ -349,7 +355,8 @@ async function load({ quiet = false, scroll = false } = {}) {
   const id = ++requestId, params = applied()
   if (!quiet) loading.value = true
   try {
-    const result = await api.get('/business-workbook/collections', { ...clean(params), unpaid_only: query('basis') !== 'monthly',
+    const basis = params.basis === 'unpaid' ? '' : params.basis || 'current'
+    const result = await api.get('/business-workbook/collections', { ...clean(params), basis, unpaid_only: true,
       page: /^[1-9]\d*$/.test(params.page) ? params.page : 1 }, { silent: true })
     if (id !== requestId) return
     if (periodOpen.value && periodData.value?.source?.revision && periodData.value.source.revision !== result.source?.revision) {
@@ -377,12 +384,11 @@ function navigate(params = {}, { history = false, scroll = false } = {}) {
   return history ? router.push(to) : router.replace(to)
 }
 function applyFilters() {
-  const receiptPeriod = query('basis') === 'monthly' ? { basis: 'monthly', period: query('period'), end: query('end') } : {}
+  const receiptPeriod = { basis: query('basis'), period: query('period'), end: query('end') }
   return navigate({ ...receiptPeriod, ...draft })
 }
-function forPeriod(params = {}, options = {}) {
-  return navigate({ ...draft, year: 'all', sign_month: '', ...params }, options)
-}
+function showReceipts() { periodOpen.value = false; return navigate({ ...draft, collection_state: '' }, { scroll: true }) }
+function showUnpaid() { periodOpen.value = false; return navigate({ ...draft, basis: 'unpaid' }, { scroll: true }) }
 function changePage(page) { return navigate({ ...applied(), page: String(page) }, { scroll: true }) }
 async function syncNow() {
   syncing.value = true
@@ -409,7 +415,7 @@ onBeforeUnmount(() => { clearInterval(timer); requestId++; periodRequest++ })
 <style scoped>
 .mb-16 { margin-bottom: 16px; }
 .sync-status { padding: 14px 18px; }.sync-status p { margin: 6px 0 0; }
-.collection-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.collection-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .receipt-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .collection-kpis :deep(.kpi) { padding: 14px; }.collection-kpis :deep(.val) { flex-wrap: wrap; }
 .collection-kpis :deep(.v), .quick-number { font-size: clamp(20px, 1.48vw, 27px); overflow-wrap: anywhere; }

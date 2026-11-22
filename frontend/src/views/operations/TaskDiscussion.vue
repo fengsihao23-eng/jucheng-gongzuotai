@@ -1,8 +1,8 @@
 <template>
-  <section class="discussion section">
-    <h3>要求与讨论 <small>{{ task.discussions?.length || 0 }} 条</small></h3>
-    <p class="jc-muted jc-small">补充要求、回复与进展分别保留。查看通知后，待回复事项仍会保留。</p>
-    <article v-for="item in task.discussions || []" :key="item.id" class="entry" :class="{ pending: item.kind === 'request' && !item.resolved_at }">
+  <section v-if="task.can_discuss || requests.length" class="discussion section">
+    <h3>要求与留言</h3>
+    <p class="jc-muted jc-small">留言和回复可在「过程记录」查看。</p>
+    <article v-for="item in requests" :key="item.id" class="entry" :class="{ pending: !item.resolved_at }">
       <div class="jc-row between"><b>{{ labels[item.kind] }}<span v-if="item.recipient_name"> · 给 {{ item.recipient_name }}</span></b><small>{{ item.author_name }} · {{ datetime(item.created_at) }}</small></div>
       <p v-if="item.node_id" class="jc-muted jc-small">节点：{{ task.nodes.find(n => n.id === item.node_id)?.name }}</p>
       <p class="plain">{{ item.content }}</p>
@@ -30,6 +30,7 @@ import { announceChange } from './shared'
 const props = defineProps({ task: Object }), emit = defineEmits(['saved']), auth = useAuth()
 const kind = ref('note'), recipient = ref(null), node = ref(null), content = ref(''), replyTo = ref(null), saving = ref(false)
 const labels = { note: '留言', request: '办理要求', reply: '回复' }
+const requests = computed(() => (props.task.discussions || []).filter(item => item.kind === 'request'))
 const recipients = computed(() => (props.task.participants || []).filter(u => u.id !== auth.profile?.id))
 watch(() => props.task.id, () => { content.value = ''; replyTo.value = null; recipient.value = null; node.value = null; kind.value = 'note' })
 function reply(item) { replyTo.value = item; content.value = '' }

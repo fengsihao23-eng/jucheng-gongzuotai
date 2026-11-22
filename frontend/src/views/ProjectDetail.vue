@@ -78,9 +78,12 @@
         </Panel>
 
         <div class="jc-stack">
-          <Panel title="进展反馈" sub="每日进展 / 重点事件 / 风险">
+          <Panel title="项目跟踪反馈" sub="每日进展 / 重点事件 / 风险">
             <div v-if="auth.can('feedback:write')" class="fb-form">
               <el-input v-model="fb.content" type="textarea" :rows="2" placeholder="填写今日进展、重点事件或风险" />
+              <el-input v-model="fb.problems" class="mt-8" placeholder="存在问题（可选）" maxlength="2000" aria-label="项目存在问题" />
+              <el-input v-model="fb.next_step" class="mt-8" placeholder="下一步安排（可选）" maxlength="2000" aria-label="项目下一步安排" />
+              <el-date-picker v-if="fb.next_step" v-model="fb.next_due_on" type="date" value-format="YYYY-MM-DD" class="mt-8" placeholder="下次跟进日期（可选）" aria-label="项目下次跟进日期" />
               <div class="jc-row between mt-8">
                 <el-radio-group v-model="fb.kind" size="small">
                   <el-radio-button value="progress">进展</el-radio-button>
@@ -247,14 +250,15 @@ async function remove(m) {
 }
 
 // 反馈
-const fb = reactive({ content: '', kind: 'progress' })
+const emptyFeedback = () => ({ content: '', kind: 'progress', problems: '', next_step: '', next_due_on: null })
+const fb = reactive(emptyFeedback())
 const fbSaving = ref(false)
 async function addFeedback() {
   if (!fb.content.trim()) return ElMessage.warning('请填写反馈内容')
   fbSaving.value = true
   try {
-    await api.post('/market/feedback', { project_code: code, content: fb.content, kind: fb.kind })
-    fb.content = ''
+    await api.post('/market/feedback', { project_code: code, ...fb, next_due_on: fb.next_step.trim() ? fb.next_due_on : null })
+    Object.assign(fb, emptyFeedback())
     ElMessage.success('已提交')
     load()
   } finally {

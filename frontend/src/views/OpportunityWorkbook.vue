@@ -118,6 +118,7 @@
           <h3 class="detail-heading">描述</h3>
           <p class="detail-note">{{ detail.note }}</p>
         </template>
+        <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" />
       </template>
     </el-drawer>
   </div>
@@ -128,6 +129,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 

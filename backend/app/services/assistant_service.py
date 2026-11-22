@@ -86,10 +86,16 @@ def _llm_enabled():
     return enabled()
 
 
-def chat(message: str, context: list[str], p: Principal) -> dict:
+def chat(message: str, context: list[str], p: Principal, *, db=None) -> dict:
     # 不向模型转发疑似凭证，也不将聊天原文写入任何持久化记录。
     if SECRET_PATTERN.search(message):
         return {"message": "这条内容可能包含密钥。请使用接入卡片中的凭证输入框，聊天区不接收凭证。", "providers": [], "links": []}
+    report = re.fullmatch(r"(?:请|帮我)?(?:逐笔回款汇报|汇总每条回款进展|汇报「(.{1,500})」的回款进展)(?:\s*第([1-9]\d{0,5})页)?[。！]?", message)
+    if report and db is not None:
+        from app.services.workbook_query_report import collection_progress_brief
+        brief = collection_progress_brief(db, p, page=int(report[2] or 1), project_name=report[1] or "")
+        return {"message": brief["text"], "providers": [],
+                "links": [{"label": "查看回款情况", "path": "/collections"}]}
     if any(text in message for text in ("你叫什么", "你是谁", "你的名字")):
         return {"message": "我是小聚，可以帮你自动检查和接入工作系统，也能帮你找到工作台里的操作入口。", "providers": [], "links": []}
     text = message.lower()

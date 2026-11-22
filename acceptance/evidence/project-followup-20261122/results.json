@@ -1,0 +1,83 @@
+{
+  "at": "2026-11-22T15:59:32.670Z",
+  "results": [
+    {
+      "id": "01a",
+      "title": "重点项目可从看板直接新建",
+      "pass": true,
+      "evidence": "screens/01a-重点项目新建.png"
+    },
+    {
+      "id": "01b",
+      "title": "重点任务保留负责人、节点和反馈周期",
+      "pass": true,
+      "evidence": "screens/01b-重点任务节点反馈.png"
+    },
+    {
+      "id": "02",
+      "title": "运营留言与任务反馈进入同一条时间线",
+      "pass": true,
+      "evidence": "screens/02-留言归入过程记录.png"
+    },
+    {
+      "id": "03a",
+      "title": "商机可提交进展并查看过程记录",
+      "pass": true,
+      "evidence": "screens/03a-商机项目跟踪.png"
+    },
+    {
+      "id": "03b",
+      "title": "校园设备招标可持续反馈",
+      "pass": true,
+      "evidence": "screens/03b-校园设备招标跟踪.png"
+    },
+    {
+      "id": "03c",
+      "title": "信息教室设备安装可持续反馈",
+      "pass": true,
+      "evidence": "screens/03c-信息教室设备安装跟踪.png"
+    },
+    {
+      "id": "03d",
+      "title": "一般项目可记录问题和下次跟进安排",
+      "pass": true,
+      "evidence": "screens/03d-一般项目跟踪.png"
+    },
+    {
+      "id": "03e",
+      "title": "经营业绩合同可直接进入同一份回款执行记录",
+      "pass": true,
+      "evidence": "screens/03e-合同执行跟踪.png"
+    },
+    {
+      "id": "04",
+      "title": "运营综合汇报按期间核对营收、项目进度与任务",
+      "pass": true,
+      "evidence": "screens/04-运营综合汇报.png"
+    },
+    {
+      "id": "07",
+      "title": "回款首页默认显示本月实际到账，可切换未收及预估",
+      "pass": true,
+      "evidence": "screens/07a-当月回款与预估.png"
+    },
+    {
+      "id": "06",
+      "title": "到期未收产生实际提醒，负责人必须汇报未收原因",
+      "pass": true,
+      "evidence": "screens/06a-合同到期提醒.png"
+    },
+    {
+      "id": "05",
+      "title": "小聚用同一份合同数据逐笔汇报回款及原因",
+      "pass": true,
+      "evidence": "screens/05-小聚逐笔回款汇报.png"
+    },
+    {
+      "id": "08",
+      "title": "手机待开拓学校卡片显示责任、实际进展和跟进日期",
+      "pass": true,
+      "evidence": "screens/08-待开拓学校任务卡.png"
+    }
+  ]
+}

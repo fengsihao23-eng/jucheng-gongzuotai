@@ -56,8 +56,8 @@ class ChatBody(BaseModel):
 
 
 @router.post("/chat")
-def chat(body: ChatBody, p: Principal = Depends(get_principal)):
-    return ok(service.chat(body.message.strip(), body.context, p))
+def chat(body: ChatBody, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    return ok(service.chat(body.message.strip(), body.context, p, db=db))
 
 
 @router.post("/tasks")

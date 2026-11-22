@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.core.audit import log_op
 from app.core.deps import build_principal
 from app.core.response import bad_request, conflict, forbidden, not_found
-from app.core.timeutil import TZ, now, today, week_range
+from app.core.timeutil import TZ, month_range, now, today, week_range
 from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, BizPayment, SysUser
 from app.services import notify_service
 
@@ -42,6 +42,20 @@ def _split(contract, paid):
 def _payments(db, ids):
     return dict(db.execute(select(BizPayment.contract_id, func.sum(BizPayment.amount)).where(
         BizPayment.contract_id.in_(ids), BizPayment.payment_date <= today()).group_by(BizPayment.contract_id)).all()) if ids else {}
+
+
+def monthly_receipts(db, p, page, size):
+    day = today()
+    query = scoped(p).with_only_columns(BizContract.id).order_by(None)
+    criteria = (BizPayment.contract_id.in_(query), BizPayment.payment_date.between(month_range(ref=day)[0], day))
+    count, amount = db.execute(select(func.count(), func.sum(BizPayment.amount)).select_from(BizPayment).where(*criteria)).one()
+    rows = db.execute(select(BizPayment, BizContract).join(BizContract, BizPayment.contract_id == BizContract.id)
+                      .where(*criteria).order_by(BizPayment.payment_date.desc(), BizPayment.id.desc())
+                      .offset((page - 1) * size).limit(size))
+    return {"period": day.strftime("%Y-%m"), "count": count, "amount": amount or ZERO,
+            "items": [{"id": payment.id, "date": payment.payment_date, "amount": payment.amount,
+                       "contract_name": contract.name, "contract_no": contract.contract_no, "customer": contract.customer_name}
+                      for payment, contract in rows]}
 
 
 def _follow_fields(entry):
