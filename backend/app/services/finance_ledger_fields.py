@@ -70,7 +70,7 @@ LEDGERS = {
         Field("net", "实收金额", "money", ("净收金额", "实际到账", "入账金额", "实收", "到账金额", "收款金额", "收入金额", "金额")),
         PROJECT, REF, SUMMARY, NOTE,
     ), (("inflow", "实收金额"), ("fee", "手续费"))),
-    "bank_expense": Ledger("银行支出日记账", "expenses", "journal:write", (
+    "bank_expense": Ledger("银行支出日记账", "journal", "journal:write", (
         SEQ, DAY,
         Field("account", "汇款公司", aliases=("汇款单位", "付款单位", "付款银行", "汇出银行", "付款账户", "汇款账户", "付款方", "账户"), required=True),
         SUMMARY,
@@ -79,7 +79,7 @@ LEDGERS = {
         Field("applicant", "申请人", aliases=("申请", "报销人", "经办人", "申请人员"), size=64),
         APPROVAL, NOTE, PROJECT, REF,
     ), (("outflow", "支出金额"),)),
-    "cash_journal": Ledger("现金日记账", "expenses", "journal:write", (
+    "cash_journal": Ledger("现金日记账", "journal", "journal:write", (
         SEQ, Field("date", "日期", "date", DAY.aliases),
         Field("account", "现金账户", aliases=("账户", "账套", "账户名称", "账号", "现金账号"), required=True),
         Field("counterparty", "对方科目", aliases=("对方户名", "对方单位", "对方", "往来科目", "对方账户", "科目")),
@@ -101,13 +101,16 @@ LEDGERS = {
 }
 
 
+ACTIVE_KINDS = ("invoice", "bank_receipt", "bank_expense", "cash_journal")
+
+
 def can_read(p, kind):
-    return p.data_scope == "all" and p.has_menu(LEDGERS[kind].menu)
+    return kind in ACTIVE_KINDS and p.data_scope == "all" and p.has_menu(LEDGERS[kind].menu)
 
 
 def can_import(p, kind):
     ledger = LEDGERS[kind]
-    return can_read(p, kind) and (p.can(ledger.button) or (ledger.menu == "expenses" and p.can("expense:allocate")))
+    return can_read(p, kind) and (p.can(ledger.button) or (ledger.menu == "journal" and p.can("expense:allocate")))
 
 
 def header(value):
@@ -183,19 +186,6 @@ def normalize(kind, raw):
             errors[field.key] = "请补充"
     if errors:
         return values, errors, warnings
-    if kind == "qr_receipt":
-        gross, fee, net = (Decimal(values[k]) if values[k] else None for k in ("gross", "fee", "net"))
-        if net is None and (gross is None or fee is None):
-            errors["net"] = "请填写实收金额，或同时填写交易金额与手续费"
-        elif gross is not None and fee is not None:
-            if net is None:
-                try:
-                    values["net"] = parse_money(format(gross - fee, "f"))
-                    warnings.append("实收金额按交易金额减手续费计算")
-                except ValueError as exc:
-                    errors["net"] = str(exc)
-            elif gross - fee != net:
-                errors["net"] = "与交易金额减手续费不一致，请核对"
     if kind == "cash_journal":
         has_income, has_payment = (bool(Decimal(values[k] or "0")) for k in ("income", "payment"))
         if is_opening(values):

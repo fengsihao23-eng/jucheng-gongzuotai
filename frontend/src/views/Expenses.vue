@@ -1,13 +1,19 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="财务运营" title="报销归集" desc="企微报销审批通过后按「所属项目」自动归集；缺失或无效项目进入待归集池，由财务补充归集（全程留痕）。公共费用单列，不摊入项目毛利。">
-      <el-date-picker v-model="month" type="month" value-format="YYYY-MM" :clearable="false" style="width: 130px" @change="loadStats" />
+      <el-select v-model="statsMode" aria-label="报销统计周期" style="width: 105px" @change="changeStatsPeriod">
+        <el-option label="按月" value="month" /><el-option label="按年" value="year" />
+      </el-select>
+      <el-date-picker v-if="statsMode === 'year'" v-model="year" type="year" value-format="YYYY" format="YYYY [年]"
+        :clearable="false" aria-label="报销统计年份" style="width: 130px" @change="changeStatsPeriod" />
+      <el-date-picker v-else v-model="month" type="month" value-format="YYYY-MM" :clearable="false"
+        aria-label="报销统计月份" style="width: 130px" @change="changeStatsPeriod" />
       <el-button @click="exportXlsx">导出 xlsx</el-button>
       <el-button type="primary" @click="approvalOpen = true">发起企微报销</el-button>
     </PageHeader>
 
     <div class="jc-grid c4">
-      <Kpi label="本月报销额" :value="wanNum(kpi.total_amount, 2)" unit="万元" :hint="`${kpi.total_count || 0} 笔已审批`" />
+      <Kpi :label="statsMode === 'year' ? '全年报销额' : '当月报销额'" :value="wanNum(kpi.total_amount, 2)" unit="万元" :hint="`${kpi.total_count || 0} 笔已审批`" />
       <Kpi label="已归集率" :value="kpi.allocated_rate == null ? '—' : (kpi.allocated_rate * 100).toFixed(1)" unit="%" :progress="kpi.allocated_rate" hint="按金额，含公共费用" />
       <Kpi label="待归集" :value="kpi.pending_count ?? '—'" unit="笔" :hint="money(kpi.pending_amount)" @click="quick('pending')" class="clickable" />
       <Kpi label="公共费用" :value="wanNum(kpi.public_amount, 2)" unit="万元" :hint="`项目归集 ${wan(kpi.project_amount)}`" />
@@ -197,7 +203,7 @@ const canAllocate = computed(() => auth.can('expense:allocate'))
 const STATUS_OPTS = [{ label: '全部已审批', value: 'approved' }, { label: '待归集', value: 'pending' }, { label: '已归集', value: 'allocated' }, { label: '全部', value: 'all' }]
 const VIA = { callback: '企微回调', reconcile: '兜底对账', mock: '模拟' }
 
-const month = ref(dayjs().format('YYYY-MM'))
+const month = ref(dayjs().format('YYYY-MM')), year = ref(dayjs().format('YYYY')), statsMode = ref('month')
 const approvalOpen = ref(false)
 const stats = ref({})
 const statsLoading = ref(false)
@@ -221,9 +227,19 @@ async function load(p = page.value) {
     rows.value = r.items; total.value = r.total; summary.value = r.summary
   } finally { loading.value = false }
 }
+function statsRange() {
+  if (statsMode.value === 'year') return [`${year.value}-01-01`, `${year.value}-12-31`]
+  return [`${month.value}-01`, dayjs(`${month.value}-01`).endOf('month').format('YYYY-MM-DD')]
+}
 async function loadStats() {
   statsLoading.value = true
-  try { stats.value = await api.get('/expenses/stats', { period: month.value }) } finally { statsLoading.value = false }
+  const [start, end] = statsRange()
+  try { stats.value = await api.get('/expenses/stats', { start, end }) } finally { statsLoading.value = false }
+}
+function changeStatsPeriod() {
+  f.range = statsRange()
+  load(1)
+  loadStats()
 }
 function quick(status) { f.status = status; load(1) }
 function rowClass({ row }) { return row.status === 2 ? 'is-alert' : '' }

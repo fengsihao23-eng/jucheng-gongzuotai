@@ -1,12 +1,14 @@
 <template>
-  <div v-if="legacy" class="finance-history">
-    <el-button v-if="tabs.length" class="return-ledger" :icon="ArrowLeft" text @click="go(tabs[0][0])">返回财务台账</el-button>
-    <component :is="legacyView" />
+  <div v-if="showReconciliation" class="finance-reconciliation">
+    <el-button v-if="!isJournal || tabs.length" class="return-ledger" :icon="ArrowLeft" text @click="go(tabs[0]?.[0])">返回账表</el-button>
+    <Journal v-if="isJournal" />
+    <Receivables v-else />
   </div>
   <div v-else class="jc-page ledger-page" v-loading="loadingSchema">
-    <PageHeader :title="route.meta.title" :desc="isExpense ? '汇总银行支出与现金流水，按项目核对费用归属。' : '查阅银行与二维码到账明细，登记实际开票。'">
-      <el-button text :icon="Clock" @click="go('history')">历史记录</el-button>
-      <el-button v-if="activeLedger?.can_import" type="primary" :icon="Upload" @click="importOpen = true">导入财务账表</el-button>
+    <PageHeader :title="route.meta.title">
+      <el-button v-if="isJournal" text @click="go('reconciliation')">流水核对与补录</el-button>
+      <el-button v-if="tabs.length" text :icon="Clock" @click="openHistory">导入记录</el-button>
+      <el-button v-if="activeLedger?.can_import" type="primary" :icon="Upload" @click="openImport">导入财务账表</el-button>
     </PageHeader>
 
     <template v-if="activeLedger">
@@ -30,16 +32,21 @@
 
       <section class="ledger-sheet" v-loading="loadingEntries" :aria-label="activeLedger.label">
         <div class="ledger-toolbar">
-          <el-date-picker v-model="filters.period" type="month" value-format="YYYY-MM" placeholder="所有月份"
-            aria-label="按月份筛选" @change="search" />
+          <el-date-picker v-model="filters.year" type="year" value-format="YYYY" format="YYYY [年]" placeholder="全部年份"
+            aria-label="按年份筛选" @change="changeYear" />
+          <el-select v-model="filters.month" placeholder="全年" :disabled="!filters.year"
+            aria-label="按月份筛选" class="ledger-month" @change="search">
+            <el-option label="全年" value="" />
+            <el-option v-for="month in months" :key="month" :label="`${Number(month)} 月`" :value="month" />
+          </el-select>
           <el-select v-if="activeKind !== 'invoice'" v-model="filters.account" clearable filterable
             :placeholder="activeKind === 'bank_expense' ? '全部汇款公司' : '全部账户'" aria-label="按账户筛选" @change="search">
             <el-option v-for="account in result.accounts" :key="account" :value="account" />
           </el-select>
           <el-input v-model="filters.keyword" clearable maxlength="120" :prefix-icon="Search"
-            :placeholder="isExpense ? '摘要、申请编号、项目' : '付款方、发票号码、项目'" aria-label="搜索台账"
+            :placeholder="isJournal ? '摘要、申请编号、项目' : '付款方、发票号码、项目'" aria-label="搜索台账"
             @change="search" @keyup.enter="search" />
-          <el-checkbox v-if="isExpense" v-model="filters.unassigned" @change="search">待归集支出</el-checkbox>
+          <el-checkbox v-if="isJournal" v-model="filters.unassigned" @change="search">待归集支出</el-checkbox>
         </div>
         <el-table :key="activeKind" :data="result.items" row-key="id" :row-class-name="rowClass" stripe>
           <el-table-column v-for="field in mainFields" :key="field.key" :label="field.label"
@@ -51,7 +58,7 @@
               <span v-else>{{ row.values[field.key] || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isExpense && canAllocate ? 134 : 96" fixed="right">
+          <el-table-column label="操作" :width="isJournal && canAllocate ? 134 : 96" fixed="right">
             <template #default="{ row }">
               <div class="ledger-actions">
                 <el-button link type="primary" @click="selected = row">明细</el-button>
@@ -64,7 +71,7 @@
             <div class="ledger-empty">
               <el-icon><component :is="icons[activeKind]" /></el-icon>
               <strong>{{ hasFilter ? '没有符合筛选条件的记录' : '暂无台账记录' }}</strong>
-              <el-button v-if="!hasFilter && activeLedger.can_import" link type="primary" @click="importOpen = true">导入第一份账表</el-button>
+              <el-button v-if="!hasFilter && activeLedger.can_import" link type="primary" @click="openImport">导入第一份账表</el-button>
             </div>
           </template>
         </el-table>
@@ -74,8 +81,31 @@
       </section>
     </template>
 
-    <FinanceLedgerImport v-if="activeLedger" v-model="importOpen" :kind="activeKind" :ledgers="schema"
-      @confirmed="afterImport" />
+    <el-dialog v-model="historyOpen" title="导入记录" width="min(920px, 95vw)" :close-on-click-modal="false">
+      <el-table v-loading="historyLoading" :data="history.items" row-key="id" empty-text="这里会显示本模块的导入批次和待确认预览" stripe>
+        <el-table-column label="文件名" prop="filename" min-width="160" show-overflow-tooltip />
+        <el-table-column label="台账" min-width="145">
+          <template #default="{ row }">{{ row.kinds.map((kind) => schema[kind]?.label).join('、') }}</template>
+        </el-table-column>
+        <el-table-column label="操作时间" min-width="142">
+          <template #default="{ row }">{{ datetime(row.updated_at) }}</template>
+        </el-table-column>
+        <el-table-column label="上传人" prop="uploader" min-width="78" show-overflow-tooltip />
+        <el-table-column label="状态" min-width="112">
+          <template #default="{ row }">{{ historyStatus[row.status] }}<span v-if="row.status !== 'draft'" class="history-count">{{ row.active }} / {{ row.inserted }} 笔</span></template>
+        </el-table-column>
+        <el-table-column label="操作" min-width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'draft'" link type="primary" @click="resumeImport(row)">继续核对</el-button>
+            <el-button v-if="row.can_revoke" link type="danger" :disabled="loadingBatch" @click="openBatchRemoval(row.id)">撤销本批</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination v-if="history.total > 20" v-model:current-page="historyPage" :page-size="20" :total="history.total"
+        layout="total, prev, pager, next" class="ledger-pagination" @current-change="loadHistory" />
+    </el-dialog>
+    <FinanceLedgerImport v-if="activeLedger" v-model="importOpen" :kind="importKind" :ledgers="schema"
+      :resume-id="resumeId" @confirmed="afterImport" @history="historyAfterImport" @finished="openImportedLedger" />
     <el-dialog :model-value="!!selected" :title="selected ? schema[selected.kind]?.label + ' · 明细' : '账表明细'"
       width="min(610px, 94vw)" @close="selected = null">
       <template v-if="selected">
@@ -88,7 +118,7 @@
           <span>{{ datetime(selected.source.imported_at) }}</span></div>
       </template>
       <template v-if="selected?.can_delete" #footer>
-        <el-button plain type="danger" :loading="loadingBatch" @click="openBatchRemoval">撤销本批导入</el-button>
+        <el-button plain type="danger" :loading="loadingBatch" @click="openBatchRemoval(selected.source.batch)">撤销本批导入</el-button>
         <el-button @click="selected = null">关闭</el-button>
       </template>
     </el-dialog>
@@ -135,25 +165,31 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Clock, Document, Memo, Money, Search, Ticket, Upload, Wallet } from '@element-plus/icons-vue'
+import { ArrowLeft, Clock, Document, Memo, Money, Search, Upload, Wallet } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import FinanceLedgerImport from '@/components/finance/FinanceLedgerImport.vue'
 import { datetime, money, thousands } from '@/utils/format'
 
-const LegacyExpenses = defineAsyncComponent(() => import('@/views/Expenses.vue'))
-const LegacyReceivables = defineAsyncComponent(() => import('@/views/Receivables.vue'))
-const icons = { bank_receipt: Wallet, qr_receipt: Ticket, invoice: Document, bank_expense: Money, cash_journal: Memo }
+const Journal = defineAsyncComponent(() => import('@/views/Journal.vue'))
+const Receivables = defineAsyncComponent(() => import('@/views/Receivables.vue'))
+const icons = { invoice: Document, bank_receipt: Wallet, bank_expense: Money, cash_journal: Memo }
+const ledgerOrder = ['invoice', 'bank_receipt', 'bank_expense', 'cash_journal']
+const months = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
+const historyStatus = { draft: '待确认', confirmed: '已完成', partial: '部分移除', removed: '已移除' }
 const route = useRoute(), router = useRouter()
 const schema = ref({}), canAllocate = ref(false), loadingSchema = ref(true), loadingEntries = ref(false)
-const isExpense = computed(() => route.meta.menu === 'expenses')
-const tabs = computed(() => Object.entries(schema.value).filter(([, item]) => item.menu === route.meta.menu))
+const isJournal = computed(() => route.meta.menu === 'journal')
+const tabs = computed(() => ledgerOrder.filter((kind) => schema.value[kind]?.menu === route.meta.menu).map((kind) => [kind, schema.value[kind]]))
 const activeKind = computed(() => tabs.value.find(([key]) => key === route.query.ledger)?.[0] || tabs.value[0]?.[0])
 const activeLedger = computed(() => schema.value[activeKind.value])
-const legacy = computed(() => route.query.ledger === 'history' || (!route.query.ledger && !isExpense.value && ['tab', 'contract_no', 'state', 'keyword', 'period'].some((key) => key in route.query)) || (!loadingSchema.value && !tabs.value.length))
-const legacyView = computed(() => isExpense.value ? LegacyExpenses : LegacyReceivables)
+const showReconciliation = computed(() => isJournal.value
+  ? route.query.ledger === 'reconciliation' || Boolean(route.query.new) || (!loadingSchema.value && !tabs.value.length)
+  : !route.query.ledger && ['tab', 'contract_no', 'state', 'keyword', 'period'].some((key) => key in route.query))
 const mainFields = computed(() => activeLedger.value.fields.filter((field) => field.visible))
-const importOpen = ref(false), selected = ref(null)
+const importOpen = ref(false), importKind = ref(''), resumeId = ref(''), importedKind = ref(''), selected = ref(null)
+const historyOpen = ref(false), historyLoading = ref(false), historyPage = ref(1)
+const history = ref({ items: [], total: 0 })
 const allocationOpen = ref(false), allocationRow = ref(null), allocationProject = ref(''), allocating = ref(false)
 const removal = ref(null), removalOpen = ref(false), removalReason = ref(''), removing = ref(false), loadingBatch = ref(false)
 const removalValues = computed(() => removal.value?.row?.values || {})
@@ -165,10 +201,10 @@ const removalAmount = computed(() => {
   const { net, payment, income, balance } = removalValues.value
   return net || payment || income || balance
 })
-const filters = reactive({ period: '', account: '', keyword: '', unassigned: false })
+const filters = reactive({ year: '', month: '', account: '', keyword: '', unassigned: false })
 const emptyResult = () => ({ items: [], accounts: [], total: 0, totals: {} })
 const result = ref(emptyResult()), page = ref(1)
-const hasFilter = computed(() => filters.period || filters.account || filters.keyword || filters.unassigned)
+const hasFilter = computed(() => filters.year || filters.account || filters.keyword || filters.unassigned)
 let requestId = 0
 
 onMounted(async () => {
@@ -176,21 +212,56 @@ onMounted(async () => {
     const data = await api.get('/finance-ledgers/schema')
     schema.value = data.ledgers
     canAllocate.value = data.can_allocate
+    if (route.query.ledger === 'history' && tabs.value.length) openHistory()
   } catch { /* API client reports the error. */ }
   finally { loadingSchema.value = false }
 })
 
-watch([activeKind, legacy], ([kind, history]) => {
+watch([activeKind, showReconciliation], ([kind, reconciliation]) => {
   filters.account = ''
   filters.keyword = ''
   filters.unassigned = false
   result.value = emptyResult()
   requestId++
-  if (kind && !history) search()
+  if (kind && !reconciliation) search()
 }, { immediate: true })
 
 function go(kind) {
-  if (kind !== activeKind.value || legacy.value) router.push({ query: { ledger: kind } })
+  if (kind !== activeKind.value || showReconciliation.value) router.push({ query: kind ? { ledger: kind } : {} })
+}
+
+function changeYear() {
+  filters.month = ''
+  return search()
+}
+
+function openImport() {
+  resumeId.value = ''
+  importedKind.value = ''
+  importKind.value = activeKind.value
+  importOpen.value = true
+}
+
+function openHistory() {
+  historyPage.value = 1
+  historyOpen.value = true
+  return loadHistory()
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    history.value = await api.get('/finance-ledgers/imports', { menu: route.meta.menu, page: historyPage.value })
+  } catch { /* API client reports the error. */ }
+  finally { historyLoading.value = false }
+}
+
+function resumeImport(row) {
+  historyOpen.value = false
+  importedKind.value = ''
+  importKind.value = row.kinds[0]
+  resumeId.value = row.id
+  importOpen.value = true
 }
 
 function search() {
@@ -199,12 +270,13 @@ function search() {
 }
 
 async function loadEntries() {
-  if (!activeKind.value || legacy.value) return
+  if (!activeKind.value || showReconciliation.value) return
   const request = ++requestId
   loadingEntries.value = true
   try {
     const data = await api.get(`/finance-ledgers/entries/${activeKind.value}`, {
-      period: filters.period || '', account: filters.account, keyword: filters.keyword,
+      period: filters.year && filters.month ? `${filters.year}-${filters.month}` : (filters.year || ''),
+      account: filters.account, keyword: filters.keyword,
       project: filters.unassigned ? 'unassigned' : '', page: page.value,
     })
     if (request === requestId) result.value = data
@@ -228,12 +300,23 @@ function rowClass({ row }) {
 async function afterImport(receipt) {
   const kinds = Object.keys(receipt.inserted_by_kind)
   if (!kinds.length) return
-  filters.period = ''
+  filters.year = ''
+  filters.month = ''
   filters.account = ''
   filters.keyword = ''
   filters.unassigned = false
   if (kinds.includes(activeKind.value)) await search()
-  else router.push({ name: schema.value[kinds[0]].menu, query: { ledger: kinds[0] } })
+  else importedKind.value = kinds[0]
+}
+
+function openImportedLedger() {
+  const kind = importedKind.value
+  if (kind) router.push({ name: schema.value[kind].menu, query: { ledger: kind } })
+}
+
+function historyAfterImport() {
+  importedKind.value = ''
+  openHistory()
 }
 
 function openAllocation(row) {
@@ -259,16 +342,14 @@ function openEntryRemoval(row) {
   removalOpen.value = true
 }
 
-async function openBatchRemoval() {
-  const row = selected.value
+async function openBatchRemoval(token) {
   loadingBatch.value = true
   try {
-    const token = row.source.batch
     const data = await api.get(`/finance-ledgers/imports/${token}/revoke`)
-    if (selected.value?.id !== row.id) return
     if (!data.total) {
       selected.value = null
       ElMessage.info('本批记录已撤销')
+      if (historyOpen.value) await loadHistory()
       await search()
       return
     }
@@ -289,6 +370,7 @@ async function saveRemoval() {
       : await api.del(`/finance-ledgers/entries/${target.row.id}`, undefined, { data: body })
     removalOpen.value = false
     if (target.batch) selected.value = null
+    if (historyOpen.value) await loadHistory()
     ElMessage.success(result.removed ? `已移除 ${result.removed} 笔台账记录` : '记录已移除')
     await search()
   } catch { /* API client reports the error. */ }
@@ -310,7 +392,9 @@ async function saveRemoval() {
 .ledger-sheet { background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 10px; overflow: hidden; }
 .ledger-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px; }
 .ledger-toolbar :is(.el-input, .el-select) { width: 220px; }
-.ledger-toolbar :deep(.el-date-editor) { width: 144px; }
+.ledger-toolbar :deep(.el-date-editor) { width: 135px; }
+.ledger-toolbar .ledger-month { width: 95px; }
+.history-count { display: block; font-size: 12px; color: var(--jc-ink-3); }
 .ledger-sheet :deep(.el-table) { --el-table-header-bg-color: #eef2f9; --el-table-header-text-color: #37456a; }
 .ledger-sheet :deep(.el-table__cell) { padding: 9px 0; }
 .ledger-sheet :deep(.opening-balance-row) { --el-table-tr-bg-color: #f1f6f2; color: var(--jc-up); }
@@ -333,6 +417,6 @@ async function saveRemoval() {
   .ledger-stat { padding: 12px 9px; }
   .ledger-stats { gap: 7px; }
   .ledger-toolbar :is(.el-input, .el-select) { width: 100%; }
-  .ledger-toolbar :deep(.el-date-editor) { width: 100%; }
+  .ledger-toolbar :deep(.el-date-editor), .ledger-toolbar .ledger-month { width: calc(50% - 5px); }
 }
 </style>

@@ -1,9 +1,11 @@
 <template>
   <div class="jc-page">
     <PageHeader eyebrow="财务运营" title="出纳日记账" desc="银行日记账由流水核对确认后自动登记，现金日记账手工补录；期初 / 本期收支 / 期末按账户实时计算，与银行对账单余额对照显示未达账项。">
-      <el-segmented v-model="mode" :options="[{ label: '日视图', value: 'day' }, { label: '月视图', value: 'month' }]" @change="load" />
+      <el-segmented v-model="mode" :options="[{ label: '日视图', value: 'day' }, { label: '月视图', value: 'month' }, { label: '年视图', value: 'year' }]" @change="load" />
       <el-date-picker v-if="mode === 'day'" v-model="day" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width: 140px" @change="load" />
-      <el-date-picker v-else v-model="period" type="month" value-format="YYYY-MM" :clearable="false" style="width: 130px" @change="load" />
+      <el-date-picker v-else-if="mode === 'month'" v-model="period" type="month" value-format="YYYY-MM" :clearable="false" style="width: 130px" @change="load" />
+      <el-date-picker v-else v-model="year" type="year" value-format="YYYY" format="YYYY [年]" aria-label="按年份筛选"
+        :clearable="false" style="width: 130px" @change="load" />
       <el-button @click="exportXlsx">导出 xlsx</el-button>
       <el-button v-if="canWrite" type="primary" @click="openForm()">补录现金账</el-button>
     </PageHeader>
@@ -103,6 +105,7 @@ const auth = useAuth()
 const canWrite = computed(() => auth.can('journal:write'))
 const followupRow = ref(null)
 const mode = ref('day'); const day = ref(dayjs().format('YYYY-MM-DD')); const period = ref(dayjs().format('YYYY-MM'))
+const year = ref(dayjs().format('YYYY'))
 const route = useRoute()
 const account = ref(''); const view = ref({}); const loading = ref(false)
 const categories = ref([]); const kw = ref(''); const src = ref('')
@@ -111,7 +114,8 @@ const accountName = computed(() => (account.value === 'cash' ? '现金日记账'
 async function load() {
   loading.value = true
   try {
-    view.value = await api.get('/journal', { mode: mode.value, day: day.value, period: mode.value === 'month' ? period.value : undefined, account: account.value })
+    const selectedPeriod = { month: period.value, year: year.value }[mode.value]
+    view.value = await api.get('/journal', { mode: mode.value, day: day.value, period: selectedPeriod, account: account.value })
   } finally { loading.value = false }
 }
 function setAccount(a) { account.value = a; load() }
@@ -157,7 +161,8 @@ async function remove(row) {
   ElMessage.success('已删除'); load()
 }
 function exportXlsx() {
-  const p = mode.value === 'month' ? { period: period.value } : { start: day.value, end: day.value }
+  const p = { month: { period: period.value }, year: { start: `${year.value}-01-01`, end: `${year.value}-12-31` } }[mode.value]
+    || { start: day.value, end: day.value }
   api.download('/journal/export', p)
 }
 

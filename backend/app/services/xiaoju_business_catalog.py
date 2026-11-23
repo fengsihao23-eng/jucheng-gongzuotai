@@ -64,7 +64,7 @@ ROUTE_EXCLUSIONS = {
     "operations.confirm_income_feed",
     # Finance import is a dedicated human workflow. Its Pi worker only proposes mappings and rows.
     "finance_ledgers.schema", "finance_ledgers.entries", "finance_ledgers.allocate", "finance_ledgers.preview",
-    "finance_ledgers.draft", "finance_ledgers.review", "finance_ledgers.confirm",
+    "finance_ledgers.history", "finance_ledgers.draft", "finance_ledgers.review", "finance_ledgers.confirm",
     "finance_ledgers.delete_entry", "finance_ledgers.revoke_preview", "finance_ledgers.revoke_import",
     "source_checks.finance_sources", "source_checks.save_source", "source_checks.start_read", "source_checks.read_status",
     "source_checks.verify_source", "source_checks.robot_state", "source_checks.save_robot",

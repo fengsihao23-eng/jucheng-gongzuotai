@@ -37,8 +37,10 @@ def accounts(p: Principal = Menu, db: Session = Depends(get_db)):
 @router.get("")
 def view(mode: str = "day", day: date | None = None, period: str = "", account: str = "", p: Principal = Menu,
          db: Session = Depends(get_db)):
-    if mode not in ("day", "month"):
-        raise bad_request("mode 仅支持 day / month")
+    if mode not in ("day", "month", "year"):
+        raise bad_request("mode 仅支持 day / month / year")
+    if mode == "year" and period and (len(period) != 4 or not period.isascii() or not period.isdigit() or period == "0000"):
+        raise bad_request("年份格式应为 YYYY")
     return ok(journal_service.view(db, mode, ref=day or today(), period=period or None, account=account or None))
 
 

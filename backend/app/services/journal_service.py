@@ -1,4 +1,4 @@
-"""出纳日记账（FR-05-03）：日视图/月视图、期初/本期/期末、手工补录（现金账）、导出。
+"""出纳日记账（FR-05-03）：日视图/月视图/年视图、期初/本期/期末、手工补录（现金账）、导出。
 
 账户：cash（现金）+ 各银行账户（bank_account 展示名）。期初余额来自 sys_dict(journal_opening)：
     {账户: {"date": 启用日, "amount": 启用日期初余额}}；某日期初 = 启用期初 + 启用日至前一日的日记账净额。
@@ -115,7 +115,10 @@ def entries(db: Session, account: str | None, start: date, end: date) -> list[di
 
 
 def view(db: Session, mode: str, ref: date | None = None, period: str | None = None, account: str | None = None) -> dict:
-    if mode == "month":
+    if mode == "year":
+        year = int(period) if period else ref.year
+        start, end = date(year, 1, 1), date(year, 12, 31)
+    elif mode == "month":
         start, end = month_range(period) if period else month_range(ref=ref)
     else:
         start = end = ref

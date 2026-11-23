@@ -6,12 +6,13 @@ import hashlib
 import json
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import column, delete, func, or_, select, text, update
 
 from app.core.audit import log_op
+from app.core.db import JSON
 from app.core.response import bad_request, conflict, forbidden, not_found, page_data
 from app.core.timeutil import utcnow
-from app.models import FinLedgerEntry, FinLedgerImport
+from app.models import FinLedgerEntry, FinLedgerImport, SysUser
 from app.services import finance_ledger_fields as f, finance_ledger_source as source
 
 DRAFT_TTL = timedelta(hours=24)
@@ -27,12 +28,22 @@ def build_draft(db, principal, filename, content, preferred, use_xiaoju, ip):
     require_access(principal, preferred, write=True)
     allowed = eligible(principal)
     groups = source.read_source(content, filename)
-    ambiguous = {}
-    for ident, group in groups.items():
-        plan, strong = source.rule_plan(group, allowed, preferred, filename)
+    ambiguous, skipped = {}, []
+    for ident, group in list(groups.items()):
+        plan, strong = source.rule_plan(group, (*f.ACTIVE_KINDS, "qr_receipt"), preferred, filename)
+        kind = plan["kind"]
+        if strong and kind not in allowed:
+            reason = "二维码收款明细已停用" if kind == "qr_receipt" else f"没有{f.LEDGERS[kind].label}的导入权限"
+            skipped.append({"name": group["name"], "reason": reason})
+            del groups[ident]
+            continue
+        if kind not in allowed:
+            plan, strong = source.rule_plan(group, allowed, preferred, filename)
         group.update(plan)
         if not strong:
             ambiguous[ident] = group
+    if not groups:
+        raise bad_request("没有可导入的工作表。" + "；".join(dict.fromkeys(g["reason"] for g in skipped)))
     notice = ""
     if use_xiaoju and ambiguous:
         suggested, notice = source.run_xiaoju(ambiguous, allowed, preferred)
@@ -46,7 +57,7 @@ def build_draft(db, principal, filename, content, preferred, use_xiaoju, ip):
     db.execute(delete(FinLedgerImport).where(FinLedgerImport.owner_id == principal.id, FinLedgerImport.result.is_(None),
                                             FinLedgerImport.updated_at < utcnow() - DRAFT_TTL))
     batch = FinLedgerImport(token=uuid4().hex, owner_id=principal.id, filename=filename,
-                            draft={"groups": groups, "edits": {}, "notice": notice})
+                            draft={"groups": groups, "edits": {}, "notice": notice, "skipped": skipped})
     db.add(batch)
     db.flush()
     data = report(db, batch, principal)
@@ -64,7 +75,7 @@ def get_batch(db, principal, token, *, lock=False):
 
 
 def eligible(principal):
-    return [kind for kind in f.LEDGERS if f.can_import(principal, kind)]
+    return [kind for kind in f.ACTIVE_KINDS if f.can_import(principal, kind)]
 
 
 def require_version(batch, version):
@@ -97,6 +108,8 @@ def proposed_rows(batch):
     rows = []
     for ident, group in batch.draft["groups"].items():
         kind = group["kind"]
+        if kind not in f.ACTIVE_KINDS:
+            continue
         candidates = list(raw_rows(group))
         for i, (number, values, raw) in enumerate(candidates):
             row_id = f"{ident}:{number}"
@@ -128,8 +141,6 @@ def identify(rows):
         keys = ("date", "account", "payer", "payee", "counterparty", "customer", "approval_no", "gross", "fee", "net",
                 "income", "payment", "balance", "summary", "period")
         facts = {k: values[k] for k in keys if values.get(k)}
-        if kind == "qr_receipt" and not values.get("reference"):
-            facts["project"] = values["project"]
         row["signature"] = signature = digest([kind, facts])
         if kind == "invoice":
             row["identity"] = digest([kind, values["invoice_no"]])
@@ -172,7 +183,11 @@ def report(db, batch, principal):
     if not kinds:
         raise forbidden()
     groups = []
+    skipped = list(batch.draft.get("skipped", []))
     for ident, group in batch.draft["groups"].items():
+        if group["kind"] == "qr_receipt":
+            skipped.append({"name": group["name"], "reason": "二维码收款明细已停用"})
+            continue
         if group["kind"] not in kinds:
             raise forbidden("导入权限已变化，请重新上传")
         groups.append({"id": ident, **{k: group[k] for k in ("name", "kind", "header", "mapping", "account", "period", "method")},
@@ -182,7 +197,7 @@ def report(db, batch, principal):
     rows = check_duplicates(db, proposed_rows(batch))
     counts = Counter(row["status"] for row in rows)
     return {"id": batch.token, "version": batch.version, "filename": batch.filename,
-            "notice": batch.draft["notice"], "groups": groups, "allowed": kinds,
+            "notice": batch.draft["notice"], "skipped": skipped, "groups": groups, "allowed": kinds,
             "rows": [{k: v for k, v in row.items() if k not in {"identity", "signature"}} for row in rows],
             "counts": {k: counts[k] for k in ("ready", "duplicate", "repeated", "error")}}
 
@@ -229,7 +244,8 @@ def write_rows(db, batch, principal, version, row_ids, ip):
     require_version(batch, version)
     if batch.result is not None:
         for kind in batch.result["selection"]:
-            require_access(principal, kind, write=True)
+            if kind in f.ACTIVE_KINDS:
+                require_access(principal, kind, write=True)
         return batch.result
     lock_ledger(db)
     rows = check_duplicates(db, proposed_rows(batch))
@@ -288,7 +304,9 @@ def list_entries(db, principal, kind, period, account, keyword, project, page, s
     m, batch = FinLedgerEntry, FinLedgerImport
     base = [m.kind == kind, m.deleted_at.is_(None)]
     filters = [*base]
-    if period:
+    if len(period) == 4:
+        filters.append(m.period.between(f"{period}-01", f"{period}-12"))
+    elif period:
         filters.append(m.period == period)
     if account:
         filters.append(m.account == account)
@@ -343,11 +361,61 @@ def delete_entry(db, principal, ident, reason, ip):
     return {"removed": 1}
 
 
+def batch_active_kinds(batch):
+    return [kind for kind in f.ACTIVE_KINDS if kind in batch.result["inserted_by_kind"]]
+
+
+def may_revoke(principal, batch):
+    kinds = batch_active_kinds(batch)
+    return bool(kinds) and all(can_remove(principal, kind, batch.owner_id) for kind in kinds)
+
+
+def list_imports(db, principal, menu, page, size):
+    kinds = [kind for kind in f.ACTIVE_KINDS if f.LEDGERS[kind].menu == menu and f.can_read(principal, kind)]
+    if not kinds:
+        raise forbidden("没有该模块的导入记录查看权限")
+    m, batch = FinLedgerEntry, FinLedgerImport
+    writable = eligible(principal)
+    groups = func.jsonb_each(batch.draft["groups"]).table_valued("key", column("value", JSON))
+    group_kind = groups.c.value["kind"].as_string()
+    complete = or_(*(batch.result["selection"][kind].as_integer().is_not(None) for kind in kinds))
+    valid_draft = (batch.result.is_(None) & (batch.owner_id == principal.id) & (batch.updated_at >= utcnow() - DRAFT_TTL)
+                   & select(1).select_from(groups).where(group_kind.in_(set(kinds) & set(writable))).exists()
+                   & ~select(1).select_from(groups).where(group_kind.not_in([*writable, "qr_receipt"])).exists())
+    matches = or_(complete, valid_draft)
+    total = db.scalar(select(func.count(batch.id)).where(matches))
+    batches = db.execute(select(batch, SysUser.name).join(SysUser, SysUser.id == batch.owner_id).where(matches)
+                         .order_by(batch.updated_at.desc(), batch.id.desc()).offset((page - 1) * size).limit(size)).all()
+    by_batch = {}
+    if batches:
+        for ident, kind, active in db.execute(select(m.import_id, m.kind, func.count().filter(m.deleted_at.is_(None)))
+                                            .where(m.import_id.in_([item.id for item, _ in batches]), m.kind.in_(kinds))
+                                            .group_by(m.import_id, m.kind)):
+            by_batch.setdefault(ident, {})[kind] = active
+    items = []
+    for item, uploader in batches:
+        current_count = sum(by_batch.get(item.id, {}).values())
+        if item.result is None:
+            targets = {group["kind"] for group in item.draft["groups"].values()}
+            inserted = {}
+            status = "draft"
+        else:
+            targets = item.result["selection"]
+            inserted = {kind: count for kind, count in item.result["inserted_by_kind"].items() if kind in kinds}
+            original = sum(inserted.values())
+            status = "confirmed" if current_count == original else "partial" if current_count else "removed"
+        items.append({"id": item.token, "filename": item.filename, "uploader": uploader,
+                      "updated_at": item.updated_at, "status": status, "kinds": [kind for kind in kinds if kind in targets],
+                      "inserted": sum(inserted.values()), "active": current_count,
+                      "can_revoke": current_count > 0 and may_revoke(principal, item)})
+    return page_data(items, total, page, size)
+
+
 def revocable_batch(db, principal, token):
     batch = db.scalar(select(FinLedgerImport).where(FinLedgerImport.token == token))
-    if batch is None or batch.result is None or not batch.result["inserted_by_kind"]:
+    if batch is None or batch.result is None or not batch_active_kinds(batch):
         raise not_found("已入账批次")
-    if not all(can_remove(principal, kind, batch.owner_id) for kind in batch.result["inserted_by_kind"]):
+    if not may_revoke(principal, batch):
         raise forbidden("整批撤销需要有该批次内各类台账的删除权限")
     return batch
 
@@ -355,7 +423,8 @@ def revocable_batch(db, principal, token):
 def revoke_preview(db, principal, token):
     batch = revocable_batch(db, principal, token)
     m = FinLedgerEntry
-    counts = dict(db.execute(select(m.kind, func.count(m.id)).where(m.import_id == batch.id, m.deleted_at.is_(None))
+    counts = dict(db.execute(select(m.kind, func.count(m.id)).where(m.import_id == batch.id, m.kind.in_(batch_active_kinds(batch)),
+                                                                m.deleted_at.is_(None))
                             .group_by(m.kind)).all())
     return {"filename": batch.filename, "total": sum(counts.values()), "by_kind": counts}
 
@@ -364,7 +433,7 @@ def revoke_import(db, principal, token, reason, ip):
     lock_ledger(db)
     batch = revocable_batch(db, principal, token)
     m = FinLedgerEntry
-    counts = Counter(db.scalars(update(m).where(m.import_id == batch.id, m.deleted_at.is_(None))
+    counts = Counter(db.scalars(update(m).where(m.import_id == batch.id, m.kind.in_(batch_active_kinds(batch)), m.deleted_at.is_(None))
                                 .values(deleted_at=utcnow(), deleted_by=principal.id, delete_reason=reason or None)
                                 .returning(m.kind)))
     result = {"removed": sum(counts.values()), "by_kind": dict(counts)}

@@ -12,9 +12,10 @@ from app.core.response import bad_request, ok
 from app.services import finance_ledger_fields as f, finance_ledgers as service
 
 router = APIRouter(prefix="/finance-ledgers", tags=["财务账表"])
-PrincipalDep = Annotated[Principal, Depends(require_menu("receivables", "expenses"))]
+PrincipalDep = Annotated[Principal, Depends(require_menu("receivables", "journal"))]
 DB = Annotated[Session, Depends(get_db)]
-Kind = Literal["bank_receipt", "qr_receipt", "bank_expense", "cash_journal", "invoice"]
+Kind = Literal["invoice", "bank_receipt", "bank_expense", "cash_journal"]
+LedgerMenu = Literal["receivables", "journal"]
 RowID = Annotated[str, Field(pattern=r"^\d{1,4}:\d{1,8}$")]
 GroupID = Annotated[str, Field(pattern=r"^\d{1,4}$")]
 Version = Annotated[int, Field(ge=1)]
@@ -59,13 +60,13 @@ class Removal(Strict):
 
 @router.get("/schema")
 def schema(p: PrincipalDep):
-    return ok({"ledgers": {kind: ledger.meta(f.can_import(p, kind)) for kind, ledger in f.LEDGERS.items() if f.can_read(p, kind)},
+    return ok({"ledgers": {kind: f.LEDGERS[kind].meta(f.can_import(p, kind)) for kind in f.ACTIVE_KINDS if f.can_read(p, kind)},
                "limits": {"bytes": f.MAX_BYTES, "rows": f.MAX_ROWS, "columns": f.MAX_COLUMNS},
-               "can_allocate": p.has_menu("expenses") and p.can("expense:allocate") and f.can_read(p, "bank_expense")})
+               "can_allocate": p.can("expense:allocate") and f.can_read(p, "bank_expense")})
 
 
 @router.get("/entries/{kind}")
-def entries(kind: Kind, p: PrincipalDep, db: DB, period: str = Query("", pattern=r"^$|^20\d\d-(0[1-9]|1[0-2])$"),
+def entries(kind: Kind, p: PrincipalDep, db: DB, period: str = Query("", pattern=r"^(?:20\d\d(?:-(?:0[1-9]|1[0-2]))?)?$"),
             account: str = Query("", max_length=128), keyword: str = Query("", max_length=120), project: str = Query("", max_length=128),
             page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100)):
     service.require_access(p, kind)
@@ -101,12 +102,18 @@ def preview(request: Request, p: PrincipalDep, db: DB, kind: Annotated[Kind, For
     return ok(data)
 
 
+@router.get("/imports")
+def history(menu: LedgerMenu, p: PrincipalDep, db: DB, page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100)):
+    return ok(service.list_imports(db, p, menu, page, size))
+
+
 @router.get("/imports/{token}")
 def draft(token: str, p: PrincipalDep, db: DB):
     batch = service.get_batch(db, p, token)
     if batch.result is not None:
         for kind in batch.result["selection"]:
-            service.require_access(p, kind, write=True)
+            if kind in f.ACTIVE_KINDS:
+                service.require_access(p, kind, write=True)
         return ok({"id": batch.token, "version": batch.version, "filename": batch.filename, "result": batch.result})
     return ok(service.report(db, batch, p))
 

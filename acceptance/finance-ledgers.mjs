@@ -24,28 +24,31 @@ async function visit(path, heading) {
 async function preview(filename, content) {
   await screen.getByRole('button', { name: '导入财务账表', exact: true }).click()
   const dialog = screen.getByRole('dialog', { name: '导入财务账表' })
-  await dialog.locator('input[type=file]').setInputFiles({ name: filename, mimeType: 'text/csv', buffer: Buffer.from(content) })
   const pending = screen.waitForResponse((res) => res.url().endsWith(`${base}/preview`), { timeout: 105000 })
-  await dialog.getByRole('button', { name: '整理并预览' }).click()
+  await dialog.locator('input[type=file]').setInputFiles({ name: filename, mimeType: 'text/csv', buffer: Buffer.from(content) })
   const result = await (await pending).json()
   assert.equal(result.code, 0, result.message)
   previewResponse = result.data
-  const review = screen.getByRole('dialog', { name: '核对导入预览' })
+  const review = screen.getByRole('dialog', { name: '核对导入数据' })
   await review.waitFor()
   return review
 }
 
 async function confirm(dialog) {
   const pending = screen.waitForResponse((res) => res.url().endsWith('/confirm') && res.url().includes(base))
-  await dialog.getByRole('button', { name: '确认导入' }).click()
+  await dialog.getByRole('button', { name: /^确认导入 \d+ 笔$/ }).click()
   const result = await (await pending).json()
   assert.equal(result.code, 0, result.message)
   await dialog.waitFor({ state: 'hidden' })
+  const receipt = screen.getByRole('dialog', { name: '导入完成' })
+  await receipt.getByText(`已入账 ${result.data.inserted} 笔`, { exact: true }).waitFor()
+  await receipt.getByRole('button', { name: '完成', exact: true }).click()
+  await receipt.waitFor({ state: 'hidden' })
   return result.data
 }
 
 await step('FIN-01', '真实小聚整理非标准银行表头，预览时尚无入账', async () => {
-  await visit('/receivables', '开票回款')
+  await visit('/receivables?ledger=bank_receipt', '开票回款')
   assert.equal((await existing('bank_receipt')).total, 0)
   const dialog = await preview('测试_渠道到账明细.csv', `哪天到账,钱进了哪个户,谁转来的,进了多少钱,归到哪项,随款说明
 2026/11/4,测试银行尾号 2208,示例技术公司,3680.50,校园设备项目,首批设备款
@@ -57,32 +60,58 @@ await step('FIN-01', '真实小聚整理非标准银行表头，预览时尚无�
   const missingAmount = previewResponse.rows.find((row) => row.row === 5)
   assert.equal(missingAmount?.status, 'error')
   assert.ok(missingAmount.errors.net)
+  assert.equal(previewResponse.counts.error, 1)
   assert.equal((await existing('bank_receipt')).total, 0)
+  await dialog.getByRole('button', { name: /^待补充 / }).click()
+  await dialog.getByRole('button', { name: '补充', exact: true }).first().waitFor()
+  assert.equal(await dialog.getByText('示例技术公司', { exact: true }).count(), 0)
+  await dialog.getByRole('button', { name: /^全部 / }).click()
   const evidence = await capture(screen, '01-小聚整理与逐行确认')
   assert.equal((await confirm(dialog)).inserted, 3)
   await screen.getByText('示例技术公司', { exact: true }).waitFor()
   assert.equal((await existing('bank_receipt')).totals.inflow, '20166.75')
-  return { evidence: [evidence, await capture(screen, '02-开票回款-银行收款明细')] }
+  return { evidence: [evidence, await capture(screen, '01b-银行收款入账后')] }
 })
 
-await step('FIN-02', '二维码手续费和实收校验，简式收款自动识别账户', async () => {
-  await screen.getByRole('button', { name: '二维码收款明细', exact: true }).click()
-  const dialog = await preview('测试账户 6039 全付通收款记录明细表.csv', `序号,收款日期,交易金额,手续费,实收金额,项目
-1,2026/11/4,2280,5.24,2274.76,体育用品
-2,2026/11/5,900,2.07,897.93,校园课程
-3,2026/11/6,300,0.69,299.31,校园课程`)
-  assert.equal((await confirm(dialog)).inserted, 3)
-  const simple = await preview('测试账户 7791 二维码收款明细表.csv', `序号,收款日期,实收金额,项目
-1,2026/11/5,11371.50,设备维修
-2,2026/11/8,985.00,活动器材`)
-  assert.equal((await confirm(simple)).inserted, 2)
-  assert.equal((await existing('qr_receipt')).totals.inflow, '15828.50')
-  await screen.getByText('测试账户 7791', { exact: true }).first().waitFor()
-  return { evidence: await capture(screen, '03-开票回款-二维码收款明细') }
+await step('FIN-02', '开票台账在前，二维码入口停用，年份和月份可切换', async () => {
+  await visit('/receivables', '开票回款')
+  const tabs = screen.getByRole('navigation', { name: '财务账表' })
+  assert.deepEqual(await tabs.getByRole('button').allTextContents(), ['开票台账', '收款记录明细'])
+  assert.equal(await tabs.getByRole('button', { name: '开票台账' }).getAttribute('aria-current'), 'page')
+  await tabs.getByRole('button', { name: '收款记录明细' }).click()
+  const extra = await preview('测试_跨年度收款.csv', `收款日期,收款银行,汇款公司,收入金额
+2025/12/15,测试银行尾号 2208,示例旧年收款,900
+2026/3/15,测试银行尾号 2208,示例本年三月款,1400`)
+  assert.equal((await confirm(extra)).inserted, 2)
+  const region = screen.getByRole('region', { name: '收款记录明细' })
+  await region.getByRole('combobox', { name: '按年份筛选' }).click()
+  const annual = screen.waitForResponse((res) => res.url().includes('/entries/bank_receipt?') && new URL(res.url()).searchParams.get('period') === '2026')
+  await screen.getByRole('gridcell', { name: '2026', exact: true }).click()
+  const result = (await (await annual).json()).data
+  assert.equal(result.total, 4)
+  await region.getByText('示例本年三月款', { exact: true }).waitFor()
+  await screen.getByRole('gridcell', { name: '2026', exact: true }).waitFor({ state: 'hidden' })
+  assert.equal(await region.getByText('示例旧年收款', { exact: true }).count(), 0)
+  const evidence = await capture(screen, '02-开票回款-全年收款记录')
+  await region.getByRole('combobox', { name: '按月份筛选' }).press('Enter')
+  const monthly = screen.waitForResponse((res) => res.url().includes('/entries/bank_receipt?') && new URL(res.url()).searchParams.get('period') === '2026-03')
+  await screen.getByRole('option', { name: '3 月', exact: true }).click()
+  assert.equal((await (await monthly).json()).data.total, 1)
+  return { evidence }
 })
 
-await step('FIN-03', '银行支出和费用归集写入独立台账', async () => {
-  await visit('/expenses', '报销归集')
+await step('FIN-03', '截图中的银行支出归出纳日记账，报销归集显示报销单', async () => {
+  await screen.goto(`${WEB}/expenses`)
+  await screen.getByRole('heading', { name: '报销归集', exact: true }).waitFor()
+  await screen.getByText('审批单号', { exact: true }).first().waitFor()
+  assert.equal(await screen.getByRole('button', { name: '银行支出日记账', exact: true }).count(), 0)
+  const stat = screen.getByRole('combobox', { name: '报销统计周期' })
+  await stat.press('Enter')
+  const yearlyExpenses = screen.waitForResponse((res) => res.url().includes('/expenses/stats?') && new URL(res.url()).searchParams.get('end') === '2026-12-31')
+  await screen.getByRole('option', { name: '按年', exact: true }).click()
+  assert.equal((await (await yearlyExpenses).json()).data.start, '2026-01-01')
+  const expenseEvidence = await capture(screen, '03-报销归集-全年统计')
+  await visit('/journal', '出纳日记账')
   const dialog = await preview('测试_银行支出日记账.csv', `序号,日期,汇款公司,摘要,收款方资料,金额,申请人,审批编号,备注
 1,2026/11/5,示例银行 2208,教室布线及设备首款,示例工程公司,15000.00,示例员工甲,202611050001,按进度支付
 2,2026/11/6,示例银行 2208,实验室设备配件,示例设备公司,14150.00,示例员工乙,202611060002,已付款
@@ -96,11 +125,11 @@ await step('FIN-03', '银行支出和费用归集写入独立台账', async () =
   await allocation.waitFor({ state: 'hidden' })
   await row.getByText('实验室改造', { exact: true }).waitFor()
   assert.equal((await existing('bank_expense', { project: 'unassigned' })).total, 2)
-  return { evidence: await capture(screen, '04-报销归集-银行支出日记账') }
+  return { evidence: [expenseEvidence, await capture(screen, '04-出纳日记账-银行支出')] }
 })
 
 await step('FIN-04', '现金结转只保留余额，来源行号可溯源', async () => {
-  await screen.getByRole('button', { name: '现金日记账', exact: true }).click()
+  await visit('/journal?ledger=cash_journal', '出纳日记账')
   const dialog = await preview('测试账户 3302 现金日记账.csv', `序号,日期,对方科目,申请编号,摘要,收入金额,支付金额,结余金额,备注
 1,,,,上月结转,,,810.59,
 2,2026/11/2,示例银行,,备用金补充,5000,,5810.59,
@@ -113,7 +142,7 @@ await step('FIN-04', '现金结转只保留余额，来源行号可溯源', asyn
   assert.equal(result.totals.inflow, '5000.00')
   assert.equal(result.totals.outflow, '2125.30')
   assert.equal(result.items[0].source.row, 2)
-  return { evidence: await capture(screen, '05-报销归集-现金日记账') }
+  return { evidence: await capture(screen, '05-出纳日记账-现金日记账') }
 })
 
 await step('FIN-05', '开票台账登记原表发票号，保留前导零', async () => {
@@ -131,14 +160,14 @@ await step('FIN-06', '手机可打开导入弹窗', async () => {
   await mobile.goto(`${WEB}/receivables`)
   await mobile.getByRole('button', { name: '导入财务账表', exact: true }).click()
   const dialog = mobile.getByRole('dialog', { name: '导入财务账表' })
-  await dialog.getByText('整理并预览', { exact: true }).waitFor()
+  await dialog.getByRole('button', { name: /选择文件或拖到这里/ }).waitFor()
   const bounds = await dialog.boundingBox()
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390)
   return { evidence: await capture(mobile, '07-手机-导入财务账表') }
 })
 
 await step('FIN-07', '取消与确认单条删除，校验合计和更正后的重复流水号', async () => {
-  await visit('/receivables', '开票回款')
+  await visit('/receivables?ledger=bank_receipt', '开票回款')
   const file = `收款日期,收款银行,汇款公司,收入金额,流水号
 2026/11/5,验收更正账户,验收单条更正客户,2150.90,FIN-QA-R001`
   assert.equal((await confirm(await preview('测试_单笔导入.csv', file))).inserted, 1)
@@ -160,23 +189,55 @@ await step('FIN-07', '取消与确认单条删除，校验合计和更正后的�
 })
 
 await step('FIN-08', '整批撤销显示笔数，确认后只移除该文件对应记录', async () => {
-  await visit('/expenses', '报销归集')
+  await visit('/journal', '出纳日记账')
   const file = `日期,汇款公司,摘要,收款方资料,金额,审批编号
 2026/11/5,整批撤销验收账户,录错账套的材料款,验收撤销供应商甲,4180.00,202611050127
 2026/11/6,整批撤销验收账户,录错账套的维修款,验收撤销供应商乙,600.30,202611060128`
   assert.equal((await confirm(await preview('测试_错导银行支出.csv', file))).inserted, 2)
   const row = screen.getByRole('region', { name: '银行支出日记账' }).getByRole('row').filter({ hasText: '验收撤销供应商甲' })
-  await row.getByRole('button', { name: '明细', exact: true }).click()
-  const detail = screen.getByRole('dialog', { name: '银行支出日记账 · 明细' })
-  await detail.getByRole('button', { name: '撤销本批导入' }).click()
+  await screen.getByRole('button', { name: '导入记录', exact: true }).click()
+  const history = screen.getByRole('dialog', { name: '导入记录' })
+  const imported = history.getByRole('row').filter({ hasText: '测试_错导银行支出.csv' })
+  await imported.getByRole('button', { name: '撤销本批' }).click()
   const dialog = screen.getByRole('dialog', { name: '撤销整批导入' })
   await dialog.getByText('银行支出日记账 · 2 笔', { exact: true }).waitFor()
   const evidence = await capture(screen, '09-整批撤销确认')
   await dialog.getByRole('button', { name: '确认撤销', exact: true }).click()
+  await imported.getByText('已移除', { exact: false }).waitFor()
   await row.waitFor({ state: 'hidden' })
   assert.equal((await existing('bank_expense', { account: '整批撤销验收账户' })).total, 0)
   assert.equal((await existing('bank_expense', { keyword: '示例设备公司' })).total, 1)
   return { evidence }
+})
+
+
+await step('FIN-09', '粘贴表格、统一补账户、保存待确认与继续核对', async () => {
+  await visit('/journal?ledger=cash_journal', '出纳日记账')
+  await screen.getByRole('button', { name: '导入财务账表', exact: true }).click()
+  const upload = screen.getByRole('dialog', { name: '导入财务账表' })
+  await upload.getByRole('button', { name: '粘贴表格', exact: true }).click()
+  await upload.getByRole('textbox', { name: '粘贴账表内容' }).fill(`日期\t对方科目\t摘要\t收入金额\t支付金额\t结余金额
+2026/2/2\t示例人员\t上半年备用金\t5000\t\t5000
+2026/11/3\t示例人员\t下半年备用金\t1500\t\t6500`)
+  await upload.getByRole('button', { name: '预览粘贴内容' }).click()
+  const review = screen.getByRole('dialog', { name: '核对导入数据' })
+  await review.getByRole('button', { name: '统一填写账户' }).click()
+  await review.getByRole('textbox', { name: '统一账户名称' }).fill('粘贴验收现金账户')
+  await review.getByRole('button', { name: '应用到账表' }).click()
+  await review.getByRole('button', { name: '确认导入 2 笔', exact: true }).waitFor()
+  await review.getByRole('button', { name: '稍后核对' }).click()
+  await review.waitFor({ state: 'hidden' })
+  await screen.getByRole('button', { name: '导入记录', exact: true }).click()
+  const history = screen.getByRole('dialog', { name: '导入记录' })
+  const draft = history.getByRole('row').filter({ hasText: '粘贴账表.txt' })
+  await draft.getByText('待确认', { exact: true }).waitFor()
+  const historyEvidence = await capture(screen, '10-导入记录-待确认和已入账')
+  await draft.getByRole('button', { name: '继续核对' }).click()
+  await review.getByRole('button', { name: '确认导入 2 笔', exact: true }).waitFor()
+  assert.equal((await existing('cash_journal', { account: '粘贴验收现金账户' })).total, 0)
+  assert.equal((await confirm(review)).inserted, 2)
+  assert.equal((await existing('cash_journal', { account: '粘贴验收现金账户', period: '2026' })).totals.inflow, '6500.00')
+  return { evidence: historyEvidence }
 })
 
 await browser.close()

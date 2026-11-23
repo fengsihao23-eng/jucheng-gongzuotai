@@ -1,57 +1,78 @@
 <template>
-  <el-dialog v-model="open" :title="draft ? '核对导入预览' : '导入财务账表'"
-    :width="draft ? 'min(1130px, 96vw)' : 'min(610px, 94vw)'" top="6vh" :close-on-click-modal="false"
-    :show-close="!busy" :close-on-press-escape="!busy" append-to-body @closed="reset">
-    <div v-if="!draft" class="intake-form" v-loading="busy" :element-loading-text="processingText">
-      <el-radio-group v-model="inputMode" aria-label="导入方式">
-        <el-radio-button value="file">选择文件</el-radio-button>
-        <el-radio-button value="paste">粘贴内容</el-radio-button>
-      </el-radio-group>
-      <div v-if="inputMode === 'file'" class="dropzone" :class="{ 'has-file': file }"
-        @dragover.prevent @drop.prevent="selectFile($event.dataTransfer.files[0])">
-        <el-icon :size="29"><Document v-if="file" /><UploadFilled v-else /></el-icon>
-        <strong>{{ file?.name || '拖放账表文件到这里' }}</strong>
-        <span>{{ file ? filesize(file.size) : 'Excel、CSV、文档、PDF 或图片，每份不超过 20 MB' }}</span>
-        <el-button plain @click="picker?.click()">{{ file ? '更换文件' : '浏览文件' }}</el-button>
-        <input ref="picker" type="file" class="visually-hidden" tabindex="-1"
-          accept=".xlsx,.xlsm,.csv,.tsv,.txt,.md,.markdown,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
-          @change="selectFile($event.target.files[0])" />
+  <el-dialog v-model="open" :title="dialogTitle" :width="draft && !receipt ? 'min(1160px, 96vw)' : 'min(590px, 94vw)'"
+    top="6vh" :close-on-click-modal="false" :show-close="!busy" :close-on-press-escape="!busy" append-to-body @closed="closed">
+    <div v-if="receipt" class="import-receipt">
+      <el-icon><CircleCheckFilled /></el-icon>
+      <strong>已入账 {{ receipt.inserted }} 笔</strong>
+      <span v-for="(count, entryKind) in receipt.inserted_by_kind" :key="entryKind">{{ ledgers[entryKind]?.label }} · {{ count }} 笔</span>
+      <span v-if="receipt.skipped">另有 {{ receipt.skipped }} 笔重复记录已跳过</span>
+    </div>
+
+    <div v-else-if="!draft" class="intake-form" @paste="pasteFromClipboard">
+      <div v-if="busy" class="intake-progress" role="status">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <strong>{{ resuming ? '正在读取上次预览' : '正在整理账表' }}</strong>
+        <span v-if="file">{{ file.name }}</span>
+        <el-progress :percentage="50" :indeterminate="true" :show-text="false" :duration="2" />
       </div>
-      <el-input v-else v-model="pasted" type="textarea" :rows="7" :maxlength="120000" aria-label="粘贴账表内容"
-        placeholder="可粘贴 Excel 表格、带分隔符的数据或逐笔记录。" />
-      <label class="intake-label"><span>优先识别为</span>
-        <el-select v-model="preferred" aria-label="优先识别为">
-          <el-option v-for="[key, item] in uploadKinds" :key="key" :label="item.label" :value="key" />
-        </el-select>
-      </label>
-      <el-checkbox v-model="useXiaoju">遇到非标准格式时用小聚整理</el-checkbox>
-      <div class="intake-note"><el-icon><InfoFilled /></el-icon>整理完成后会显示逐行预览，由你勾选并确认入账。</div>
+      <template v-else>
+        <div class="intake-destination">当前台账 <strong>{{ ledgers[kind]?.label }}</strong></div>
+        <el-alert v-if="prepareError" :title="prepareError" type="error" :closable="false" show-icon />
+        <template v-if="!pasteMode">
+          <button class="dropzone" :class="{ dragging }" type="button" @click="picker?.click()"
+            @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFile">
+            <el-icon :size="32"><UploadFilled /></el-icon>
+            <strong>选择文件或拖到这里</strong>
+            <span>Excel、CSV、文档、PDF、图片 · 单份最大 20 MB</span>
+          </button>
+          <input ref="picker" type="file" class="visually-hidden" tabindex="-1" aria-label="选择账表文件"
+            accept=".xlsx,.xlsm,.csv,.tsv,.txt,.md,.markdown,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
+            @change="selectFile($event.target.files[0])" />
+        </template>
+        <el-input v-else ref="pasteInput" v-model="pasted" type="textarea" :rows="7" aria-label="粘贴账表内容"
+          placeholder="把从 Excel、在线表格或消息里复制的内容粘贴到这里。" />
+        <div class="intake-options">
+          <el-button link type="primary" :icon="pasteMode ? UploadFilled : DocumentCopy" @click="togglePaste">{{ pasteMode ? '改用文件' : '粘贴表格' }}</el-button>
+          <el-checkbox v-model="useXiaoju">小聚协助识别非标准格式</el-checkbox>
+        </div>
+      </template>
     </div>
 
     <div v-else class="preview" v-loading="busy">
       <div class="preview-header">
         <div class="preview-file">
           <el-icon><Document /></el-icon>
-          <div><strong>{{ draft.filename }}</strong><span>{{ draft.groups.length }} 个来源 · {{ draft.rows.length }} 行待核对</span></div>
+          <div><strong>{{ draft.filename }}</strong><span>{{ draft.groups.length }} 张表 · {{ draft.rows.length }} 行 · 待确认</span></div>
         </div>
-        <div class="preview-totals">
-          <span class="preview-ready">{{ draft.counts.ready + draft.counts.repeated }} 行可入账</span>
-          <span v-if="draft.counts.duplicate">{{ draft.counts.duplicate }} 行已入账</span>
-          <span v-if="draft.counts.error" class="preview-issue">{{ draft.counts.error }} 行有待核对</span>
+        <div class="preview-totals" aria-label="核对结果筛选">
+          <button type="button" :class="{ selected: rowFilter === 'all' }" :aria-pressed="rowFilter === 'all'" @click="setFilter('all')">全部 {{ draft.rows.length }}</button>
+          <button v-if="draft.counts.error" type="button" class="preview-issue" :class="{ selected: rowFilter === 'error' }"
+            :aria-pressed="rowFilter === 'error'" @click="setFilter('error')">待补充 {{ draft.counts.error }}</button>
+          <button v-if="duplicateCount" type="button" class="preview-warning" :class="{ selected: rowFilter === 'duplicate' }"
+            :aria-pressed="rowFilter === 'duplicate'" @click="setFilter('duplicate')">重复 {{ duplicateCount }}</button>
         </div>
       </div>
       <el-alert v-if="draft.notice" :title="draft.notice" type="warning" :closable="false" show-icon />
+      <el-alert v-if="draft.skipped?.length" type="info" :closable="false" show-icon title="部分工作表已略过">
+        <div v-for="group in draft.skipped" :key="group.name">{{ group.name }} · {{ group.reason }}</div>
+      </el-alert>
       <div v-if="activeGroup" class="preview-controls">
-        <el-select v-if="draft.groups.length > 1" v-model="groupID" aria-label="切换来源">
+        <el-select v-if="draft.groups.length > 1" v-model="groupID" aria-label="切换工作表">
           <el-option v-for="group in draft.groups" :key="group.id" :value="group.id" :label="group.name" />
         </el-select>
         <div class="group-type">
-          <strong>{{ ledgers[activeGroup.kind].label }}</strong>
+          <strong>导入到 {{ ledgers[activeGroup.kind].label }}</strong>
           <span :class="{ ai: activeGroup.method === 'xiaoju' }">{{ methodLabels[activeGroup.method] }}</span>
         </div>
-        <el-button text :icon="Setting" @click="configure">调整来源与列对应</el-button>
+        <el-button v-if="missingAccounts && !accountConfig" link type="primary" @click="configureAccount">统一填写账户</el-button>
+        <el-button text :icon="Setting" @click="configure">调整表头或台账</el-button>
       </div>
-      <section v-if="config && activeGroup" class="mapping-panel" aria-label="调整来源与列对应">
+      <form v-if="accountConfig" class="account-fix" @submit.prevent="saveAccount">
+        <el-input ref="accountInput" v-model="accountConfig.account" maxlength="128" aria-label="统一账户名称"
+          placeholder="为这张表的空白行填写账户" />
+        <el-button native-type="submit" type="primary" :disabled="!accountConfig.account.trim()">应用到账表</el-button>
+      </form>
+      <section v-if="config && activeGroup" class="mapping-panel" aria-label="调整表头或台账">
         <div class="mapping-grid">
           <label><span>目标台账</span><el-select v-model="config.kind" aria-label="目标台账" @change="resetMapping">
             <el-option v-for="key in draft.allowed" :key="key" :label="ledgers[key].label" :value="key" />
@@ -61,7 +82,7 @@
             <el-option v-for="item in activeGroup.headers" :key="item.row" :value="item.row" :label="`第 ${item.row} 行 · ${item.text}`" />
           </el-select></label>
           <label v-if="configFields.some((field) => field.key === 'account')"><span>默认账户或汇款公司</span>
-            <el-input v-model="config.account" maxlength="128" placeholder="补齐本来源的空白账户" />
+            <el-input v-model="config.account" maxlength="128" aria-label="默认账户或汇款公司" placeholder="补齐这张表的空白账户" />
           </label>
           <label v-if="config.kind === 'cash_journal'"><span>结转所属月份</span>
             <el-date-picker v-model="config.period" type="month" value-format="YYYY-MM" placeholder="从相邻日期识别" />
@@ -81,8 +102,8 @@
           <el-button type="primary" :loading="busy" @click="applyConfig">应用并校验</el-button>
         </div>
       </section>
-      <el-table v-if="activeGroup" :key="groupID" :data="visibleRows" row-key="id" class="preview-table" stripe
-        empty-text="未识别到明细行，可调整表头所在行">
+      <el-table v-if="activeGroup" :key="groupID" :data="visibleRows" row-key="id" class="preview-table" stripe max-height="420"
+        :empty-text="rowFilter === 'all' ? '未识别到明细行，可调整表头所在行' : '当前工作表没有符合条件的行'">
         <el-table-column width="46">
           <template #header><el-checkbox :model-value="allGroupSelected" :indeterminate="someGroupSelected && !allGroupSelected"
             :disabled="!selectableGroup.length" aria-label="选择本来源可入账行" @change="selectGroup" /></template>
@@ -110,23 +131,35 @@
             <span v-else class="preview-ready">可入账</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="66" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click="openEdit(row)">核对</el-button></template>
+        <el-table-column label="操作" width="71" fixed="right">
+          <template #default="{ row }"><el-button link type="primary" @click="openEdit(row)">{{ row.status === 'error' ? '补充' : '查看' }}</el-button></template>
         </el-table-column>
       </el-table>
-      <el-pagination v-if="activeRows.length > PAGE_SIZE" v-model:current-page="previewPage" :page-size="PAGE_SIZE"
-        :total="activeRows.length" layout="total, prev, pager, next" class="preview-pagination" />
+      <el-pagination v-if="filteredRows.length > PAGE_SIZE" v-model:current-page="previewPage" :page-size="PAGE_SIZE"
+        :total="filteredRows.length" layout="total, prev, pager, next" class="preview-pagination" />
     </div>
 
-    <template #footer>
+    <template v-if="receipt || draft || pasteMode || (prepareError && file)" #footer>
       <div class="intake-footer">
-        <span v-if="draft">本次确认 {{ selectedRows.size }} 行<span v-if="draft.counts.error"> · 有待核对的行本次略过</span></span>
-        <span v-else />
-        <div>
-          <el-button :disabled="busy" @click="open = false">{{ draft ? '取消导入' : '取消' }}</el-button>
-          <el-button v-if="draft" type="primary" :loading="busy" :disabled="!selectedRows.size || !!config" @click="confirm">确认导入</el-button>
-          <el-button v-else type="primary" :loading="busy" :disabled="!uploadReady" @click="prepare">整理并预览</el-button>
-        </div>
+        <template v-if="receipt">
+          <el-button @click="viewHistory">查看导入记录</el-button>
+          <el-button type="primary" @click="open = false">完成</el-button>
+        </template>
+        <template v-else-if="draft">
+          <div class="selection-summary"><strong>已选 {{ selectedRows.size }} 笔</strong>
+            <span v-if="draft.counts.error">{{ draft.counts.error }} 笔待补充，未补齐的行会略过</span>
+          </div>
+          <div class="preview-actions">
+            <el-button text :disabled="busy" @click="reset">换一份文件</el-button>
+            <el-button :disabled="busy" @click="open = false">稍后核对</el-button>
+            <el-button type="primary" :loading="busy" :disabled="!selectedRows.size || !!config || !!accountConfig" @click="confirm">确认导入 {{ selectedRows.size }} 笔</el-button>
+          </div>
+        </template>
+        <template v-else>
+          <span />
+          <el-button v-if="pasteMode" type="primary" :loading="busy" :disabled="!pasted.trim()" @click="preparePasted">预览粘贴内容</el-button>
+          <el-button v-else-if="file" type="primary" :loading="busy" @click="prepare(file)">重试整理</el-button>
+        </template>
       </div>
     </template>
   </el-dialog>
@@ -152,79 +185,164 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { Document, InfoFilled, Setting, UploadFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, ref, watch } from 'vue'
+import { CircleCheckFilled, Document, DocumentCopy, Loading, Setting, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/api/client'
-import { filesize, money } from '@/utils/format'
+import { money } from '@/utils/format'
 
-const props = defineProps({ kind: { type: String, required: true }, ledgers: { type: Object, required: true } })
+const props = defineProps({ kind: { type: String, required: true }, ledgers: { type: Object, required: true }, resumeId: String })
 const open = defineModel({ type: Boolean, default: false })
-const emit = defineEmits(['confirmed'])
-const inputMode = ref('file'), file = ref(null), picker = ref(null), pasted = ref(''), preferred = ref(''), useXiaoju = ref(true)
-const draft = ref(null), groupID = ref(''), config = ref(null), previewPage = ref(1), busy = ref(false)
+const emit = defineEmits(['confirmed', 'history', 'finished'])
+const pasteMode = ref(false), file = ref(null), picker = ref(null), pasted = ref(''), pasteInput = ref(null)
+const resuming = ref(false)
+const useXiaoju = ref(true), prepareError = ref(''), dragging = ref(false), accountInput = ref(null)
+const draft = ref(null), receipt = ref(null), groupID = ref(''), config = ref(null), previewPage = ref(1), busy = ref(false)
+const rowFilter = ref('all'), accountConfig = ref(null)
+let showHistory = false
 const excluded = ref(new Set()), editOpen = ref(false), editedRow = ref(null), editValues = ref({})
 const PAGE_SIZE = 8
 const methodLabels = { rule: '表头识别', xiaoju: '小聚已整理', manual: '已调整列对应' }
 const previewKeys = {
   bank_receipt: ['date', 'account', 'payer', 'net', 'project'],
-  qr_receipt: ['date', 'account', 'gross', 'fee', 'net', 'project'],
   bank_expense: ['date', 'account', 'payee', 'payment', 'approval_no'],
   cash_journal: ['date', 'account', 'summary', 'income', 'payment', 'balance'],
   invoice: ['date', 'invoice_no', 'customer', 'net', 'approval_no'],
 }
-const uploadKinds = computed(() => Object.entries(props.ledgers).filter(([, item]) => item.can_import && item.menu === props.ledgers[props.kind]?.menu))
-const uploadReady = computed(() => inputMode.value === 'file' ? !!file.value : !!pasted.value.trim())
-const processingText = computed(() => useXiaoju.value ? '正在读取账表并整理数据…' : '正在读取账表…')
+const dialogTitle = computed(() => receipt.value ? '导入完成' : draft.value ? '核对导入数据' : '导入财务账表')
+const duplicateCount = computed(() => (draft.value?.counts.duplicate || 0) + (draft.value?.counts.repeated || 0))
 const activeGroup = computed(() => draft.value?.groups.find((group) => group.id === groupID.value))
 const activeRows = computed(() => draft.value?.rows.filter((row) => row.group === groupID.value) || [])
-const visibleRows = computed(() => activeRows.value.slice((previewPage.value - 1) * PAGE_SIZE, previewPage.value * PAGE_SIZE))
+const matchesFilter = (row, filter) => filter === 'all' || row.status === filter || (filter === 'duplicate' && row.status === 'repeated')
+const filteredRows = computed(() => activeRows.value.filter((row) => matchesFilter(row, rowFilter.value)))
+const visibleRows = computed(() => filteredRows.value.slice((previewPage.value - 1) * PAGE_SIZE, previewPage.value * PAGE_SIZE))
+const missingAccounts = computed(() => activeRows.value.some((row) => row.errors.account && !row.values.account))
 const previewFields = computed(() => props.ledgers[activeGroup.value.kind].fields.filter((field) => previewKeys[activeGroup.value.kind].includes(field.key)))
 const configFields = computed(() => props.ledgers[config.value.kind].fields)
 const selectable = (row) => row.status === 'ready' || row.status === 'repeated'
-const selectableGroup = computed(() => activeRows.value.filter(selectable))
+const selectableGroup = computed(() => filteredRows.value.filter(selectable))
 const selectedRows = computed(() => new Set((draft.value?.rows || []).filter((row) => selectable(row) && !excluded.value.has(row.id)).map(({ id }) => id)))
 const allGroupSelected = computed(() => !!selectableGroup.value.length && selectableGroup.value.every(({ id }) => selectedRows.value.has(id)))
 const someGroupSelected = computed(() => selectableGroup.value.some(({ id }) => selectedRows.value.has(id)))
 
-watch(open, (shown) => { if (shown) preferred.value = props.kind })
-watch(groupID, () => { previewPage.value = 1; config.value = null })
+watch(open, async (shown) => {
+  if (!shown) return
+  reset()
+  if (!props.resumeId) return
+  resuming.value = true
+  busy.value = true
+  try {
+    const data = await api.get(`/finance-ledgers/imports/${props.resumeId}`, undefined, { silent: true })
+    if (data.result) receipt.value = data.result
+    else applyDraft(data)
+  } catch (error) {
+    prepareError.value = error.message
+  } finally {
+    busy.value = false
+    resuming.value = false
+  }
+})
+watch(groupID, () => {
+  previewPage.value = 1
+  config.value = null
+  accountConfig.value = null
+})
 
 function reset() {
   file.value = null
   pasted.value = ''
-  inputMode.value = 'file'
+  pasteMode.value = false
   useXiaoju.value = true
+  prepareError.value = ''
+  dragging.value = false
   draft.value = null
+  receipt.value = null
   groupID.value = ''
+  rowFilter.value = 'all'
   previewPage.value = 1
   config.value = null
+  accountConfig.value = null
+  showHistory = false
+  editOpen.value = false
+  editedRow.value = null
   excluded.value.clear()
 }
 
 function selectFile(next) {
   if (!next || busy.value) return
+  if (picker.value) picker.value.value = ''
   if (next.size > 20 * 1024 * 1024) {
-    ElMessage.warning('单份账表不能超过 20 MB')
+    prepareError.value = '这份文件超过 20 MB，请拆分后再上传。'
     return
   }
+  pasteMode.value = false
   file.value = next
+  prepare(next)
+}
+
+function dropFile(event) {
+  dragging.value = false
+  if (event.dataTransfer.files.length > 1) {
+    prepareError.value = '每次可以核对一份文件。'
+    return
+  }
+  selectFile(event.dataTransfer.files[0])
+}
+
+async function togglePaste() {
+  pasteMode.value = !pasteMode.value
+  prepareError.value = ''
+  if (pasteMode.value) {
+    await nextTick()
+    pasteInput.value?.focus()
+  }
+}
+
+async function pasteFromClipboard(event) {
+  if (busy.value || pasteMode.value) return
+  const [attachment] = event.clipboardData.files
+  if (attachment) {
+    event.preventDefault()
+    selectFile(attachment)
+    return
+  }
+  const content = event.clipboardData.getData('text/plain')
+  if (!content.trim()) return
+  event.preventDefault()
+  pasted.value = content
+  await togglePaste()
 }
 
 function applyDraft(next) {
   draft.value = next
   if (!next.groups.some((g) => g.id === groupID.value)) groupID.value = next.groups[0]?.id || ''
-  previewPage.value = Math.min(previewPage.value, Math.max(1, Math.ceil(activeRows.value.length / PAGE_SIZE)))
+  if (!next.rows.some((row) => matchesFilter(row, rowFilter.value))) rowFilter.value = 'all'
+  previewPage.value = Math.min(previewPage.value, Math.max(1, Math.ceil(filteredRows.value.length / PAGE_SIZE)))
 }
 
-async function prepare() {
+function setFilter(filter) {
+  rowFilter.value = filter
+  previewPage.value = 1
+  if (!filteredRows.value.length && filter !== 'all') {
+    const firstMatch = draft.value.rows.find((row) => matchesFilter(row, filter))
+    if (firstMatch) groupID.value = firstMatch.group
+  }
+}
+
+function preparePasted() {
+  return prepare(new File([pasted.value], '粘贴账表.txt', { type: 'text/plain' }))
+}
+
+async function prepare(upload) {
+  if (busy.value) return
+  prepareError.value = ''
   busy.value = true
   try {
-    const upload = inputMode.value === 'file' ? file.value : new File([pasted.value], '粘贴账表.txt', { type: 'text/plain' })
-    const data = await api.upload('/finance-ledgers/preview', upload, { kind: preferred.value, use_xiaoju: useXiaoju.value }, { timeout: 300000 })
+    const data = await api.upload('/finance-ledgers/preview', upload, { kind: props.kind, use_xiaoju: useXiaoju.value },
+      { timeout: 300000, silent: true })
     applyDraft(data)
-  } catch { /* API client reports the error. */ }
-  finally { busy.value = false }
+  } catch (error) {
+    prepareError.value = error.message
+  } finally { busy.value = false }
 }
 
 function toggleRow(id, checked) {
@@ -242,10 +360,30 @@ function firstError(row) {
   return label ? `${label} · ${row.errors[key]}` : row.errors[key]
 }
 
-function configure() {
-  if (config.value) { config.value = null; return }
+function groupConfig() {
   const { id, kind, header, mapping, account, period } = activeGroup.value
-  config.value = { id, kind, header, mapping: { ...mapping }, account, period }
+  return { id, kind, header, mapping: { ...mapping }, account, period }
+}
+
+function configure() {
+  accountConfig.value = null
+  config.value = config.value ? null : groupConfig()
+}
+
+async function configureAccount() {
+  config.value = null
+  accountConfig.value = groupConfig()
+  await nextTick()
+  accountInput.value?.focus()
+}
+
+async function saveAccount() {
+  busy.value = true
+  try {
+    await review({ groups: [accountConfig.value] })
+    accountConfig.value = null
+  } catch { /* API client reports the error. */ }
+  finally { busy.value = false }
 }
 
 function resetMapping() { config.value.mapping = {} }
@@ -293,39 +431,59 @@ async function confirm() {
     const data = await api.post(`/finance-ledgers/imports/${draft.value.id}/confirm`, {
       version: draft.value.version, row_ids: [...selectedRows.value],
     })
-    ElMessage.success(`已导入 ${data.inserted} 行${data.skipped ? `，跳过 ${data.skipped} 行重复记录` : ''}`)
+    receipt.value = data
     emit('confirmed', data)
-    open.value = false
   } catch (error) {
     if (error.code === 40901) {
       try {
         const data = await api.get(`/finance-ledgers/imports/${draft.value.id}`)
-        if (data.rows) applyDraft(data)
+        if (data.result) receipt.value = data.result
+        else applyDraft(data)
       } catch { /* API client reports the error. */ }
     }
   } finally { busy.value = false }
+}
+
+function viewHistory() {
+  showHistory = true
+  open.value = false
+}
+
+function closed() {
+  if (showHistory) emit('history')
+  else if (receipt.value) emit('finished')
 }
 </script>
 
 <style scoped>
 .intake-form, .preview { display: grid; gap: 13px; }
-.dropzone { display: grid; justify-items: center; gap: 9px; padding: 23px 14px; border: 1px dashed #aebbd7; background: #f8faff; border-radius: 9px; text-align: center; overflow-wrap: anywhere; }
+.intake-destination { display: flex; align-items: baseline; gap: 9px; font-size: 13px; color: var(--jc-ink-2); }
+.intake-destination strong { font-size: 14px; color: var(--jc-ink); }
+.dropzone { display: grid; justify-items: center; gap: 12px; padding: 35px 14px; width: 100%; border: 1px dashed #aebbd7; background: #f8faff; border-radius: 9px; text-align: center; font: inherit; cursor: pointer; }
+.dropzone:hover, .dropzone.dragging { background: var(--jc-brand-50); border-color: var(--jc-brand); }
 .dropzone .el-icon { color: var(--jc-brand); }
-.dropzone strong { color: var(--jc-ink); font-size: 15px; }
+.dropzone strong { color: var(--jc-brand); font-size: 16px; }
 .dropzone > span { font-size: 12px; color: var(--jc-ink-2); }
-.dropzone.has-file { background: #f4f8f4; border-color: #bbd0c1; }
+.intake-options { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; align-items: center; }
+.intake-progress, .import-receipt { display: grid; gap: 10px; padding: 25px 12px; text-align: center; justify-items: center; }
+.intake-progress .el-icon, .import-receipt .el-icon { font-size: 26px; color: var(--jc-brand); }
+.intake-progress .el-progress { width: min(240px, 100%); }
+.intake-progress > span, .import-receipt > span { color: var(--jc-ink-2); overflow-wrap: anywhere; }
+.import-receipt .el-icon { color: var(--jc-up); font-size: 38px; }
+.import-receipt strong { font-size: 21px; color: var(--jc-ink); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.intake-label { display: grid; gap: 6px; color: var(--jc-ink-2); }
-.intake-note { display: flex; gap: 6px; align-items: center; color: var(--jc-ink-2); font-size: 12px; }
 .intake-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-.intake-footer > span { font-size: 12px; color: var(--jc-ink-2); }
+.selection-summary { display: grid; gap: 4px; text-align: left; }
+.selection-summary span { font-size: 12px; color: var(--jc-ink-2); }
+.preview-actions { margin-left: auto; }
 .preview-header { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 13px; border: 1px solid var(--jc-line); border-radius: 8px; background: var(--jc-surface-2); }
 .preview-file { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .preview-file > .el-icon { font-size: 21px; color: var(--jc-brand); }
 .preview-file > div { display: grid; gap: 4px; overflow-wrap: anywhere; }
 .preview-file span { color: var(--jc-ink-2); font-size: 12px; }
 .preview-totals { display: flex; gap: 7px; flex-wrap: wrap; }
-.preview-totals span { border: 1px solid var(--jc-line); border-radius: 5px; background: #fff; padding: 4px 7px; font-size: 12px; }
+.preview-totals button { border: 1px solid var(--jc-line); border-radius: 6px; background: #fff; padding: 6px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.preview-totals button.selected { border-color: var(--jc-brand); background: var(--jc-brand-50); }
 .preview-ready { color: var(--jc-up); }
 .preview-issue { color: var(--jc-down); }
 .preview-warning { color: var(--jc-warn); }
@@ -339,6 +497,8 @@ async function confirm() {
 .preview-table :deep(.el-table__cell) { padding: 5px 0; }
 .preview-pagination { align-self: start; justify-self: end; }
 .source-row { cursor: help; border-bottom: 1px dotted var(--jc-ink-3); }
+.account-fix { display: flex; align-items: center; gap: 8px; }
+.account-fix .el-input { max-width: 280px; }
 .mapping-panel { padding: 13px; border: 1px solid var(--jc-line); border-radius: 8px; }
 .mapping-grid, .column-grid, .edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 10px; }
 .column-grid { margin-top: 12px; max-height: 240px; overflow: auto; }

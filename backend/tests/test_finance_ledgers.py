@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
 from sqlalchemy import func, select
 
-from app.models import (BizExpenseReport, BizPayment, FinCashJournal, FinLedgerEntry, FinReceipt,
+from app.models import (BizExpenseReport, BizPayment, FinCashJournal, FinLedgerEntry, FinLedgerImport, FinReceipt,
                         FinSalesInvoice, LogOperation)
 from app.services import finance_ledger_source as source
 from conftest import data
@@ -63,16 +63,14 @@ def test_workbook_templates_and_standalone_financials(client, login, db):
         "发票": [["开票日期", "发票号码", "购方名称", "价税合计", "合同编号"], ["2026/6/2", "00000001234", "示例学校", 500, "原表文本编号"]],
     })
     batch = data(upload(client, headers, "bank_receipt", file, "财务账套.xlsx"))
-    assert batch["counts"] == {"ready": 9, "duplicate": 0, "repeated": 0, "error": 0}
+    assert batch["counts"] == {"ready": 6, "duplicate": 0, "repeated": 0, "error": 0}
+    assert batch["skipped"] == [{"name": label, "reason": "二维码收款明细已停用"} for label in ("二维码甲", "二维码乙")]
     assert show(client, headers, "bank_receipt", account="测试银行2200")["total"] == 0
     assert data(confirm(client, headers, batch))["inserted_by_kind"] == {
-        "bank_receipt": 2, "qr_receipt": 3, "bank_expense": 1, "cash_journal": 2, "invoice": 1
+        "bank_receipt": 2, "bank_expense": 1, "cash_journal": 2, "invoice": 1
     }
-    assert data(confirm(client, headers, batch))["inserted"] == 9
+    assert data(confirm(client, headers, batch))["inserted"] == 6
     assert show(client, headers, "bank_receipt", account="测试银行2200")["totals"]["inflow"] == "7000.30"
-    qr = show(client, headers, "qr_receipt", account="测试账户3300全付通")
-    assert qr["totals"] == {"inflow": "299.31", "outflow": "0.00", "fee": "0.69"}
-    assert show(client, headers, "qr_receipt", account="测试账户4400")["items"][0]["values"]["fee"] == ""
     cash = show(client, headers, "cash_journal", period="2026-06", account="测试账户5500")
     assert cash["total"] == 2 and cash["totals"]["inflow"] == "0.00" and cash["totals"]["outflow"] == "10.00"
     assert cash["items"][0]["values"]["date"] == "" and cash["items"][0]["values"]["balance"] == "810.59"
@@ -83,7 +81,7 @@ def test_workbook_templates_and_standalone_financials(client, login, db):
     assert show(client, headers, "invoice", keyword="00000001234")["total"] == 1
     assert [db.scalar(select(func.count()).select_from(model)) for model in models] == before
     repeats = data(upload(client, headers, "bank_receipt", file, "重传财务账套.xlsx"))
-    assert repeats["counts"]["duplicate"] == 9
+    assert repeats["counts"]["duplicate"] == 6
 
 
 def test_manual_review_version_and_scope(client, login):
@@ -110,7 +108,7 @@ def test_xiaoju_uses_tools_for_unfamiliar_headers_and_source_proof(client, login
         assert execute("check_session_scope", {})["ok"]
         sample = execute("read_rows", {"source": "1"})
         if sample["rows"][0][1][0] == "哪天来的":
-            execute("map_columns", {"source": "1", "kind": "bank_receipt", "header_row": 1,
+            execute("map_columns", {"source": "1", "kind": "bank_receipt", "header_row": 0,
                                     "mapping": {"0": "date", "1": "account", "2": "payer", "3": "net"}})
         else:
             result = execute("extract_rows", {"source": "1", "kind": "bank_receipt", "rows": [{"row": 1, "values": {
@@ -122,7 +120,8 @@ def test_xiaoju_uses_tools_for_unfamiliar_headers_and_source_proof(client, login
     headers = login("chenjing")
     batch = data(upload(client, headers, "bank_receipt", "哪天来的,收到哪了,谁打来的,来了多少\n2026/6/7,验证账户A3,示例客户,1200",
                         ai=True))
-    assert batch["groups"][0]["method"] == "xiaoju" and batch["rows"][0]["values"]["net"] == "1200.00"
+    assert batch["groups"][0]["method"] == "xiaoju" and batch["groups"][0]["header"] == 1
+    assert batch["counts"]["error"] == 0 and batch["rows"][0]["values"]["net"] == "1200.00"
     assert show(client, headers, "bank_receipt", account="验证账户A3")["total"] == 0
     batch = data(upload(client, headers, "bank_receipt", "日期2026/6/7，验证账户B3入账1200元，付款方示例客户。", "到账说明.txt", ai=True))
     assert batch["rows"][0]["values"]["project"] == ""
@@ -143,14 +142,58 @@ def test_concurrent_confirm_and_conflicting_reference(client, login):
     assert confirm(client, headers, conflict_batch, ["1:2"]).status_code == 409
 
 
-def test_qr_arithmetic_and_human_selection(client, login):
-    headers = login("chenjing")
-    content = "收款日期,收款账户,交易金额,手续费,实收金额,项目\n2026-06-11,计算测试账户,100,2,99,待修正\n2026-06-12,计算测试账户,100,2,98,待选\n2026-06-13,计算测试账户,200,2,198,未选"
-    batch = data(upload(client, headers, "qr_receipt", content))
-    assert batch["counts"]["error"] == 1
-    assert data(confirm(client, headers, batch, ["1:3"]))["inserted"] == 1
-    result = show(client, headers, "qr_receipt", account="计算测试账户")
-    assert result["totals"]["inflow"] == "98.00" and result["total"] == 1
+def test_module_access_and_retired_receipts(client, login):
+    finance = login("chenjing")
+    ledgers = data(client.get(f"{API}/schema", headers=finance))["ledgers"]
+    assert list(ledgers) == ["invoice", "bank_receipt", "bank_expense", "cash_journal"]
+    assert [ledgers[kind]["menu"] for kind in ledgers] == ["receivables", "receivables", "journal", "journal"]
+    assert client.get(f"{API}/entries/qr_receipt", headers=finance).status_code == 400
+    content = "收款日期,收款账户,交易金额,手续费,实收金额,项目\n2026-06-11,历史二维码账户,100,2,98,示例"
+    rejected = upload(client, finance, "bank_receipt", content)
+    assert rejected.status_code == 400 and "二维码收款明细已停用" in rejected.json()["message"]
+    assert upload(client, finance, "qr_receipt", content).status_code == 400
+
+
+def test_year_filters_and_human_selection(client, login):
+    finance = login("chenjing")
+    content = ("收款日期,收款银行,汇款公司,实收金额\n"
+               "2026-01-30,年度测试账户,示例客户,98\n"
+               "2026-08-01,年度测试账户,示例客户,198\n"
+               "2025-12-31,年度测试账户,示例客户,60\n"
+               "2026-10-01,年度测试账户,示例客户,300")
+    batch = data(upload(client, finance, "bank_receipt", content))
+    assert batch["counts"]["ready"] == 4
+    assert data(confirm(client, finance, batch, ["1:2", "1:3", "1:4"]))["inserted"] == 3
+    result = show(client, finance, "bank_receipt", account="年度测试账户", period="2026")
+    assert result["total"] == 2 and result["totals"]["inflow"] == "296.00"
+    assert show(client, finance, "bank_receipt", account="年度测试账户", period="2026-08")["total"] == 1
+    year = data(client.get("/api/v1/journal", headers=finance, params={"mode": "year", "period": "2026"}))
+    assert year["start"] == "2026-01-01" and year["end"] == "2026-12-31"
+
+
+def test_import_history_drafts_confirmations_and_removal(client, login):
+    finance, cashier = (login(name) for name in ("chenjing", "zhaoli"))
+    file = workbook({
+        "到账": [["收款日期", "收款银行", "汇款公司", "收入金额"], ["2026/6/30", "导入历史账户", "测试公司", 800]],
+        "支出": [["日期", "汇款公司", "摘要", "收款方资料", "金额"], ["2026/6/30", "导入历史账户", "测试采购", "商户", 20]],
+    })
+    batch = data(upload(client, finance, "bank_receipt", file, "导入历史复核.xlsx"))
+
+    def history(menu, headers):
+        result = data(client.get(f"{API}/imports", headers=headers, params={"menu": menu}))
+        return next((row for row in result["items"] if row["id"] == batch["id"]), None)
+
+    assert history("journal", finance)["status"] == "draft"
+    assert history("receivables", finance)["status"] == "draft"
+    assert history("receivables", cashier) is None
+    assert data(confirm(client, finance, batch))["inserted"] == 2
+    assert history("journal", finance)["kinds"] == ["bank_expense"]
+    assert history("receivables", finance)["kinds"] == ["bank_receipt"]
+    assert history("receivables", cashier)["can_revoke"] is False
+    assert history("journal", finance)["active"] == 1
+    assert data(client.post(f"{API}/imports/{batch['id']}/revoke", headers=finance, json={}))["removed"] == 2
+    assert history("journal", finance)["status"] == "removed"
+    assert not history("journal", finance)["can_revoke"]
 
 
 def test_delete_single_entry_preserves_audit_and_allows_corrected_reimport(client, login, db):
@@ -216,3 +259,22 @@ def test_revoke_mixed_batch_does_not_remove_prior_records(client, login, db):
                                                   LogOperation.after["filename"].as_string() == "批次撤销.xlsx")).one()
     assert audit.after["reason"] == "传错账套" and audit.after["removed"] == 2
     assert data(client.delete(f"{API}/entries/{saved['id']}", headers=cashier))["removed"] == 1
+
+
+def test_revoke_old_mixed_import_preserves_retired_qr_rows(client, login, db):
+    finance = login("chenjing")
+    content = "收款日期,收款银行,汇款公司,收入金额\n2026-05-16,停用账表测试账户,示例客户,50"
+    preview = data(upload(client, finance, "bank_receipt", content))
+    assert data(confirm(client, finance, preview))["inserted"] == 1
+    batch = db.scalar(select(FinLedgerImport).where(FinLedgerImport.token == preview["id"]))
+    counts = {"bank_receipt": 1, "qr_receipt": 1}
+    batch.result = {**batch.result, "inserted": 2, "inserted_by_kind": counts, "selection": counts}
+    old = FinLedgerEntry(import_id=batch.id, source_sheet="二维码记录", source_row=3, kind="qr_receipt",
+                         identity="a" * 64, signature="b" * 64, search_text="旧版已停用", values={})
+    db.add(old)
+    db.commit()
+    uri = f"{API}/imports/{batch.token}/revoke"
+    assert data(client.get(uri, headers=finance))["by_kind"] == {"bank_receipt": 1}
+    assert data(client.post(uri, headers=finance, json={}))["removed"] == 1
+    db.refresh(old)
+    assert old.deleted_at is None

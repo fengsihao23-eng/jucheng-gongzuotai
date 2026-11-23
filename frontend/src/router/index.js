@@ -20,10 +20,10 @@ const pages = [
   { path: 'opportunities', name: 'opportunities', component: () => import('@/views/OpportunityWorkbook.vue'), meta: { menu: 'opportunities', workbookView: 'opportunities', title: '商机信息' } },
   { path: 'performance', name: 'performance', component: () => import('@/views/Performance.vue'), meta: { menu: 'performance', title: '业绩与运营' } },
   { path: 'clean', name: 'clean', component: () => import('@/views/Clean.vue'), meta: { menu: 'clean', title: '数据清洗' } },
-  { path: 'expenses', name: 'expenses', component: () => import('@/views/FinanceLedgerWorkspace.vue'), meta: { menu: 'expenses', title: '报销归集' } },
+  { path: 'expenses', name: 'expenses', component: () => import('@/views/Expenses.vue'), meta: { menu: 'expenses', title: '报销归集' } },
   { path: 'flows', name: 'flows', component: () => import('@/views/Flows.vue'), meta: { menu: 'flows', title: '流水核对' } },
   { path: 'receivables', name: 'receivables', component: () => import('@/views/FinanceLedgerWorkspace.vue'), meta: { menu: 'receivables', title: '开票回款' } },
-  { path: 'journal', name: 'journal', component: () => import('@/views/Journal.vue'), meta: { menu: 'journal', title: '出纳日记账' } },
+  { path: 'journal', name: 'journal', component: () => import('@/views/FinanceLedgerWorkspace.vue'), meta: { menu: 'journal', title: '出纳日记账' } },
   { path: 'profit', name: 'profit', component: () => import('@/views/Profit.vue'), meta: { menu: 'profit', title: '项目利润' } },
   { path: 'finance-data', name: 'finance-data', component: () => import('@/views/FinanceData.vue'), meta: { menu: 'finance_data', title: '财务数据' } },
   { path: 'market', name: 'market', component: () => import('@/views/MarketFollow.vue'), meta: { menu: 'market', title: '重点项目' } },
@@ -72,6 +72,9 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   document.title = (to.meta.title ? to.meta.title + ' · ' : '') + '聚成数智工作台'
   if (to.meta.public) return true
+  if (to.name === 'expenses' && ['bank_expense', 'cash_journal'].includes(to.query.ledger)) {
+    return { name: 'journal', query: to.query }
+  }
   if (to.path === '/' && typeof to.query.xiaoju === 'string') return { name: 'xiaoju', params: { id: to.query.xiaoju } }  // 旧版企业微信回复链接
   if (!getToken()) return { name: 'login', query: { redirect: to.fullPath } }
   const auth = useAuth()
