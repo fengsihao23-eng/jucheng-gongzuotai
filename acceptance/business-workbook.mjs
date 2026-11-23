@@ -133,7 +133,7 @@ await step('SOURCE-collection-plans', '回款卡片只读原表计划，进入�
     await page.waitForFunction(n => document.querySelector('.workbook-kpis .kpi .v')?.textContent.trim() === String(n), view.summary.count)
   }
 })
-await step('SOURCE-tender-project-cards', '招标与在建分开切换，合并项目点开保留各标段', async () => {
+await step('SOURCE-tender-project-list', '招标与在建按列表切换，合并项目点开保留各标段', async () => {
   const base = '/business-workbook/tender'
   const tender = await call('admin', 'GET', base)
   const building = await call('admin', 'GET', base, { sheet: tender.sheets.find(s => s.profile === 'pending').id })
@@ -144,12 +144,12 @@ await step('SOURCE-tender-project-cards', '招标与在建分开切换，合并�
   assert.ok(lot)
   for (const page of [desktop, mobile]) {
     await page.goto(WEB + '/tender-projects')
-    const cards = page.getByRole('button', { name: /查看项目：/ })
+    const projectButtons = page.getByRole('button', { name: /查看项目：/ })
     const tenderModule = page.getByRole('button', { name: /^招标项目/ })
     const buildingModule = page.getByRole('button', { name: /^在建项目/ })
     const list = page.locator('#tender-project-list')
     await list.getByRole('heading', { name: '招标项目', exact: true }).waitFor()
-    await page.waitForFunction(n => document.querySelectorAll('.project-card').length === n, tender.summary.groups)
+    await page.waitForFunction(n => document.querySelectorAll('.project-table .el-table__body .el-table__row').length === n, tender.summary.groups)
     assert.equal(await tenderModule.getAttribute('aria-pressed'), 'true')
     assert.equal(await page.getByText('筛选来源明细', { exact: true }).count(), 0)
     assert.equal(await page.getByText('原表字段', { exact: true }).count(), 0)
@@ -161,20 +161,20 @@ await step('SOURCE-tender-project-cards', '招标与在建分开切换，合并�
     await drawer.waitFor({ state: 'hidden' })
     await buildingModule.click()
     await list.getByRole('heading', { name: '在建项目', exact: true }).waitFor()
-    assert.equal(await cards.count(), building.summary.groups)
+    assert.equal(await projectButtons.count(), building.summary.groups)
     assert.equal(await page.getByRole('button', { name: '查看项目：' + lot.name, exact: true }).count(), 0)
     const search = page.getByRole('textbox', { name: '搜索项目', exact: true })
     await search.fill(building.items[0].name)
-    assert.ok(await cards.count() < building.summary.groups)
-    await cards.first().click()
+    assert.ok(await projectButtons.count() < building.summary.groups)
+    await projectButtons.first().click()
     const project = page.getByRole('dialog', { name: building.items[0].name, exact: true })
     await project.getByText('合同金额', { exact: true }).waitFor()
     await page.keyboard.press('Escape')
     await project.waitFor({ state: 'hidden' })
     await search.clear()
-    assert.equal(await cards.count(), building.summary.groups)
+    assert.equal(await projectButtons.count(), building.summary.groups)
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
-    await shot(page, page === mobile ? 'building-cards-mobile' : 'building-cards-desktop')
+    await shot(page, page === mobile ? 'building-list-mobile' : 'building-list-desktop')
   }
   const board = await call('admin', 'GET', '/board/overview', { period: '2026-11' })
   for (const [kind, title] of [['bidding', '招标项目'], ['building', '在建项目']]) {

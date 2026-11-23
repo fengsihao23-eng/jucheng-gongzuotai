@@ -28,7 +28,7 @@
         </button>
       </div>
 
-      <section id="tender-project-list" class="mt-16" aria-label="项目卡片">
+      <section id="tender-project-list" class="mt-16" aria-label="项目列表">
         <el-alert v-if="data.sheet?.warning" :title="data.sheet.warning" type="warning" :closable="false" show-icon class="mb-16" />
         <Panel v-if="activeModule" class="project-list" :title="activeModule.label" :sub="`共 ${filtered.length} 个项目`" :padding="false" :loading="loading">
           <template #extra>
@@ -45,26 +45,39 @@
             </div>
           </template>
 
-          <div v-if="shown.length" class="project-grid">
-            <button v-for="project in shown" :key="project.group" type="button" class="project-card"
-              :aria-label="`查看项目：${project.name}`" aria-haspopup="dialog" @click="openProject(project)">
-              <span class="project-top">
-                <span class="jc-mono jc-small jc-muted">{{ project.sequence == null ? '' : '序号 ' + project.sequence }}</span>
-                <StatusPill :text="isTender ? '招标' : '待签合同'" :tone="isTender ? 'brand' : 'info'" />
-              </span>
-              <span class="project-name jc-serif">{{ project.name }}</span>
-              <span v-if="project.customers" class="project-line jc-small jc-muted">{{ isTender ? '运营商' : '对接单位' }}：{{ project.customers }}</span>
-              <span v-if="project.lots.length > 1" class="project-line jc-small"><b>{{ project.lots.length }} 条标段明细</b></span>
-              <span v-else-if="project.progress" class="project-line jc-small">{{ isTender ? '进度' : '项目类型' }}：<b>{{ project.progress }}</b></span>
-              <span v-if="isTender && project.dates" class="project-line jc-small jc-muted">开标时间：{{ project.dates }}</span>
-              <span v-if="!isTender && project.parties" class="project-line jc-small jc-muted">我方签约主体：{{ project.parties }}</span>
-              <span class="project-footer jc-small jc-muted">
-                <span>{{ isTender ? '责任人' : '实际跟进人' }} {{ project.owners || '—' }}</span>
-                <span v-if="project.lots.length === 1 && project.amount != null" class="jc-num">{{ moneyText(project.amount) }} 元</span>
-                <span v-else-if="project.lots.length > 1">查看标段</span>
-              </span>
-            </button>
-          </div>
+          <p class="project-scroll-hint jc-small jc-muted">列表可左右滑动，点击项目名称查看详情。</p>
+          <el-table v-if="shown.length" :data="shown" row-key="group" class="project-table" @row-click="openProject">
+            <el-table-column label="序号" width="70" align="center">
+              <template #default="{ row }"><span class="jc-num jc-muted">{{ row.sequence ?? '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="项目名称" min-width="280">
+              <template #default="{ row }">
+                <button type="button" class="project-name" :aria-label="`查看项目：${row.name}`" aria-haspopup="dialog" @click.stop="openProject(row)">{{ row.name }}</button>
+                <div v-if="row.lots.length > 1" class="jc-small jc-muted">{{ row.lots.length }} 条标段明细</div>
+              </template>
+            </el-table-column>
+            <el-table-column :label="isTender ? '运营商' : '对接单位'" min-width="110">
+              <template #default="{ row }">{{ row.customers || '—' }}</template>
+            </el-table-column>
+            <el-table-column :label="isTender ? '进度' : '项目类型'" min-width="230">
+              <template #default="{ row }"><span class="project-progress">{{ row.progress || '—' }}</span></template>
+            </el-table-column>
+            <el-table-column v-if="isTender" label="开标时间" min-width="130">
+              <template #default="{ row }"><span class="jc-num">{{ row.dates || '待定' }}</span></template>
+            </el-table-column>
+            <el-table-column v-else label="我方签约主体" min-width="150">
+              <template #default="{ row }">{{ row.parties || '—' }}</template>
+            </el-table-column>
+            <el-table-column :label="isTender ? '责任人' : '实际跟进人'" min-width="110">
+              <template #default="{ row }">{{ row.owners || '—' }}</template>
+            </el-table-column>
+            <el-table-column v-if="hasAmounts" :label="isTender ? '预计金额（元）' : '合同金额（元）'" min-width="145" align="right">
+              <template #default="{ row }"><span v-if="row.lots.length === 1 && row.amount != null" class="jc-num">{{ moneyText(row.amount) }}</span><span v-else class="jc-muted">{{ row.lots.length > 1 ? '见标段' : '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }"><el-button link type="primary" @click.stop="openProject(row)">{{ row.lots.length > 1 ? '查看标段' : '查看详情' }}</el-button></template>
+            </el-table-column>
+          </el-table>
           <el-empty v-else description="暂无符合条件的项目" :image-size="80" />
           <div v-if="filtered.length > perPage" class="project-pager">
             <el-pagination :current-page="page" :page-size="perPage" :total="filtered.length"
@@ -137,11 +150,12 @@ const projects = computed(() => {
   }
   return [...groups].map(([group, lots]) => {
     const lead = lots.find(row => row.row === group) || lots[0]
-    return { group, lots, name: lead.name, sequence: lead.sequence, progress: lead.progress,
+    return { group, lots, name: lead.name, sequence: lead.sequence, progress: joined(lots, 'progress'),
       amount: lead.amount, customers: joined(lots, 'customer'), owners: joined(lots, 'owner'),
       parties: joined(lots, 'party'), dates: joined(lots, 'date') }
   })
 })
+const hasAmounts = computed(() => projects.value.some(project => project.lots.length === 1 && project.amount != null))
 const progressOptions = computed(() => [...new Set((data.value?.items || []).map(row => row.progress).filter(Boolean))])
 const years = computed(() => data.value?.years || [])
 const hasUndated = computed(() => data.value?.items.some(row => !row.date_value))
@@ -268,17 +282,14 @@ onBeforeUnmount(() => { clearInterval(timer); request++; detailRequest++ })
 .project-search { width: 220px; max-width: 100%; }
 .project-progress-filter { width: 132px; }
 .project-year { width: 112px; }
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr)); gap: 14px; padding: 16px; }
-.project-card {
-  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; min-width: 0; min-height: 180px;
-  border: 1px solid var(--jc-line); border-radius: var(--jc-radius); background: var(--jc-surface);
-  color: var(--jc-ink); text-align: left; font: inherit; cursor: pointer; overflow-wrap: anywhere;
-}
-.project-card:hover, .project-card:focus-visible { border-color: var(--jc-brand); box-shadow: var(--jc-shadow-pop); }
-.project-top, .project-footer { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; }
-.project-name { margin: 2px 0 0; font-size: 16px; line-height: 1.5; }
-.project-line { line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.project-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--jc-line-2); }
+.project-table { width: 100%; }
+.project-table :deep(.el-table__row) { cursor: pointer; }
+.project-table :deep(.cell) { overflow-wrap: anywhere; }
+.project-name { border: 0; padding: 0; background: none; color: var(--jc-brand); font: inherit; font-weight: 500; line-height: 1.6; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.project-name:hover { text-decoration: underline; }
+.project-name:focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 2px; border-radius: 2px; }
+.project-progress { white-space: normal; line-height: 1.6; }
+.project-scroll-hint { display: none; }
 .project-pager { display: flex; justify-content: flex-end; padding: 6px 16px 14px; }
 .project-detail { min-height: 75px; }
 .project-detail-panel + .project-detail-panel { margin-top: 14px; }
@@ -290,12 +301,12 @@ onBeforeUnmount(() => { clearInterval(timer); request++; detailRequest++ })
   .project-list :deep(.hd) { flex-wrap: wrap; }
   .project-list :deep(.extra) { width: 100%; }
   .project-filters { width: 100%; }
+  .project-scroll-hint { display: block; margin: 10px 16px; }
 }
 @media (max-width: 560px) {
   .project-modules { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .project-module { padding: 12px; }
   .module-value { font-size: 24px; }
   .project-search { width: 100%; }
-  .project-grid { padding: 12px; gap: 10px; }
 }
 </style>
