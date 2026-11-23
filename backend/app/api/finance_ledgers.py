@@ -53,6 +53,10 @@ class Allocate(Strict):
     project: str = Field(max_length=128)
 
 
+class Removal(Strict):
+    reason: str = Field("", max_length=200)
+
+
 @router.get("/schema")
 def schema(p: PrincipalDep):
     return ok({"ledgers": {kind: ledger.meta(f.can_import(p, kind)) for kind, ledger in f.LEDGERS.items() if f.can_read(p, kind)},
@@ -65,7 +69,14 @@ def entries(kind: Kind, p: PrincipalDep, db: DB, period: str = Query("", pattern
             account: str = Query("", max_length=128), keyword: str = Query("", max_length=120), project: str = Query("", max_length=128),
             page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100)):
     service.require_access(p, kind)
-    return ok(service.list_entries(db, kind, period, account, keyword.strip(), project, page, size))
+    return ok(service.list_entries(db, p, kind, period, account, keyword.strip(), project, page, size))
+
+
+@router.delete("/entries/{ident}")
+def delete_entry(ident: int, request: Request, p: PrincipalDep, db: DB, body: Removal | None = None):
+    data = service.delete_entry(db, p, ident, body.reason.strip() if body else "", client_ip(request))
+    db.commit()
+    return ok(data)
 
 
 @router.patch("/entries/{ident}/project")
@@ -112,5 +123,17 @@ def review(token: str, body: Review, p: PrincipalDep, db: DB):
 def confirm(token: str, body: Confirm, request: Request, p: PrincipalDep, db: DB):
     batch = service.get_batch(db, p, token, lock=True)
     data = service.write_rows(db, batch, p, body.version, body.row_ids, client_ip(request))
+    db.commit()
+    return ok(data)
+
+
+@router.get("/imports/{token}/revoke")
+def revoke_preview(token: str, p: PrincipalDep, db: DB):
+    return ok(service.revoke_preview(db, p, token))
+
+
+@router.post("/imports/{token}/revoke")
+def revoke_import(token: str, body: Removal, request: Request, p: PrincipalDep, db: DB):
+    data = service.revoke_import(db, p, token, body.reason.strip(), client_ip(request))
     db.commit()
     return ok(data)

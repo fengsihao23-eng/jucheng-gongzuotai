@@ -27,7 +27,7 @@ AREAS = {"auth":"账号与登录", "admin":"系统管理", "files":"文件资料
          "imports":"资料导入", "clean":"数据清洗", "notify":"消息通知", "notifications":"消息通知",
          "assistant":"小聚", "operation-records":"操作记录", "record-followups":"业务跟进", "submissions":"汇报提交",
          "source_checks":"数据源核对", "source-checks":"数据源核对", "wecom":"企业微信",
-         "finance-data":"财务数据","performance":"业绩与运营","intel":"竞品情报","reviews":"项目复盘",
+         "finance-data":"财务数据","finance-ledgers":"财务账表","performance":"业绩与运营","intel":"竞品情报","reviews":"项目复盘",
          "mcp_config":"工具接入","mcp-config":"工具接入"}
 
 
@@ -84,6 +84,8 @@ def describe(path, method):
     area = AREAS.get(key,key or "工作台")
     if key.startswith("wecom"):
         area="企业微信"
+    if key == "finance-ledgers" and path.endswith("/revoke"):
+        return area, "查看批次撤销范围" if method == "GET" else "撤销整批导入"
     verb = {"GET":"查看", "POST":"提交", "PUT":"修改", "PATCH":"修改", "DELETE":"删除"}.get(method,method)
     if any(x in path for x in ("/export","/download")): verb = "导出/下载"
     elif "/login" in path: return area,"账号登录"

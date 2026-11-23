@@ -51,11 +51,12 @@
               <span v-else>{{ row.values[field.key] || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isExpense ? 98 : 70" fixed="right">
+          <el-table-column label="操作" :width="isExpense && canAllocate ? 134 : 96" fixed="right">
             <template #default="{ row }">
               <div class="ledger-actions">
                 <el-button link type="primary" @click="selected = row">明细</el-button>
                 <el-button v-if="canAllocate && Number(row.values.payment)" link type="primary" @click="openAllocation(row)">归集</el-button>
+                <el-button v-if="row.can_delete" link type="danger" @click="openEntryRemoval(row)">删除</el-button>
               </div>
             </template>
           </el-table-column>
@@ -86,6 +87,10 @@
         <div class="ledger-source"><b>导入来源</b><span>{{ selected.source.filename }} · {{ selected.source.sheet }} · 第 {{ selected.source.row }} 行</span>
           <span>{{ datetime(selected.source.imported_at) }}</span></div>
       </template>
+      <template v-if="selected?.can_delete" #footer>
+        <el-button plain type="danger" :loading="loadingBatch" @click="openBatchRemoval">撤销本批导入</el-button>
+        <el-button @click="selected = null">关闭</el-button>
+      </template>
     </el-dialog>
     <el-dialog v-model="allocationOpen" title="归集支出" width="min(440px, 94vw)" :close-on-click-modal="false">
       <p v-if="allocationRow" class="allocation-info">{{ allocationRow.values.summary || allocationRow.values.payee || allocationRow.values.counterparty }} · {{ money(allocationRow.values.payment) }}</p>
@@ -94,6 +99,34 @@
       <template #footer>
         <el-button @click="allocationOpen = false">取消</el-button>
         <el-button type="primary" :loading="allocating" @click="saveAllocation">保存归属</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog v-model="removalOpen" :title="removal?.batch ? '撤销整批导入' : '删除台账记录'" width="min(485px, 94vw)"
+      append-to-body :close-on-click-modal="false" :show-close="!removing" :close-on-press-escape="!removing">
+      <div v-if="removal" class="removal-body">
+        <template v-if="removal.batch">
+          <p>本次撤销将移除该批次中仍在台账里的 <strong>{{ removal.total }} 笔</strong>记录。</p>
+          <div class="removal-summary">
+            <strong>{{ removal.filename }}</strong>
+            <span v-for="(count, kind) in removal.by_kind" :key="kind">{{ schema[kind]?.label }} · {{ count }} 笔</span>
+          </div>
+        </template>
+        <template v-else>
+          <p>请核对要删除的这笔记录。</p>
+          <div class="removal-summary">
+            <strong>{{ schema[removal.row.kind].label }} · {{ removalLabel }}</strong>
+            <span>{{ removal.row.values.date || removal.row.period }} · {{ money(removalAmount) }}</span>
+            <span>{{ removal.row.source.filename }} · 第 {{ removal.row.source.row }} 行</span>
+          </div>
+        </template>
+        <p class="jc-muted">确认后，台账合计会更新。操作留痕，可重新导入正确的数据。</p>
+        <label class="removal-reason"><span>原因（选填）</span>
+          <el-input v-model="removalReason" type="textarea" :rows="2" maxlength="200" aria-label="原因（选填）" />
+        </label>
+      </div>
+      <template #footer>
+        <el-button :disabled="removing" @click="removalOpen = false">取消</el-button>
+        <el-button type="danger" :loading="removing" @click="saveRemoval">{{ removal?.batch ? '确认撤销' : '确认删除' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -122,6 +155,16 @@ const legacyView = computed(() => isExpense.value ? LegacyExpenses : LegacyRecei
 const mainFields = computed(() => activeLedger.value.fields.filter((field) => field.visible))
 const importOpen = ref(false), selected = ref(null)
 const allocationOpen = ref(false), allocationRow = ref(null), allocationProject = ref(''), allocating = ref(false)
+const removal = ref(null), removalOpen = ref(false), removalReason = ref(''), removing = ref(false), loadingBatch = ref(false)
+const removalValues = computed(() => removal.value?.row?.values || {})
+const removalLabel = computed(() => {
+  const { payer, payee, customer, summary, project, account } = removalValues.value
+  return payer || payee || customer || summary || project || account
+})
+const removalAmount = computed(() => {
+  const { net, payment, income, balance } = removalValues.value
+  return net || payment || income || balance
+})
 const filters = reactive({ period: '', account: '', keyword: '', unassigned: false })
 const emptyResult = () => ({ items: [], accounts: [], total: 0, totals: {} })
 const result = ref(emptyResult()), page = ref(1)
@@ -209,6 +252,48 @@ async function saveAllocation() {
   } catch { /* API client reports the error. */ }
   finally { allocating.value = false }
 }
+
+function openEntryRemoval(row) {
+  removal.value = { row }
+  removalReason.value = ''
+  removalOpen.value = true
+}
+
+async function openBatchRemoval() {
+  const row = selected.value
+  loadingBatch.value = true
+  try {
+    const token = row.source.batch
+    const data = await api.get(`/finance-ledgers/imports/${token}/revoke`)
+    if (selected.value?.id !== row.id) return
+    if (!data.total) {
+      selected.value = null
+      ElMessage.info('本批记录已撤销')
+      await search()
+      return
+    }
+    removal.value = { ...data, batch: token }
+    removalReason.value = ''
+    removalOpen.value = true
+  } catch { /* API client reports the error. */ }
+  finally { loadingBatch.value = false }
+}
+
+async function saveRemoval() {
+  const target = removal.value
+  const body = { reason: removalReason.value }
+  removing.value = true
+  try {
+    const result = target.batch
+      ? await api.post(`/finance-ledgers/imports/${target.batch}/revoke`, body)
+      : await api.del(`/finance-ledgers/entries/${target.row.id}`, undefined, { data: body })
+    removalOpen.value = false
+    if (target.batch) selected.value = null
+    ElMessage.success(result.removed ? `已移除 ${result.removed} 笔台账记录` : '记录已移除')
+    await search()
+  } catch { /* API client reports the error. */ }
+  finally { removing.value = false }
+}
 </script>
 
 <style scoped>
@@ -238,6 +323,10 @@ async function saveAllocation() {
 .ledger-empty strong { color: var(--jc-ink-2); font-size: 14px; }
 .ledger-source { display: grid; gap: 5px; margin-top: 15px; color: var(--jc-ink-2); font-size: 13px; overflow-wrap: anywhere; }
 .allocation-info { margin-top: 0; }
+.removal-body { display: grid; gap: 12px; }
+.removal-body p { margin: 0; }
+.removal-summary { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--jc-line); border-radius: 7px; background: var(--jc-surface-2); overflow-wrap: anywhere; }
+.removal-reason { display: grid; gap: 6px; }
 .return-ledger { margin: 16px var(--jc-page-pad) 0; }
 @media (max-width: 640px) {
   .ledger-tabs { gap: 14px; }

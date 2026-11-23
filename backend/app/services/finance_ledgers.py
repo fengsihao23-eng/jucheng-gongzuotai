@@ -1,4 +1,4 @@
-"""Preview, review and commit standalone finance ledgers."""
+"""Import, query and correct standalone finance ledgers."""
 from collections import Counter
 from copy import deepcopy
 from datetime import date, timedelta
@@ -6,7 +6,7 @@ import hashlib
 import json
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 
 from app.core.audit import log_op
 from app.core.response import bad_request, conflict, forbidden, not_found, page_data
@@ -145,7 +145,7 @@ def check_duplicates(db, rows):
     identify(rows)
     identities = {row["identity"] for row in rows if not row["errors"]}
     m = FinLedgerEntry
-    existing = dict(db.execute(select(m.identity, m.signature).where(m.identity.in_(identities))).all()) if identities else {}
+    existing = dict(db.execute(select(m.identity, m.signature).where(m.deleted_at.is_(None), m.identity.in_(identities))).all()) if identities else {}
     seen = {}
     for row in rows:
         if row["errors"]:
@@ -220,14 +220,18 @@ def search_text(values):
     return " ".join(v for k, v in values.items() if k != "sequence" and v)
 
 
+def lock_ledger(db):
+    # Serialize changes to the set of active transaction identities.
+    db.execute(text("select pg_advisory_xact_lock(73112611235)"))
+
+
 def write_rows(db, batch, principal, version, row_ids, ip):
     require_version(batch, version)
     if batch.result is not None:
         for kind in batch.result["selection"]:
             require_access(principal, kind, write=True)
         return batch.result
-    # The unique identity and transaction-wide lock make concurrent imports idempotent.
-    db.execute(text("select pg_advisory_xact_lock(73112611235)"))
+    lock_ledger(db)
     rows = check_duplicates(db, proposed_rows(batch))
     selected = set(row_ids)
     rows = [row for row in rows if row["id"] in selected]
@@ -261,15 +265,28 @@ def write_rows(db, batch, principal, version, row_ids, ip):
     return result
 
 
-def entry_row(row, batch):
+def can_remove(principal, kind, owner_id):
+    if not f.can_read(principal, kind):
+        return False
+    if principal.id == owner_id and f.can_import(principal, kind):
+        return True
+    if principal.is_admin:
+        return True
+    if f.LEDGERS[kind].menu == "receivables":
+        return principal.can("receivables:correct")
+    return "CW-01" in principal.role_codes and principal.can("expense:allocate")
+
+
+def entry_row(row, batch, principal):
     return {"id": row.id, "kind": row.kind, "period": row.period, "values": row.values,
+            "can_delete": can_remove(principal, row.kind, batch.owner_id),
             "source": {"filename": batch.filename, "sheet": row.source_sheet, "row": row.source_row,
                        "batch": batch.token, "imported_at": row.created_at}}
 
 
-def list_entries(db, kind, period, account, keyword, project, page, size):
+def list_entries(db, principal, kind, period, account, keyword, project, page, size):
     m, batch = FinLedgerEntry, FinLedgerImport
-    base = [m.kind == kind]
+    base = [m.kind == kind, m.deleted_at.is_(None)]
     filters = [*base]
     if period:
         filters.append(m.period == period)
@@ -286,7 +303,7 @@ def list_entries(db, kind, period, account, keyword, project, page, size):
     order = (m.period.desc(), m.ledger_date.asc().nulls_first(), m.import_id, m.source_row, m.id) if kind == "cash_journal" else (m.ledger_date.desc(), m.id.desc())
     rows = db.execute(select(m, batch).join(batch, batch.id == m.import_id).where(*filters)
                       .order_by(*order).offset((page - 1) * size).limit(size))
-    return page_data([entry_row(r, b) for r, b in rows], total, page, size, totals={
+    return page_data([entry_row(r, b, principal) for r, b in rows], total, page, size, totals={
         "inflow": inflow or f.ZERO, "outflow": outflow or f.ZERO, "fee": fee or f.ZERO},
         accounts=list(db.scalars(select(m.account).where(*base, m.account.is_not(None)).distinct().order_by(m.account).limit(300))))
 
@@ -295,7 +312,7 @@ def assign_project(db, principal, ident, project, ip):
     require_access(principal, "bank_expense")
     if not principal.can("expense:allocate"):
         raise forbidden("没有归集支出的权限")
-    row = db.scalar(select(FinLedgerEntry).where(FinLedgerEntry.id == ident).with_for_update())
+    row = db.scalar(select(FinLedgerEntry).where(FinLedgerEntry.id == ident, FinLedgerEntry.deleted_at.is_(None)).with_for_update())
     if row is None or row.kind not in {"bank_expense", "cash_journal"} or not row.outflow:
         raise not_found("支出记录")
     before = row.project
@@ -304,4 +321,54 @@ def assign_project(db, principal, ident, project, ip):
     row.search_text = search_text(row.values)
     log_op(db, principal.id, "finance_ledger.allocate", "finance_ledger_entry", row.id,
            before={"project": before}, after={"project": row.project}, ip=ip)
-    return entry_row(row, db.get(FinLedgerImport, row.import_id))
+    return entry_row(row, db.get(FinLedgerImport, row.import_id), principal)
+
+
+def delete_entry(db, principal, ident, reason, ip):
+    lock_ledger(db)
+    m, batches = FinLedgerEntry, FinLedgerImport
+    found = db.execute(select(m, batches).join(batches, batches.id == m.import_id)
+                       .where(m.id == ident).with_for_update(of=m)).one_or_none()
+    if found is None:
+        raise not_found("台账记录")
+    row, batch = found
+    if not can_remove(principal, row.kind, batch.owner_id):
+        raise forbidden("没有此笔台账记录的删除权限")
+    if row.deleted_at is not None:
+        return {"removed": 0}
+    row.deleted_at, row.deleted_by, row.delete_reason = utcnow(), principal.id, reason or None
+    log_op(db, principal.id, "finance_ledger.delete", "finance_ledger_entry", row.id,
+           after={"kind": row.kind, "batch_id": batch.id, "sheet": row.source_sheet,
+                  "row": row.source_row, "reason": reason}, ip=ip)
+    return {"removed": 1}
+
+
+def revocable_batch(db, principal, token):
+    batch = db.scalar(select(FinLedgerImport).where(FinLedgerImport.token == token))
+    if batch is None or batch.result is None or not batch.result["inserted_by_kind"]:
+        raise not_found("已入账批次")
+    if not all(can_remove(principal, kind, batch.owner_id) for kind in batch.result["inserted_by_kind"]):
+        raise forbidden("整批撤销需要有该批次内各类台账的删除权限")
+    return batch
+
+
+def revoke_preview(db, principal, token):
+    batch = revocable_batch(db, principal, token)
+    m = FinLedgerEntry
+    counts = dict(db.execute(select(m.kind, func.count(m.id)).where(m.import_id == batch.id, m.deleted_at.is_(None))
+                            .group_by(m.kind)).all())
+    return {"filename": batch.filename, "total": sum(counts.values()), "by_kind": counts}
+
+
+def revoke_import(db, principal, token, reason, ip):
+    lock_ledger(db)
+    batch = revocable_batch(db, principal, token)
+    m = FinLedgerEntry
+    counts = Counter(db.scalars(update(m).where(m.import_id == batch.id, m.deleted_at.is_(None))
+                                .values(deleted_at=utcnow(), deleted_by=principal.id, delete_reason=reason or None)
+                                .returning(m.kind)))
+    result = {"removed": sum(counts.values()), "by_kind": dict(counts)}
+    if counts:
+        log_op(db, principal.id, "finance_ledger.revoke", "finance_ledger_import", batch.id,
+               after={"filename": batch.filename, "reason": reason, **result}, ip=ip)
+    return result

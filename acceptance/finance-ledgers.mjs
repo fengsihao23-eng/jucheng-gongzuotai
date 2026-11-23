@@ -54,7 +54,9 @@ await step('FIN-01', '真实小聚整理非标准银行表头，预览时尚无�
 2026/11/7,测试银行尾号 6702,示例服务公司,,校园服务,待核对金额`)
   assert.equal(previewResponse.groups[0].method, 'xiaoju', JSON.stringify(previewResponse.groups))
   assert.equal(previewResponse.counts.ready, 3)
-  assert.equal(previewResponse.counts.error, 1)
+  const missingAmount = previewResponse.rows.find((row) => row.row === 5)
+  assert.equal(missingAmount?.status, 'error')
+  assert.ok(missingAmount.errors.net)
   assert.equal((await existing('bank_receipt')).total, 0)
   const evidence = await capture(screen, '01-小聚整理与逐行确认')
   assert.equal((await confirm(dialog)).inserted, 3)
@@ -133,6 +135,48 @@ await step('FIN-06', '手机可打开导入弹窗', async () => {
   const bounds = await dialog.boundingBox()
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390)
   return { evidence: await capture(mobile, '07-手机-导入财务账表') }
+})
+
+await step('FIN-07', '取消与确认单条删除，校验合计和更正后的重复流水号', async () => {
+  await visit('/receivables', '开票回款')
+  const file = `收款日期,收款银行,汇款公司,收入金额,流水号
+2026/11/5,验收更正账户,验收单条更正客户,2150.90,FIN-QA-R001`
+  assert.equal((await confirm(await preview('测试_单笔导入.csv', file))).inserted, 1)
+  const row = screen.getByRole('row').filter({ hasText: '验收单条更正客户' })
+  await row.getByRole('button', { name: '删除', exact: true }).click()
+  const dialog = screen.getByRole('dialog', { name: '删除台账记录' })
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  assert.equal((await existing('bank_receipt', { account: '验收更正账户' })).total, 1)
+  await row.getByRole('button', { name: '删除', exact: true }).click()
+  await dialog.getByRole('textbox', { name: '原因（选填）' }).fill('核对原表后发现录入金额有误')
+  const evidence = await capture(screen, '08-单条删除确认')
+  await dialog.getByRole('button', { name: '确认删除', exact: true }).click()
+  await row.waitFor({ state: 'hidden' })
+  assert.equal((await existing('bank_receipt', { account: '验收更正账户' })).totals.inflow, '0.00')
+  assert.equal((await confirm(await preview('测试_单笔导入_修正.csv', file.replace('2150.90', '1950.90')))).inserted, 1)
+  assert.equal((await existing('bank_receipt', { account: '验收更正账户' })).totals.inflow, '1950.90')
+  return { evidence }
+})
+
+await step('FIN-08', '整批撤销显示笔数，确认后只移除该文件对应记录', async () => {
+  await visit('/expenses', '报销归集')
+  const file = `日期,汇款公司,摘要,收款方资料,金额,审批编号
+2026/11/5,整批撤销验收账户,录错账套的材料款,验收撤销供应商甲,4180.00,202611050127
+2026/11/6,整批撤销验收账户,录错账套的维修款,验收撤销供应商乙,600.30,202611060128`
+  assert.equal((await confirm(await preview('测试_错导银行支出.csv', file))).inserted, 2)
+  const row = screen.getByRole('region', { name: '银行支出日记账' }).getByRole('row').filter({ hasText: '验收撤销供应商甲' })
+  await row.getByRole('button', { name: '明细', exact: true }).click()
+  const detail = screen.getByRole('dialog', { name: '银行支出日记账 · 明细' })
+  await detail.getByRole('button', { name: '撤销本批导入' }).click()
+  const dialog = screen.getByRole('dialog', { name: '撤销整批导入' })
+  await dialog.getByText('银行支出日记账 · 2 笔', { exact: true }).waitFor()
+  const evidence = await capture(screen, '09-整批撤销确认')
+  await dialog.getByRole('button', { name: '确认撤销', exact: true }).click()
+  await row.waitFor({ state: 'hidden' })
+  assert.equal((await existing('bank_expense', { account: '整批撤销验收账户' })).total, 0)
+  assert.equal((await existing('bank_expense', { keyword: '示例设备公司' })).total, 1)
+  return { evidence }
 })
 
 await browser.close()

@@ -5,7 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from openpyxl import Workbook
 from sqlalchemy import func, select
 
-from app.models import BizExpenseReport, BizPayment, FinCashJournal, FinReceipt, FinSalesInvoice
+from app.models import (BizExpenseReport, BizPayment, FinCashJournal, FinLedgerEntry, FinReceipt,
+                        FinSalesInvoice, LogOperation)
 from app.services import finance_ledger_source as source
 from conftest import data
 
@@ -150,3 +151,68 @@ def test_qr_arithmetic_and_human_selection(client, login):
     assert data(confirm(client, headers, batch, ["1:3"]))["inserted"] == 1
     result = show(client, headers, "qr_receipt", account="计算测试账户")
     assert result["totals"]["inflow"] == "98.00" and result["total"] == 1
+
+
+def test_delete_single_entry_preserves_audit_and_allows_corrected_reimport(client, login, db):
+    finance, cashier, director = (login(name) for name in ("chenjing", "zhaoli", "zhangzhenhua"))
+    content = "收款日期,收款银行,汇款公司,收入金额,流水号\n2026-06-11,单条更正测试账户,示例客户,149.90,FIN-DELETE-909"
+    batch = data(upload(client, finance, "bank_receipt", content))
+    assert data(confirm(client, finance, batch))["inserted"] == 1
+    row = show(client, finance, "bank_receipt", account="单条更正测试账户")["items"][0]
+    assert row["can_delete"]
+    assert not show(client, director, "bank_receipt", account="单条更正测试账户")["items"][0]["can_delete"]
+    assert client.delete(f"{API}/entries/{row['id']}", headers=cashier).status_code == 403
+    corrected = content.replace("149.90", "129.90")
+    assert data(upload(client, finance, "bank_receipt", corrected))["counts"]["error"] == 1
+    result = client.request("DELETE", f"{API}/entries/{row['id']}", headers=finance, json={"reason": "来源金额有误"})
+    assert data(result) == {"removed": 1}
+    assert data(client.delete(f"{API}/entries/{row['id']}", headers=finance)) == {"removed": 0}
+    removed = db.get(FinLedgerEntry, row["id"])
+    assert removed.deleted_at and removed.deleted_by and removed.delete_reason == "来源金额有误"
+    audit = db.scalars(select(LogOperation).where(LogOperation.action == "finance_ledger.delete",
+                                                  LogOperation.target_id == str(row["id"]))).one()
+    assert audit.after["reason"] == "来源金额有误" and audit.user_id == removed.deleted_by
+    ledger = show(client, finance, "bank_receipt", account="单条更正测试账户")
+    assert ledger["total"] == 0 and ledger["totals"]["inflow"] == "0.00"
+    assert "单条更正测试账户" not in ledger["accounts"]
+    assert data(confirm(client, finance, batch))["inserted"] == 1  # The historical receipt is still idempotent.
+    assert show(client, finance, "bank_receipt", account="单条更正测试账户")["total"] == 0
+    ready = data(upload(client, finance, "bank_receipt", corrected))
+    assert ready["counts"]["ready"] == 1
+    assert data(confirm(client, finance, ready))["inserted"] == 1
+    assert show(client, finance, "bank_receipt", account="单条更正测试账户")["totals"]["inflow"] == "129.90"
+
+
+def test_revoke_mixed_batch_does_not_remove_prior_records(client, login, db):
+    finance, cashier = (login(name) for name in ("chenjing", "zhaoli"))
+    content = "收款日期,收款银行,汇款公司,收入金额,流水号\n2026-06-11,批次撤销测试账户,示例客户,128.80,FIN-BATCH-900"
+    prior = data(upload(client, cashier, "bank_receipt", content))
+    assert data(confirm(client, cashier, prior))["inserted"] == 1
+    saved = show(client, cashier, "bank_receipt", account="批次撤销测试账户")["items"][0]
+    assert saved["can_delete"]
+    file = workbook({
+        "到账": [["收款日期", "收款银行", "汇款公司", "收入金额", "流水号"],
+               ["2026-06-11", "批次撤销测试账户", "示例客户", 128.80, "FIN-BATCH-900"],
+               ["2026-06-12", "批次撤销测试账户", "示例客户", 152.50, "FIN-BATCH-901"]],
+        "支出": [["日期", "汇款公司", "摘要", "收款方资料", "金额"],
+               ["2026-06-12", "批次撤销测试账户", "测试采购", "示例商家", 71.20]],
+    })
+    batch = data(upload(client, finance, "bank_receipt", file, "批次撤销.xlsx"))
+    assert batch["counts"]["duplicate"] == 1
+    assert data(confirm(client, finance, batch))["inserted"] == 2
+    uri = f"{API}/imports/{batch['id']}/revoke"
+    assert client.get(uri, headers=cashier).status_code == 403
+    assert client.post(uri, headers=cashier, json={}).status_code == 403
+    preview = data(client.get(uri, headers=finance))
+    assert preview == {"filename": "批次撤销.xlsx", "total": 2, "by_kind": {"bank_receipt": 1, "bank_expense": 1}}
+    assert data(client.post(uri, headers=finance, json={"reason": "传错账套"})) == {"removed": 2, "by_kind": preview["by_kind"]}
+    assert data(client.post(uri, headers=finance, json={})) == {"removed": 0, "by_kind": {}}
+    assert data(client.get(uri, headers=finance))["total"] == 0
+    ledger = show(client, finance, "bank_receipt", account="批次撤销测试账户")
+    assert ledger["total"] == 1 and ledger["items"][0]["id"] == saved["id"]
+    assert ledger["totals"]["inflow"] == "128.80"
+    assert show(client, finance, "bank_expense", account="批次撤销测试账户")["total"] == 0
+    audit = db.scalars(select(LogOperation).where(LogOperation.action == "finance_ledger.revoke",
+                                                  LogOperation.after["filename"].as_string() == "批次撤销.xlsx")).one()
+    assert audit.after["reason"] == "传错账套" and audit.after["removed"] == 2
+    assert data(client.delete(f"{API}/entries/{saved['id']}", headers=cashier))["removed"] == 1
