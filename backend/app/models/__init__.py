@@ -25,3 +25,4 @@ from app.models.ext_collection_reminder import WorkbookCollectionReminder  # noq
 from app.models.ext_key_projects import KeyProjectTaskPlan, KeyProjectTaskNode, KeyProjectTaskUpdate  # noqa: F401
 from app.models.ext_workbook_project_feedback import WorkbookProjectFeedback  # noqa: F401
 from app.models.ext_record_followups import RecordFollowup  # noqa: F401
+from app.models.ext_finance_ledgers import FinLedgerEntry, FinLedgerImport  # noqa: F401
