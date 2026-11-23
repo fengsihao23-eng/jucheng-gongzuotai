@@ -108,7 +108,7 @@
               <template #default="{ row }">
                 <div class="row-ops">
                   <el-button link type="primary" @click.stop="openExecution(row)">执行情况</el-button>
-                  <router-link :to="reportLink(row)" @click.stop>项目反馈 / 报告</router-link>
+                  <router-link :to="reportLink(row)" @click.stop>项目报告</router-link>
                 </div>
               </template>
             </el-table-column>
@@ -146,9 +146,8 @@
         </form>
       </Panel>
 
-      <CollectionOverduePanel ref="overduePanel" @open-execution="openExecution" />
+      <CollectionOverduePanel @open-execution="openExecution" />
       <CollectionReportSection
-        ref="reportSection"
         :owners="data.filter_options?.owners || []"
         @open-execution="openExecution"
       />
@@ -214,13 +213,6 @@
     </template>
     <el-skeleton v-else-if="loading" :rows="8" animated />
 
-    <CollectionExecutionDialog
-      v-model="execOpen"
-      :sheet="execTarget.sheet"
-      :row="execTarget.row"
-      :revision="data?.source?.revision || ''"
-      @saved="onExecutionSaved"
-    />
   </div>
 </template>
 
@@ -229,7 +221,6 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
-import CollectionExecutionDialog from '@/components/CollectionExecutionDialog.vue'
 import CollectionReportSection from '@/components/CollectionReportSection.vue'
 import CollectionOverduePanel from '@/components/CollectionOverduePanel.vue'
 import { useAuth } from '@/store/auth'
@@ -238,7 +229,7 @@ import { datetime } from '@/utils/format'
 const LegacyCollections = defineAsyncComponent(() => import('./Collections.vue'))
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), list = ref(null)
-const periodSection = ref(null), reportSection = ref(null)
+const periodSection = ref(null)
 const followupStates = { pending: '待回复', replied: '已回复', cancelled: '已撤回' }
 const defaults = { keyword: '', customer: '', owner: '', collection_state: '', sheet: 'all' }
 const draft = reactive({ ...defaults })
@@ -254,8 +245,6 @@ const overall = computed(() => data.value?.overall_summary || data.value?.summar
 const listTitle = computed(() => currentReceipts.value ? '当月回款清单' : receipts.value ? '实际回款清单' : '未收项目清单')
 const quickCards = computed(() => data.value?.collection_cards || [])
 const periodOpen = ref(false), activePeriod = ref(null), periodData = ref(null), periodLoading = ref(false), periodError = ref('')
-const execOpen = ref(false), execTarget = reactive({ sheet: '', row: 0 })
-const overduePanel = ref(null)
 let periodRequest = 0
 const moneyText = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 
@@ -333,17 +322,11 @@ function onRowClick(row) {
 }
 function openExecution(row) {
   if (!row?.sheet_id || !row?.row) return
-  execTarget.sheet = row.sheet_id
-  execTarget.row = Number(row.row)
-  execOpen.value = true
-}
-function onExecutionSaved() {
-  overduePanel.value?.refresh()
-  load({ quiet: true })
-  if (periodOpen.value && activePeriod.value) {
-    loadPeriod(periodData.value?.page || 1, { quiet: true })
-  }
-  reportSection.value?.refreshIfOpen?.()
+  return router.push({
+    name: 'collection-execution',
+    params: { sheet: row.sheet_id, row: row.row },
+    query: { revision: data.value.source.revision, back: route.fullPath },
+  })
 }
 
 async function showList() {

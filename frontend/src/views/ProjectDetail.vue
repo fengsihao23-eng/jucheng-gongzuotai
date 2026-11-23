@@ -13,7 +13,7 @@
             <span class="jc-muted">工期 {{ date(d.start_date) }} ~ {{ date(d.plan_end_date) }}</span>
           </div>
         </template>
-        <el-button @click="$router.push('/projects')">返回列表</el-button>
+        <el-button @click="returnToList(router, backTarget)">返回列表</el-button>
         <el-button @click="exportWeekly">导出周进度</el-button>
         <el-button v-if="d.can_key" @click="toggleKey">{{ d.is_key ? '取消重点' : '标记重点' }}</el-button>
         <el-dropdown v-if="d.can_edit" trigger="click" @command="setStatus">
@@ -24,6 +24,8 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <RecordFeedbackButton :target="{ kind: 'project', id: d.project_code }" :heading="d.name"
+          progress-hint="说明项目目前推进到哪一步、需要协调什么。" />
       </PageHeader>
 
       <div class="jc-grid c5 mb-16">
@@ -165,19 +167,22 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import api from '@/api/client'
 import ProjectReportSources from '@/components/ProjectReportSources.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import { useAuth } from '@/store/auth'
+import { detailBackTarget, returnToList } from '@/utils/detail-navigation'
 import { BUSINESS_LINES, MILESTONE_STATUS, PROJECT_STATUS, date, datetime, percent, wan, wanNum } from '@/utils/format'
 
-const route = useRoute()
+const route = useRoute(), router = useRouter()
 const auth = useAuth()
 const code = route.params.code
 const d = ref(null)
+const backTarget = computed(() => detailBackTarget(route.query.back, '/projects', ['/projects', '/general-projects', '/history-projects']))
 const loading = ref(false)
 const users = ref([])
 const KIND = { progress: '进展', event: '重点事件', risk: '风险' }

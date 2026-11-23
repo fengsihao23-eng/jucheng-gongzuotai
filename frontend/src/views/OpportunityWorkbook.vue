@@ -1,5 +1,29 @@
 <template>
-  <div class="jc-page opportunity-page">
+  <div v-if="detail" class="jc-page opportunity-detail">
+    <PageHeader eyebrow="商机信息" :title="detail.name" :desc="detail.sequence">
+      <template v-if="detail.progress" #meta>
+        <StatusPill :text="detail.progress" tone="info" class="detail-status" />
+      </template>
+      <el-button @click="closeDetail">返回商机列表</el-button>
+      <RecordFeedbackButton :heading="detail.name"
+        :target="{ kind: 'workbook-opportunities', id: detail.row, sheet: detail.sheet_id, revision: data.source.revision }"
+        progress-hint="说明客户沟通、方案确认或转化的最新进展。" />
+    </PageHeader>
+    <Panel title="工单详情">
+      <dl class="detail-fields">
+        <dt>工单模板</dt><dd>{{ detail.template || '—' }}</dd>
+        <dt>联系人</dt><dd>{{ detail.contact || '—' }}</dd>
+        <dt>责任人</dt><dd>{{ detail.owner || '—' }}</dd>
+        <dt>协同人</dt><dd>{{ detail.collaborator || '—' }}</dd>
+        <dt>发起时间</dt><dd>{{ detail.date || '—' }}</dd>
+      </dl>
+    </Panel>
+    <Panel v-if="detail.note" class="mt-16" title="描述">
+      <p class="detail-note">{{ detail.note }}</p>
+    </Panel>
+    <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" />
+  </div>
+  <div v-else class="jc-page opportunity-page">
     <PageHeader eyebrow="营销管控部 · 台账中心" title="商机信息"
       desc="查看市场商机工单，点击主题可查看详情。">
       <el-popover v-if="canManageSource" trigger="click" placement="bottom-end" :width="310">
@@ -100,34 +124,12 @@
     <el-empty v-else-if="data" :description="data.warning || '市场商机还没有可用的表格数据'" />
     <el-skeleton v-else-if="loading" :rows="8" animated />
 
-    <RecordDetailDialog v-model="detailOpen" :title="detail?.name || '商机详情'" dialog-title="商机详情" :heading="detail?.name"
-      :status="detail?.progress" :subtitle="detail?.sequence"
-      :target="{ kind: 'workbook-opportunities', id: detail?.row, sheet: detail?.sheet_id, revision: data?.source?.revision }"
-      progress-hint="说明客户沟通、方案确认或转化的最新进展。">
-      <template v-if="detail">
-        <div class="jc-row wrap">
-          <StatusPill v-if="detail.progress" :text="detail.progress" tone="info" />
-          <span class="jc-muted">{{ detail.sequence }}</span>
-        </div>
-        <h3 class="detail-heading">工单详情</h3>
-        <dl class="detail-fields">
-          <dt>工单模板</dt><dd>{{ detail.template || '—' }}</dd>
-          <dt>联系人</dt><dd>{{ detail.contact || '—' }}</dd>
-          <dt>责任人</dt><dd>{{ detail.owner || '—' }}</dd>
-          <dt>协同人</dt><dd>{{ detail.collaborator || '—' }}</dd>
-          <dt>发起时间</dt><dd>{{ detail.date || '—' }}</dd>
-        </dl>
-        <template v-if="detail.note">
-          <h3 class="detail-heading">描述</h3>
-          <p class="detail-note">{{ detail.note }}</p>
-        </template>
-      </template>
-    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -139,7 +141,14 @@ const ENDPOINT = '/business-workbook/opportunities'
 const queryKeys = ['keyword', 'status', 'owner', 'contact', 'start', 'end', 'sheet', 'year']
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), exporting = ref(false)
-const detail = ref(null), detailOpen = ref(false), page = ref(1), size = ref(30), range = ref(null)
+const page = ref(1), size = ref(30), range = ref(null)
+const detail = computed(() => {
+  if (route.query.revision && route.query.revision !== data.value?.source?.revision) return null
+  const row = route.query.row
+  return typeof row === 'string' && /^[1-9]\d*$/.test(row)
+    ? data.value?.items.find(item => item.row === Number(row))
+    : null
+})
 const filters = reactive({ keyword: '', status: '', owner: '', contact: '' })
 const canManageSource = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
 const params = computed(() => Object.fromEntries(queryKeys.flatMap(k =>
@@ -157,10 +166,9 @@ async function load(quiet = false) {
   try {
     const result = await api.get(ENDPOINT, { ...params.value, page: page.value, size: size.value }, { silent: true })
     if (id !== requestId) return
-    if (detailOpen.value && data.value?.source?.revision !== result.source?.revision) {
-      detailOpen.value = false
-      detail.value = null
+    if (detail.value && data.value.source.revision !== result.source?.revision) {
       ElMessage.info('原表已更新，请重新打开最新工单')
+      closeDetail()
     }
     data.value = result
     page.value = result.page || 1
@@ -169,7 +177,6 @@ async function load(quiet = false) {
     if (id !== requestId) return
     if (!quiet || [40301, 40401].includes(e.code)) {
       data.value = null
-      detailOpen.value = false
     }
     error.value = e.message || '商机读取失败，请刷新重试'
   } finally {
@@ -187,7 +194,17 @@ function search() {
     start: range.value?.[0], end: range.value?.[1] }
   return applyQuery(Object.fromEntries(Object.entries(query).filter(([, value]) => value)))
 }
-function openDetail(row) { detail.value = row; detailOpen.value = true }
+function openDetail(row) {
+  return router.push({ name: 'opportunities', query: {
+    ...route.query, row: row.row, revision: data.value.source.revision,
+  }, state: { opportunityPage: page.value, opportunitySize: size.value } })
+}
+function closeDetail() {
+  const { row, revision, ...query } = route.query
+  const list = { name: 'opportunities', query }
+  if (window.history.state?.back === router.resolve(list).fullPath) router.back()
+  else router.replace(list)
+}
 async function exportXlsx() {
   exporting.value = true
   try { await api.download(ENDPOINT + '/export', { ...params.value, revision: data.value.source.revision }) }
@@ -204,11 +221,12 @@ async function syncNow() {
   finally { syncing.value = false }
 }
 
-watch(() => route.query, () => {
+watch(queryKeys.map(key => () => route.query[key]), () => {
   if (route.name !== 'opportunities') return
   Object.keys(filters).forEach(k => { filters[k] = params.value[k] || '' })
   range.value = params.value.start && params.value.end ? [params.value.start, params.value.end] : null
-  page.value = 1
+  page.value = route.query.row ? Number(window.history.state?.opportunityPage) || 1 : 1
+  if (route.query.row) size.value = Number(window.history.state?.opportunitySize) || 30
   load()
 }, { immediate: true })
 onMounted(() => { timer = setInterval(() => { if (!document.hidden && !syncing.value) load(true) }, 30_000) })
@@ -244,7 +262,7 @@ onBeforeUnmount(() => { clearInterval(timer); requestId++ })
 .pager { display: flex; justify-content: flex-end; padding: 12px 18px; }
 .sync-details { display: grid; gap: 8px; }
 .sync-details b { margin-right: 8px; }
-.detail-heading { margin: 18px 0 12px; font-size: 15px; }
+.detail-status { margin-top: 8px; }
 .detail-fields { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px 12px; margin: 0; }
 .detail-fields dt { color: var(--jc-ink-3); }
 .detail-fields dd, .detail-note { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

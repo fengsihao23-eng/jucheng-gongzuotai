@@ -1,5 +1,39 @@
 <template>
-  <div class="jc-page tender-page">
+  <div v-if="selected" class="jc-page tender-page">
+    <PageHeader eyebrow="招标与在建" :title="selected.name">
+      <template v-if="selected.progress" #meta>
+        <div class="jc-small jc-muted">{{ selected.progress }}</div>
+      </template>
+      <el-button @click="closeProject">返回项目列表</el-button>
+      <RecordFeedbackButton v-if="detail" :heading="selected.name"
+        :target="{ kind: 'workbook-tender', id: selected.group, sheet: data.sheet.id, revision: detail.revision }"
+        :progress-hint="isTender ? '记录招标准备、开标节点、中标进展或待协调事项。' : '记录工程、验收、签约或交付进展。'" />
+    </PageHeader>
+    <div class="jc-stack project-detail" v-loading="detailLoading">
+      <Panel :title="isTender ? '招标安排' : '项目安排'">
+        <dl class="project-detail-fields">
+          <dt>{{ isTender ? '运营商' : '对接单位' }}</dt><dd>{{ selected.customers || '待定' }}</dd>
+          <template v-if="isTender"><dt>开标时间</dt><dd>{{ selected.dates || '待定' }}</dd></template>
+          <template v-else-if="selected.parties"><dt>签约主体</dt><dd>{{ selected.parties }}</dd></template>
+          <template v-if="selected.lots.length > 1"><dt>标段</dt><dd>{{ selected.lots.length }} 个</dd></template>
+        </dl>
+      </Panel>
+      <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+      <Panel v-for="(record, index) in detail?.rows || []" :key="record.row"
+        :title="detail.rows.length > 1 ? `标段明细 ${index + 1}` : '原表记录'">
+        <dl class="project-detail-fields">
+          <template v-for="cell in visibleFields(record.cells)" :key="cell.address">
+            <dt>{{ fieldLabel(cell.label) }}</dt>
+            <dd>{{ cell.text || '' }}
+              <a v-for="(href, i) in cell.links" :key="href" :href="href" target="_blank" rel="noopener noreferrer">查看附件{{ cell.links.length > 1 ? ' ' + (i + 1) : '' }}</a>
+            </dd>
+          </template>
+        </dl>
+      </Panel>
+      <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" />
+    </div>
+  </div>
+  <div v-else class="jc-page tender-page">
     <PageHeader eyebrow="项目管理" title="招标与在建" desc="按项目查看招标进度和已建设或已中标待签的项目。">
       <el-button v-if="canSync && data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canSync" :loading="syncing" @click="syncNow">检查表格更新</el-button>
@@ -52,7 +86,7 @@
             </el-table-column>
             <el-table-column label="项目名称" min-width="280">
               <template #default="{ row }">
-                <button type="button" class="project-name" :aria-label="`查看项目：${row.name}`" aria-haspopup="dialog" @click.stop="openProject(row)">{{ row.name }}</button>
+                <button type="button" class="project-name" :aria-label="`查看项目：${row.name}`" @click.stop="openProject(row)">{{ row.name }}</button>
                 <div v-if="row.lots.length > 1" class="jc-small jc-muted">{{ row.lots.length }} 条标段明细</div>
               </template>
             </el-table-column>
@@ -90,41 +124,12 @@
     <el-skeleton v-else-if="loading" :rows="7" animated />
     <el-empty v-else-if="data" description="暂无已同步的项目数据" />
 
-    <RecordDetailDialog v-model="detailOpen" :title="selected?.name || '项目详情'" :heading="selected?.name"
-      dialog-title="项目详情" :status="selected?.progress" @close="closeDetail"
-      :target="{ kind: 'workbook-tender', id: selected?.group, sheet: data?.sheet?.id, revision: detail?.revision || data?.source?.revision }"
-      :progress-hint="isTender ? '记录招标准备、开标节点、中标进展或待协调事项。' : '记录工程、验收、签约或交付进展。'">
-      <template v-if="selected" #default>
-        <h3>{{ isTender ? '招标安排' : '项目安排' }}</h3>
-        <dl class="project-detail-fields">
-          <dt>{{ isTender ? '运营商' : '对接单位' }}</dt><dd>{{ selected.customers || '待定' }}</dd>
-          <template v-if="isTender"><dt>开标时间</dt><dd>{{ selected.dates || '待定' }}</dd></template>
-          <template v-else-if="selected.parties"><dt>签约主体</dt><dd>{{ selected.parties }}</dd></template>
-          <template v-if="selected.lots.length > 1"><dt>标段</dt><dd>{{ selected.lots.length }} 个</dd></template>
-        </dl>
-      </template>
-      <template #workspace>
-        <div class="project-detail" v-loading="detailLoading">
-          <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
-          <Panel v-for="(record, index) in detail?.rows || []" :key="record.row"
-            :title="detail.rows.length > 1 ? `标段明细 ${index + 1}` : '原表记录'" class="project-detail-panel">
-            <dl class="project-detail-fields">
-              <template v-for="cell in visibleFields(record.cells)" :key="cell.address">
-                <dt>{{ fieldLabel(cell.label) }}</dt>
-                <dd>{{ cell.text || '' }}
-                  <a v-for="(href, i) in cell.links" :key="href" :href="href" target="_blank" rel="noopener noreferrer">查看附件{{ cell.links.length > 1 ? ' ' + (i + 1) : '' }}</a>
-                </dd>
-              </template>
-            </dl>
-          </Panel>
-        </div>
-      </template>
-    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -138,12 +143,12 @@ const rowSize = 100, perPage = 24
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const data = ref(null), loading = ref(false), syncing = ref(false), error = ref('')
 const keyword = ref(''), progress = ref(''), year = ref(''), page = ref(1)
-const detailOpen = ref(false), detailLoading = ref(false), detailError = ref(''), selected = ref(null), detail = ref(null)
+const detailLoading = ref(false), detailError = ref(''), detail = ref(null)
 const canSync = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
 const modules = computed(() => categories.map(mod => ({ ...mod, sheet: data.value?.sheets?.find(s => s.profile === mod.key) })))
 const activeModule = computed(() => modules.value.find(mod => mod.sheet?.id && mod.sheet.id === data.value?.sheet?.id))
 const isTender = computed(() => activeModule.value?.key === 'tender')
-let request = 0, detailRequest = 0, drillRow, timer
+let request = 0, detailRequest = 0, timer
 
 function moduleCaption(mod) {
   return mod.key === 'tender' ? `${mod.sheet.summary.count} 条标段明细` : '已建设或已中标待签'
@@ -167,6 +172,13 @@ const projects = computed(() => {
       amount: lead.amount, customers: joined(lots, 'customer'), owners: joined(lots, 'owner'),
       parties: joined(lots, 'party'), dates: joined(lots, 'date') }
   })
+})
+const selected = computed(() => {
+  const { row, sheet, revision } = route.query
+  if (typeof row !== 'string' || !/^[1-9]\d*$/.test(row)) return null
+  if (sheet && sheet !== 'all' && sheet !== data.value?.sheet?.id) return null
+  if (revision && revision !== data.value?.source?.revision) return null
+  return projects.value.find(project => project.lots.some(lot => lot.row === Number(row)))
 })
 const hasAmounts = computed(() => projects.value.some(project => project.lots.length === 1 && project.amount != null))
 const progressOptions = computed(() => [...new Set((data.value?.items || []).map(row => row.progress).filter(Boolean))])
@@ -192,21 +204,25 @@ function chooseModule(mod) {
 }
 function visibleFields(cells) { return cells.filter(cell => cell.text != null || cell.links?.length) }
 function fieldLabel(label) { return /^[A-Z]+$/.test(label) ? '其他说明' : label }
-function closeDetail() {
-  detailRequest++
-  selected.value = detail.value = null
-  detailError.value = ''
-  detailLoading.value = false
+function openProject(project) {
+  return router.push({ name: 'tender-projects', query: {
+    ...route.query, row: project.group, revision: data.value.source.revision,
+  } })
 }
-async function openProject(project) {
+function closeProject() {
+  const { row, revision, ...query } = route.query
+  const list = { name: 'tender-projects', query }
+  if (window.history.state?.back === router.resolve(list).fullPath) router.back()
+  else router.replace(list)
+}
+async function loadDetail([group, sheet, revision]) {
   const id = ++detailRequest
-  selected.value = project
   detail.value = null
-  detailOpen.value = detailLoading.value = true
   detailError.value = ''
+  detailLoading.value = Boolean(group)
+  if (!group) return
   try {
-    const result = await api.get(endpoint + `/rows/${encodeURIComponent(data.value.sheet.id)}/${project.group}`,
-      { revision: data.value.source.revision }, { silent: true })
+    const result = await api.get(endpoint + `/rows/${encodeURIComponent(sheet)}/${group}`, { revision }, { silent: true })
     if (id === detailRequest) detail.value = result
   } catch (e) {
     if (id === detailRequest) detailError.value = e.message || '暂时无法读取项目详情。'
@@ -231,18 +247,12 @@ async function load(quiet = false) {
       }
       items.push(...more.items)
     }
-    if (detailOpen.value && data.value?.source?.revision !== first.source?.revision) {
-      detailOpen.value = false
-      closeDetail()
+    if (selected.value && data.value.source.revision !== first.source?.revision) {
       ElMessage.info('原表已更新，请重新打开最新项目。')
+      closeProject()
     }
     data.value = { ...first, items }
     error.value = ''
-    if (drillRow) {
-      const item = projects.value.find(project => project.lots.some(row => row.row === drillRow))
-      drillRow = null
-      if (item) openProject(item)
-    }
   } catch (e) {
     if (id === request) {
       if (!quiet || e.code === 40301) data.value = null
@@ -258,16 +268,13 @@ async function syncNow() {
   } catch { /* The API displays its error. */ }
   finally { syncing.value = false; await load() }
 }
-watch(() => route.fullPath, () => {
+watch(() => route.query.sheet, () => {
   if (route.name !== 'tender-projects') return
-  const row = route.query.row
-  drillRow = typeof row === 'string' && /^[1-9]\d*$/.test(row) ? Number(row) : null
   keyword.value = progress.value = year.value = ''
   page.value = 1
-  detailOpen.value = false
-  closeDetail()
   load()
 }, { immediate: true })
+watch([() => selected.value?.group, () => data.value?.sheet?.id, () => data.value?.source?.revision], loadDetail)
 onMounted(() => {
   timer = setInterval(() => { if (!document.hidden && !loading.value && !syncing.value && data.value?.active) load(true) }, 30000)
 })
@@ -305,7 +312,6 @@ onBeforeUnmount(() => { clearInterval(timer); request++; detailRequest++ })
 .project-scroll-hint { display: none; }
 .project-pager { display: flex; justify-content: flex-end; padding: 6px 16px 14px; }
 .project-detail { min-height: 75px; }
-.project-detail-panel + .project-detail-panel { margin-top: 14px; }
 .project-detail-fields { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 2.5fr); gap: 9px 12px; margin: 0; }
 .project-detail-fields dt { color: var(--jc-ink-3); }
 .project-detail-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

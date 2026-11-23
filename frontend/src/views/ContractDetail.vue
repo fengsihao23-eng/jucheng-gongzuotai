@@ -11,6 +11,8 @@
           </div>
         </template>
         <el-button @click="$router.push('/contracts')">返回台账</el-button>
+        <RecordFeedbackButton :target="{ kind: 'contract', id: c.id }" :heading="c.name || c.contract_no"
+          progress-hint="说明签署、履约或交付目前推进到哪一步。" />
         <el-button v-if="auth.hasMenu('receivables')" @click="$router.push({ path: '/receivables', query: { keyword: c.contract_no, contract_no: c.contract_no } })">查看开票与收款</el-button>
         <el-button v-if="c.perms?.payment && !auth.can('receivables:receipt')" @click="payOpen = true">登记回款</el-button>
         <el-button v-if="c.perms?.write" @click="editOpen = true">编辑</el-button>
@@ -199,6 +201,7 @@ import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import ProjectReportSources from '@/components/ProjectReportSources.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, filesize, money, num, percent, wanNum } from '@/utils/format'
 import ContractForm from './contract-form.vue'

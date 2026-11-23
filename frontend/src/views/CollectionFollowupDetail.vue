@@ -53,19 +53,6 @@
     </el-form>
     <el-empty v-else-if="!item.reply" :description="item.state === 'cancelled' ? '此要求已撤回' : '等待负责人回复'" :image-size="55" />
     </template>
-    <template v-if="item?.contract" #workspace>
-      <Panel v-if="item.contract" title="对应合同" >
-        <el-descriptions :column="1">
-          <el-descriptions-item label="合同名称">{{ item.contract.name }}</el-descriptions-item>
-          <el-descriptions-item label="客户">{{ item.contract.customer || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="合同金额">{{ item.contract.amount_note || (number(item.contract.amount) + ' 元') }}</el-descriptions-item>
-          <el-descriptions-item label="未收金额">{{ number(item.contract.outstanding) }} 元</el-descriptions-item>
-          <el-descriptions-item label="签约主体">{{ item.contract.party || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="签订日期">{{ item.contract.date || '—' }}</el-descriptions-item>
-        </el-descriptions>
-        <a v-for="file in item.contract.attachments" :key="file.url" :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.filename }}</a>
-      </Panel>
-    </template>
     <template v-if="item?.can_update" #footer>
       <el-button type="primary" :disabled="saving || !content.trim() || (needsReason && !problems.trim())" :loading="saving" @click="reply">
         {{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}

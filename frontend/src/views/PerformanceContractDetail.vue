@@ -5,9 +5,12 @@
         <StatusPill :text="contract.source_name" tone="info" />
         <StatusPill v-if="contract.status_name" :text="contract.status_name" />
       </div></template>
-      <el-button @click="router.push(backTarget)">返回{{ sectionTitle }}</el-button>
+      <el-button @click="returnToList(router, backTarget)">返回{{ sectionTitle }}</el-button>
       <el-button :loading="loading" @click="load">刷新详情</el-button>
-      <el-button v-if="detail?.can_track_collection" type="primary" plain @click="executionOpen = true">回款跟踪反馈</el-button>
+      <el-button v-if="detail?.can_track_collection" @click="openCollectionExecution">回款执行情况</el-button>
+      <RecordFeedbackButton v-if="contract" :heading="contract.name"
+        :target="{ kind: isCollections ? 'workbook-collections' : 'workbook-contracts', id: contract.row, sheet: contract.sheet_id, revision: detail.revision }"
+        :progress-hint="isCollections ? '说明催收、付款审批或预计到账的情况。' : '说明签署、履约或交付目前推进到哪一步。'" />
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="mb-16" />
     <template v-if="detail">
@@ -99,7 +102,6 @@
           <el-table-column prop="remark" label="备注" min-width="250" show-overflow-tooltip />
         </el-table>
       </Panel>
-      <CollectionExecutionDialog v-if="detail.can_track_collection" v-model="executionOpen" :sheet="contract.sheet_id" :row="contract.row" :revision="detail.revision" @saved="load" />
     </template>
   </div>
 </template>
@@ -109,18 +111,23 @@ import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
 import api from '@/api/client'
 import CollectionFollowups from '@/components/CollectionFollowups.vue'
-import CollectionExecutionDialog from '@/components/CollectionExecutionDialog.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import {detailBackTarget,returnToList} from '@/utils/detail-navigation'
 import {datetime,money,percent} from '@/utils/format'
 
 const route=useRoute(),router=useRouter(),detail=ref(null),loading=ref(false),error=ref('')
 const contract=computed(()=>detail.value?.contract)
-const executionOpen = ref(false)
 const isCollections=computed(()=>route.meta.workbookView==='collections')
 const sectionTitle=computed(()=>isCollections.value?'回款情况':'经营业绩')
 const listPath=computed(()=>isCollections.value?'/collections':'/contracts')
-const backTarget=computed(()=>{
-  try{const url=new URL(String(route.query.back||listPath.value),location.origin);return url.origin===location.origin&&url.pathname===listPath.value?url.pathname+url.search:listPath.value}catch{return listPath.value}
-})
+const backTarget = computed(() => detailBackTarget(route.query.back, listPath.value))
+function openCollectionExecution() {
+  return router.push({
+    name: 'collection-execution',
+    params: { sheet: contract.value.sheet_id, row: contract.value.row },
+    query: { revision: detail.value.revision, back: isCollections.value ? backTarget.value : '/collections' },
+  })
+}
 const number=value=>value==null?'—':Number(value).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:6})
 let request=0
 async function load(){

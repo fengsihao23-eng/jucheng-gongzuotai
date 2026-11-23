@@ -4,6 +4,8 @@
     <template v-if="project">
       <PageHeader eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="editTask(null)">安排任务</el-button>
+        <RecordFeedbackButton :target="{ kind: 'key-project', id: project.project_code }" :heading="project.name"
+          progress-hint="说明关键事项、节点进展或需要协调的问题。" />
       </PageHeader>
       <div class="project-meta jc-small jc-muted"><span>负责人 {{ project.owner_name || '未登记' }}</span><span>准备 {{ project.start_date || '未登记' }}</span><span>完成节点 {{ project.plan_end_date || '未登记' }}</span><StatusPill :text="project.paused?'已暂停跟进':project.status_text" :tone="project.paused?'warn':'brand'" /></div>
       <div class="jc-grid c4 mt-16"><Kpi label="项目任务" :value="project.tasks.length" :hint="`已完成 ${project.done_nodes} 项`" /><Kpi label="需要关注" :value="project.tasks.filter(t=>t.alert&&t.status!==3).length" hint="逾期、问题或待填写进展" /><Kpi label="合同金额" :value="wanNum(project.money.contract_total)" unit="万" /><Kpi label="累计回款" :value="wanNum(project.money.received)" unit="万" :hint="`未收 ${wan(project.money.receivable)}`" /></div>
@@ -32,6 +34,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import api from '@/api/client'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import { useAuth } from '@/store/auth'
 import { money, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'

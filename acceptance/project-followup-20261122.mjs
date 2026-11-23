@@ -43,7 +43,9 @@ async function opened(page, name) {
   await dlg.waitFor(); return dlg
 }
 async function postFeedback(page, text, screenshot) {
-  const dialog = page.locator('.record-detail-dialog').last()
+  assert.equal(await page.getByRole('dialog').count(), 0)
+  await btn(page, '互动反馈').click()
+  const dialog = await opened(page, '互动反馈')
   await dialog.getByLabel('目前进度情况').fill(text)
   await dialog.getByLabel('下一步安排', { exact: true }).fill('与负责人核对实施时间')
   await setDate(dialog, '下次跟进日期', '2026-11-26')
@@ -126,8 +128,12 @@ try {
   })
   await step('03e', '经营业绩合同可直接进入同一份回款执行记录', async () => {
     await desktop.goto(`${WEB}/contracts/items/sales-sheet/3?revision=${revision}`)
-    await btn(desktop, '回款跟踪反馈').click()
-    await desktop.getByRole('heading', { name: '执行情况反馈', exact: true }).waitFor()
+    await btn(desktop, '回款执行情况').click()
+    await desktop.waitForURL(/\/collections\/items\/[^/]+\/\d+\/execution/)
+    await desktop.getByRole('heading', { name: '回款安排', exact: true }).waitFor()
+    assert.equal(await desktop.getByRole('dialog').count(), 0)
+    await btn(desktop, '互动反馈').click()
+    await (await opened(desktop, '互动反馈')).getByRole('heading', { name: '执行情况反馈', exact: true }).waitFor()
     return snap(desktop, '03e-合同执行跟踪')
   })
   await step('04', '运营综合汇报按期间核对营收、项目进度与任务', async () => {

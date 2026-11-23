@@ -1,8 +1,11 @@
 <template>
   <div class="jc-page report-page">
     <PageHeader eyebrow="回款情况 · 项目报告" :title="record?.contract.name || '项目回款报告'" desc="核对合同、原表回款计划和跟进过程。">
-      <el-button @click="router.push('/collections')">返回回款情况</el-button>
+      <el-button @click="returnToList(router, backTarget)">返回回款情况</el-button>
       <el-button :loading="loading" @click="load">刷新报告</el-button>
+      <RecordFeedbackButton v-if="record" :heading="record.contract.name"
+        :target="{ kind: 'workbook-collections', id: route.params.row, sheet: route.params.sheet, revision: record.revision }"
+        progress-hint="说明催收、付款审批或预计到账的情况。" />
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="mb-16" />
     <template v-if="record">
@@ -38,11 +41,14 @@
   </div>
 </template>
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
 import CollectionFollowups from '@/components/CollectionFollowups.vue'
+import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import { detailBackTarget, returnToList } from '@/utils/detail-navigation'
 const route = useRoute(), router = useRouter(), record = ref(null), loading = ref(false), error = ref('')
+const backTarget = computed(() => detailBackTarget(route.query.back, '/collections'))
 const number = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 let generation = 0
 async function load() {
