@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.timeutil import TZ
 from app.models import (BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting,
-                        KeyProjectTaskNode, KeyProjectTaskPlan, SysNotify, SysUser)
+                        KeyProjectTaskNode, KeyProjectTaskPlan, LogOperation, SysNotify, SysUser, SysUserPermission)
 from app.services import key_projects as keys
 from tests.conftest import data
 
@@ -47,6 +47,100 @@ def test_create_from_market_has_required_schedule_and_no_invented_construction_n
     assert client.post(BASE + "/projects", headers=login("chenjing"), json=body).status_code == 403
     assert client.post(BASE + "/projects", headers=login("admin"), json={**body, "due_on": "2026-11-01"}).status_code == 400
     assert client.post(BASE + "/projects", headers=login("admin"), json={**body, "owner_id": ident(db, "yangyue")}).status_code == 400
+
+
+def deletion_password():
+    from app.core.config import settings
+    return {"password": settings.operations_delete_password}
+
+
+def test_delete_key_project_hides_board_details_events_reports_and_reminders_but_keeps_history(client, login, db, key_project):
+    path, project, body = key_project
+    headers = login("admin")
+    task = data(client.post(path + "/tasks", headers=headers, json=task_body(db)))
+    data(client.post(path + f"/tasks/{task['id']}/feedback", headers=login("xuhao"), json={
+        "content": "保留本项目历史进展", "problems": "待确认现场时间", "expected_revision": task["revision"]}))
+    contract = BizContract(contract_no="KEY-DELETE-" + uuid4().hex[:12], project_code=project["project_code"],
+        customer_name="合成客户", business_line="XY", amount=Decimal(1000), sign_date=date(2026, 11, 1), status=1)
+    db.add(contract); db.flush()
+    payment = BizPayment(contract_id=contract.id, amount=Decimal(100), payment_date=date(2026, 11, 18), source_type=2)
+    db.add(payment); db.commit()
+    probe = SysNotify(user_id=ident(db, "xuhao"), ref_id=str(task["id"]))
+    assert keys.eligible_notice(db, probe)
+    board = data(client.get(BASE + "/board", headers=headers))
+    assert next(p for p in board["projects"] if p["project_code"] == project["project_code"])["can_delete"]
+    assert any(e["project_code"] == project["project_code"] for e in board["events"])
+
+    result = data(client.request("DELETE", path, headers=headers, json=deletion_password()))
+    assert result["deleted"] and result["project_code"] == project["project_code"]
+    db.expire_all()
+    assert db.get(BizProject, project["id"]).is_deleted
+    assert db.get(KeyProjectTaskPlan, task["id"]) is not None
+    assert db.get(KeyProjectTaskNode, task["nodes"][0]["id"]) is not None
+    assert db.scalar(select(BizProjectFeedback.id).where(BizProjectFeedback.project_id == project["id"])) is not None
+    assert not db.get(BizContract, contract.id).is_deleted and db.get(BizPayment, payment.id).amount == Decimal(100)
+    assert not keys.eligible_notice(db, probe)
+    board = data(client.get(BASE + "/board", headers=headers, params={"include_all": True, "include_paused": True}))
+    assert all(p["project_code"] != project["project_code"] for p in board["projects"])
+    assert all(e["project_code"] != project["project_code"] for e in board["events"])
+    assert client.get(path, headers=headers).status_code == 404
+    assert client.get(path + f"/tasks/{task['id']}", headers=headers).status_code == 404
+    assert client.get(f"/api/v1/projects/{project['project_code']}", headers=headers).status_code == 404
+    assert client.request("DELETE", path, headers=headers, json=deletion_password()).status_code == 404
+    report = data(client.get(BASE + "/reports/summary", headers=headers, params={"period": "2026-W47"}))
+    assert body["name"] not in report["text"]
+    audit = db.scalar(select(LogOperation).where(LogOperation.action == "market.key_project.delete",
+                                                LogOperation.target_id == project["project_code"]))
+    assert audit.user_id == ident(db, "admin") and not audit.before["is_deleted"] and audit.after["is_deleted"]
+    assert "password" not in str(audit.after)
+
+
+@pytest.mark.parametrize("payload", [None, {"password": ""}, {"password": "incorrect-delete-password"}])
+def test_delete_key_project_rejects_missing_empty_or_wrong_password(client, login, db, key_project, payload):
+    path, project, _ = key_project
+    assert client.request("DELETE", path, headers=login("admin"), json=payload).status_code == 400
+    assert client.get(path, headers=login("admin")).status_code == 200
+    db.expire_all()
+    assert not db.get(BizProject, project["id"]).is_deleted
+
+
+@pytest.mark.parametrize("granted,scope,owned", [
+    (False, "all", True), (False, "all", False), (True, "self", False),
+    (True, "self", True), (True, "all", False),
+])
+def test_delete_key_project_requires_management_permission_and_visible_scope(client, db, key_project, granted, scope, owned):
+    from app.core.security import create_jwt
+    path, project, _ = key_project
+    actor = SysUser(wecom_userid="key-delete-" + uuid4().hex[:12], name="重点项目删除权限验收", status=1, workbench_enabled=True)
+    db.add(actor); db.flush()
+    db.add(SysUserPermission(user_id=actor.id, menus=["portal", "market", "projects"],
+                            buttons=["project:key"] if granted else [], data_scope=scope))
+    if owned:
+        db.get(BizProject, project["id"]).owner_id = actor.id
+    db.commit()
+    headers = {"Authorization": "Bearer " + create_jwt(actor.id)[0]}
+    board = data(client.get(BASE + "/board", headers=headers))
+    card = next((p for p in board["projects"] if p["project_code"] == project["project_code"]), None)
+    if card:
+        assert card["can_delete"] is granted
+    else:
+        assert scope == "self" and not owned
+    allowed = granted and (scope == "all" or owned)
+    response = client.request("DELETE", path, headers=headers, json=deletion_password())
+    assert response.status_code == (200 if allowed else 403)
+    db.expire_all()
+    assert db.get(BizProject, project["id"]).is_deleted is allowed
+
+
+def test_key_project_delete_does_not_delete_non_key_projects(client, login, db, key_project):
+    path, project, _ = key_project
+    db.get(BizProject, project["id"]).is_key = False
+    db.commit()
+    board = data(client.get(BASE + "/board", headers=login("admin"), params={"include_all": True}))
+    assert not next(p for p in board["projects"] if p["project_code"] == project["project_code"])["can_delete"]
+    assert client.request("DELETE", path, headers=login("admin"), json=deletion_password()).status_code == 404
+    db.expire_all()
+    assert not db.get(BizProject, project["id"]).is_deleted
 
 
 def test_project_dates_revision_and_foreign_project_task_blocked(client, login, db, key_project):

@@ -65,6 +65,7 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
     from app.services import key_projects
     for x in projects:
         b = ps.project_brief(db, x, T, money.get(x.project_code))
+        b["can_delete"] = bool(p and x.is_key and key_projects.can_create(p))
         f = latest.get(x.id)
         b["latest_feedback"] = ps.feedback_dict(f) if f else None
         b["paused"] = x.id in paused

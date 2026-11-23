@@ -24,7 +24,7 @@
             <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
             <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" aria-label="重点项目搜索" /><el-select v-model="projectStatus" clearable placeholder="全部状态" aria-label="重点项目筛选状态"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
             <div class="cards">
-              <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)">
+              <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" :aria-haspopup="p.can_delete ? 'menu' : undefined" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)" @contextmenu.prevent.stop="openMenu($event, p)" @keydown.shift.f10.prevent.stop="openMenu($event, p)">
                 <div class="jc-row between">
                   <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
                   <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
@@ -104,6 +104,15 @@
       </el-tab-pane>
     </el-tabs>
     <KeyProjectForm v-model="createOpen" @saved="p=>router.push(`/market/projects/${p.project_code}`)" />
+    <PasswordDeleteDialog v-model="deleteOpen" title="删除重点项目" :name="menu.project?.name" :endpoint="`/market/projects/${menu.project?.project_code}`" @deleted="load" />
+    <Teleport to="body">
+      <div v-if="menu.open" class="ctx-mask" @click.self="closeMenu" @contextmenu.prevent="closeMenu" @keydown.esc.prevent.stop="closeMenu" @keydown.tab="closeMenu">
+        <div class="ctx-menu" role="menu" aria-label="重点项目操作" :style="{ left: menu.x + 'px', top: menu.y + 'px' }">
+          <div class="ctx-title">{{ menu.project?.name }}</div>
+          <button ref="menuAction" type="button" role="menuitem" class="ctx-item" @click="closeMenu(); deleteOpen = true">删除项目</button>
+        </div>
+      </div>
+    </Teleport>
 
     <el-drawer v-model="pv.show" :title="pv.title" size="720px">
       <div class="md" v-html="pv.html" />
@@ -120,7 +129,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -128,6 +137,7 @@ import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
+import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
 const auth = useAuth()
 const route = useRoute()
@@ -136,9 +146,27 @@ const tab = ref(route.query.tab === 'reports' ? 'reports' : 'board')
 const board = ref(null)
 const loading = ref(false)
 const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
+const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = ref(false), menuAction = ref(null)
+let menuTrigger = null
 const filteredProjects = computed(() => (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) && (!attentionOnly.value || p.alert) && `${p.name} ${p.customer_name} ${p.owner_name} ${p.market_owner_name}`.includes(keyword.value.trim())))
 const stats = computed(() => { const rows=filteredProjects.value,contract=rows.reduce((s,p)=>s+Number(p.contract_total||0),0),received=rows.reduce((s,p)=>s+Number(p.received||0),0);return {count:rows.length,alert_count:rows.filter(p=>p.alert).length,delayed_nodes:rows.reduce((s,p)=>s+p.delayed_nodes,0),contract_total:contract,received,payment_rate:contract?received/contract:null} })
 function openProject(p) { router.push(`/${p.is_key?'market/projects':'projects'}/${p.project_code}`) }
+async function openMenu(event, project) {
+  if (!project.can_delete) return
+  menuTrigger = event.currentTarget
+  const bounds = menuTrigger.getBoundingClientRect()
+  const keyboard = event.type === 'keydown'
+  menu.project = project
+  menu.x = Math.max(8, Math.min(keyboard ? bounds.left : event.clientX, window.innerWidth - 228))
+  menu.y = Math.max(8, Math.min(keyboard ? bounds.bottom : event.clientY, window.innerHeight - 96))
+  menu.open = true
+  await nextTick()
+  menuAction.value?.focus()
+}
+function closeMenu() {
+  menu.open = false
+  menuTrigger?.focus()
+}
 async function togglePause(project) {
   try {
     await api.put('/market/projects/' + project.project_code + '/pause', { paused: !project.paused })
@@ -216,7 +244,7 @@ onMounted(() => {
   load()
   if (tab.value === 'reports') loadReports()
 })
-useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value })
+useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value && !menu.open && !deleteOpen.value })
 </script>
 
 <style scoped>
@@ -230,6 +258,11 @@ useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board'
 .pcard:hover { border-color: var(--jc-brand-100); box-shadow: var(--jc-shadow-pop); }
 .pcard.alert { border-left: 3px solid var(--jc-down); }
 .pcard h4 { margin: 6px 0 2px; font-size: 15px; line-height: 1.4; }
+.ctx-mask { position: fixed; inset: 0; z-index: 3000; }
+.ctx-menu { position: fixed; width: 220px; box-sizing: border-box; padding: 6px; background: var(--jc-surface); border: 1px solid var(--jc-line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, .16); }
+.ctx-title { padding: 6px 10px 8px; font-size: 12px; color: var(--jc-ink-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-bottom: 1px solid var(--jc-line-2); margin-bottom: 4px; }
+.ctx-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--el-color-danger, #d9534f); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ctx-item:hover, .ctx-item:focus-visible { background: var(--jc-surface-2); }
 .prog { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; }
 .prog .bar { flex: 1; height: 4px; background: var(--jc-line-2); border-radius: 2px; overflow: hidden; }
 .prog .bar i { display: block; height: 100%; background: var(--jc-brand); }

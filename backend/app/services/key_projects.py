@@ -99,6 +99,18 @@ def save_project(db, p, body, code=None):
     return row
 
 
+def delete_project(db, p, code):
+    if not can_create(p):
+        raise forbidden("无删除重点项目权限")
+    row = project(db, p, code, lock=True)
+    fields = [*PROJECT_FIELDS, "is_deleted"]
+    before = snapshot(row, fields)
+    row.is_deleted = True
+    log_op(db, p.id, "market.key_project.delete", "biz_project", row.project_code,
+           before=before, after=snapshot(row, fields))
+    return {"deleted": True, "project_code": row.project_code, "name": row.name}
+
+
 def task(db, row, ident):
     item = db.scalar(select(BizProjectMilestone).where(BizProjectMilestone.id == ident, BizProjectMilestone.project_id == row.id)
                      .execution_options(populate_existing=True))

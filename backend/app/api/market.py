@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
 from app.core.db import get_db, get_or_404
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, forbidden, not_found, ok, page_data
 from app.core.storage import file_brief, read_bytes, save_bytes
@@ -67,6 +68,14 @@ def edit_key_project(project_code: str, body: KeyProjectEditIn, p: Principal = M
     row = keys.save_project(db, p, body, project_code)
     db.commit()
     return ok({"project_code": row.project_code})
+
+
+@router.delete("/projects/{project_code}")
+def delete_key_project(project_code: str, body: DeletionIn, p: Principal = Market, db: Session = Depends(get_db)):
+    verify_deletion(body)
+    result = keys.delete_project(db, p, project_code)
+    db.commit()
+    return ok(result)
 
 
 @router.post("/projects/{project_code}/tasks")
