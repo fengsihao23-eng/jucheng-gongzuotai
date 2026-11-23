@@ -114,13 +114,14 @@
       </div>
     </Teleport>
 
-    <el-drawer v-model="pv.show" :title="pv.title" size="720px">
+    <RecordDetailDialog v-model="pv.show" dialog-title="市场报告详情" :heading="pv.title"
+      :target="{ kind: 'market-report', id: pv.report?.id }" >
       <div class="md" v-html="pv.html" />
       <template #footer>
         <el-button @click="copy">复制汇总稿</el-button>
         <el-button v-if="pv.report" type="primary" @click="download(pv.report)">下载 docx 初稿</el-button>
       </template>
-    </el-drawer>
+    </RecordDetailDialog>
     <el-dialog v-model="summaryOpen" title="本周重点项目汇总" width="min(720px, 94vw)">
       <p class="jc-muted jc-small">仅汇总当前跟进且有权限查看的重点项目。</p>
       <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ board?.summary_text }}</div>
@@ -129,6 +130,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

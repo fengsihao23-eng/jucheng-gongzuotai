@@ -61,8 +61,10 @@
       </el-tabs>
     </Panel>
 
-    <el-dialog v-model="drawer" width="1080px" top="6vh" class="profit-detail" destroy-on-close append-to-body
-      :title="current?.name || '项目明细'">
+    <RecordDetailDialog v-model="drawer" dialog-title="项目利润详情" :heading="current?.name" full-width-content
+      :target="{ kind: 'project-profit', id: current?.project_code }"
+      :facts="current ? [{ label: '累计收入', value: money(current.income, 0) }, { label: '累计成本', value: money(current.cost, 0) }, { label: '毛利', value: money(current.gross_profit, 0) }] : []"
+      progress-hint="记录成本、回款或利润差异的核对进展。">
       <div v-loading="detailLoading" class="dd">
         <div class="dd-sub">
           <span class="jc-small jc-muted jc-mono">{{ current?.project_code }} · {{ current?.line_name }} · {{ current?.status_name }}</span>
@@ -144,7 +146,7 @@
           </div>
         </div>
       </div>
-    </el-dialog>
+    </RecordDetailDialog>
 
     <div class="jc-grid c3 mt-16">
       <Panel class="jc-span-2" title="近 12 周毛利趋势" sub="柱：本周收入 / 本周成本；线：累计毛利率" :loading="trendLoading">
@@ -173,6 +175,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import dayjs from 'dayjs'

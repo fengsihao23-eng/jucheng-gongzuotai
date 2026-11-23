@@ -112,7 +112,8 @@
 
     <ImportDecision v-model="decisionOpen" :batch-id="decisionId" @decided="load" />
 
-    <el-dialog v-model="detailDlg" :title="detail?.filename || '识别详情'" width="min(760px, 94vw)">
+    <RecordDetailDialog v-model="detailDlg" dialog-title="资料导入详情" :heading="detail?.filename" :status="detail?.status_name"
+      :target="{ kind: 'import', id: detail?.id }" progress-hint="说明资料核对、整理和入库进展。">
       <template v-if="detail">
         <p>{{ detail.status_name }} · {{ detail.next_step }}</p>
         <p class="jc-small jc-muted">原件仅上传人及授权整理人可访问。文档发布范围：{{ visibilityText(detail) }}</p>
@@ -139,7 +140,7 @@
           </el-table>
         </template>
       </template>
-    </el-dialog>
+    </RecordDetailDialog>
 
     <el-dialog v-model="textDlg" :title="`识别全文 · ${textData?.filename || ''}`" width="min(860px, 94vw)">
       <p class="jc-small jc-muted">下面是大模型从扫描件/图片读出的文字，不是原件文字层；请对照原件核对关键信息。原件仍可在列表里点文件名打开。</p>
@@ -171,6 +172,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

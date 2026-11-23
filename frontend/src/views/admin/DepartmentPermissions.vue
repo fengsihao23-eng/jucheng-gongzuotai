@@ -1,7 +1,7 @@
 <template>
-  <el-dialog v-model="open" :title="person ? '个人有效权限' : roster?.title || '人员名单'"
-             class="department-permissions" width="min(740px, calc(100vw - 28px))" top="7vh" append-to-body
-             :close-on-click-modal="false" :close-on-press-escape="!saving && !verifying" :show-close="!saving && !verifying" @close="invalidate">
+  <RecordDetailDialog v-model="open" :dialog-title="person ? '个人有效权限' : roster?.title || '人员名单'"
+    :target="{ kind: 'admin-user', id: person?.id }" :heading="person?.name" full-width-content
+    :close-locked="saving || verifying" progress-hint="记录账号开通、权限核对或人员调整进展。" @close="invalidate">
     <template v-if="!person && roster">
       <el-tabs v-model="rosterTab" aria-label="部门权限内容">
         <el-tab-pane label="部门人员" name="people">
@@ -158,13 +158,12 @@
           <span v-else class="jc-muted jc-small">{{ changed ? '更改尚未保存' : '当前没有未保存的修改' }}</span>
         </div>
         <div class="save-actions">
-          <el-button :disabled="saving || verifying" @click="open = false">关闭</el-button>
           <el-button v-if="person && effective && canManage" type="primary" :disabled="permissionLoading || verifying"
                      :loading="saving" @click="save">保存此人权限</el-button>
         </div>
       </div>
     </template>
-  </el-dialog>
+  </RecordDetailDialog>
 
   <el-dialog v-model="identityOpen" title="确认本人身份" width="min(420px, calc(100vw - 28px))" append-to-body
              :close-on-click-modal="false" :close-on-press-escape="!verifying" :show-close="!verifying" @closed="password = ''; identityError = ''">
@@ -186,6 +185,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'

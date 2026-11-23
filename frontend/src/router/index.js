@@ -9,12 +9,12 @@ const pages = [
   { path: 'reports', name: 'reports', component: () => import('@/views/Reports.vue'), meta: { menu: 'reports', title: '报表中心' } },
   { path: 'submissions', name: 'submissions', component: () => import('@/views/Submissions.vue'), meta: { menu: 'submissions', title: '汇报提交' } },
   { path: 'contracts', name: 'contracts', component: () => import('@/views/WorkbookBusiness.vue'), meta: { menu: 'contracts', workbookView: 'contracts', title: '经营业绩' } },
-  { path: 'contracts/items/:sheet/:row', name: 'performance-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { menu: 'contracts', workbookView: 'contracts', title: '项目详情' } },
-  { path: 'contracts/:id', name: 'contract-detail', component: () => import('@/views/ContractDetail.vue'), meta: { menu: 'contracts', title: '合同详情' } },
+  { path: 'contracts/items/:sheet/:row', name: 'performance-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { recordDetail: 'workbook-contracts', menu: 'contracts', workbookView: 'contracts', title: '项目详情' } },
+  { path: 'contracts/:id', name: 'contract-detail', component: () => import('@/views/ContractDetail.vue'), meta: { recordDetail: 'contract', menu: 'contracts', title: '合同详情' } },
   { path: 'collections', name: 'collections', component: () => import('@/views/CollectionWorkbook.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '回款情况' } },
-  { path: 'collections/items/:sheet/:row', name: 'collection-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目详情' } },
-  { path: 'collections/items/:sheet/:row/report', name: 'collection-project-report', component: () => import('@/views/CollectionProjectReport.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目回款报告' } },
-  { path: 'collections/followups/:id', name: 'collection-followup', component: () => import('@/views/CollectionFollowupDetail.vue'), meta: { workbookView: 'collections', title: '回款跟进' } },
+  { path: 'collections/items/:sheet/:row', name: 'collection-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { recordDetail: 'workbook-collections', anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目详情' } },
+  { path: 'collections/items/:sheet/:row/report', name: 'collection-project-report', component: () => import('@/views/CollectionProjectReport.vue'), meta: { recordDetail: 'workbook-collections', anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目回款报告' } },
+  { path: 'collections/followups/:id', name: 'collection-followup', component: () => import('@/views/CollectionFollowupDetail.vue'), meta: { recordDetail: 'collection-thread', workbookView: 'collections', title: '回款跟进' } },
   { path: 'approvals', name: 'approvals', component: () => import('@/views/Approvals.vue'), meta: { menu: 'contracts', title: '审批台账' } },
   { path: 'opportunities', name: 'opportunities', component: () => import('@/views/OpportunityWorkbook.vue'), meta: { menu: 'opportunities', workbookView: 'opportunities', title: '商机信息' } },
   { path: 'performance', name: 'performance', component: () => import('@/views/Performance.vue'), meta: { menu: 'performance', title: '业绩与运营' } },
@@ -26,14 +26,14 @@ const pages = [
   { path: 'profit', name: 'profit', component: () => import('@/views/Profit.vue'), meta: { menu: 'profit', title: '项目利润' } },
   { path: 'finance-data', name: 'finance-data', component: () => import('@/views/FinanceData.vue'), meta: { menu: 'finance_data', title: '财务数据' } },
   { path: 'market', name: 'market', component: () => import('@/views/MarketFollow.vue'), meta: { menu: 'market', title: '重点项目' } },
-  { path: 'market/projects/:code', name: 'key-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), meta: { anyMenu: ['market', 'projects'], title: '重点项目详情' } },
+  { path: 'market/projects/:code', name: 'key-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), meta: { recordDetail: 'key-project', anyMenu: ['market', 'projects'], title: '重点项目详情' } },
   { path: 'operations', name: 'operations', component: () => import('@/views/Operations.vue'), meta: { menu: 'operations', title: '运营项目' } },
-  { path: 'operations/:id', name: 'operation-detail', component: () => import('@/views/OperationDetail.vue'), meta: { menu: 'operations', title: '运营项目跟进' } },
+  { path: 'operations/:id', name: 'operation-detail', component: () => import('@/views/OperationDetail.vue'), meta: { recordDetail: 'operation', menu: 'operations', title: '运营项目跟进' } },
   { path: 'tender-projects', name: 'tender-projects', component: () => import('@/views/TenderWorkbook.vue'), meta: { menu: 'projects', workbookView: 'tender', title: '招标与在建' } },
   { path: 'general-projects', name: 'general-projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectMode: 'general', title: '一般项目' } },
   { path: 'history-projects', name: 'history-projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectMode: 'history', title: '历史项目' } },
   { path: 'projects', name: 'projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', title: '项目台账' } },
-  { path: 'projects/:code', name: 'project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { menu: 'projects', title: '项目详情' } },
+  { path: 'projects/:code', name: 'project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { recordDetail: 'project', menu: 'projects', title: '项目详情' } },
   { path: 'intel', name: 'intel', component: () => import('@/views/Intel.vue'), meta: { menu: 'intel', title: '竞品情报' } },
   { path: 'reviews', name: 'reviews', component: () => import('@/views/Reviews.vue'), meta: { menu: 'reviews', title: '项目复盘' } },
   { path: 'tender', name: 'tender', component: () => import('@/views/Tender.vue'), meta: { menu: 'tender', title: '标书助手' } },
@@ -46,12 +46,16 @@ const pages = [
   { path: 'operation-records', name: 'operation-records', component: () => import('@/views/OperationRecords.vue'), meta: { menu: 'operation_records', title: '操作记录', workbookView: 'audit' } },
   { path: 'admin/wecom-api', name: 'wecom-api', component: () => import('@/views/WecomApi.vue'), meta: { menu: 'admin', title: '企业微信接口' } },
   { path: 'notifications', name: 'notifications', component: () => import('@/views/Notifications.vue'), meta: { title: '消息通知' } },
+  { path: 'record-followups/:id', name: 'linked-record', component: { render: () => null }, meta: { title: '业务跟进', recordDetail: 'linked' } },
   { path: 'account', name: 'account', component: () => import('@/views/Account.vue'), meta: { title: '个人中心' } },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: (to, from, saved) => to.name === 'collections' && to.path === from.path ? saved || false : { top: 0 },
+  scrollBehavior: (to, from, saved) => {
+    if (to.meta.recordDetail || from.meta.recordDetail || (to.name === 'collections' && to.path === from.path)) return saved || false
+    return { top: 0 }
+  },
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { public: true, title: '登录' } },
     { path: '/login/callback', name: 'login-callback', component: () => import('@/views/LoginCallback.vue'), meta: { public: true } },

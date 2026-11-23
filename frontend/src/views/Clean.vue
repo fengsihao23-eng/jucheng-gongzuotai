@@ -179,7 +179,7 @@
     </Panel>
 
     <Panel class="mt-16" title="历史任务" :padding="false">
-      <el-table :data="history.items" size="small" @row-click="openJob">
+      <el-table :data="history.items" size="small" @row-click="openTracking">
         <el-table-column label="文件" min-width="220" show-overflow-tooltip><template #default="{ row }"><span class="link">{{ row.filename }}</span></template></el-table-column>
         <el-table-column prop="target_name" label="目标" width="100" />
         <el-table-column label="状态" width="86">
@@ -197,10 +197,16 @@
         <el-pagination v-model:current-page="hPage" :page-size="10" :total="history.total" layout="prev, pager, next" small @change="loadHistory" />
       </div>
     </Panel>
+    <RecordRowDetails v-model:row="trackingRow" kind="clean" title="清洗任务详情" heading-field="filename"
+      :fields="{ target_name: '导入目标', creator: '操作人' }" progress-hint="记录数据修正、异常核对和导入进展。">
+      <template #actions><el-button v-if="trackingRow" @click="openJob(trackingRow); trackingRow = null">打开清洗任务</el-button></template>
+      <FileLink v-if="trackingRow?.report_file" :file="trackingRow.report_file" />
+    </RecordRowDetails>
   </div>
 </template>
 
 <script setup>
+import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -355,6 +361,8 @@ function restart() {
   file.value = null
   uploader.value?.reset()
 }
+const trackingRow = ref(null)
+function openTracking(row) { trackingRow.value = row }
 async function openJob(row) {
   const j = await api.get(`/clean/jobs/${row.id}`)
   setJob(j)

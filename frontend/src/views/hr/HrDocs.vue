@@ -71,7 +71,7 @@
     </div>
 
     <Panel title="已生成文书" :padding="false">
-      <el-table :data="history" size="small" max-height="380">
+      <el-table :data="history" @row-click="row => followupRow = row" size="small" max-height="380">
         <el-table-column label="时间" width="150"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
         <el-table-column prop="type_name" label="类型" width="160" />
         <el-table-column prop="title" label="标题" min-width="200" />
@@ -81,10 +81,15 @@
         <el-table-column label="文件" min-width="200"><template #default="{ row }"><FileLink :file="row.file" /></template></el-table-column>
       </el-table>
     </Panel>
+    <RecordRowDetails v-model:row="followupRow" kind="hr-doc" title="人事文书详情" heading-field="title"
+      :fields="{ type_name: '类型', target_name: '对象', risk_count: '风险点' }" progress-hint="记录文书审核、发放或补充材料的进展。">
+      <FileLink v-if="followupRow?.file" :file="followupRow.file" />
+    </RecordRowDetails>
   </div>
 </template>
 
 <script setup>
+import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -101,6 +106,7 @@ const PH = { contract_years: '如 3（0 = 无固定期限）', probation_months:
 const USER_DOCS = ['labor_contract', 'nda', 'onboard_notice', 'handover', 'leave_cert', 'termination', 'salary_adjust', 'pip_notice', 'pack']
 const PACK_FIELDS = ['work_location', 'contract_start', 'contract_years', 'probation_months', 'salary', 'probation_salary', 'overtime_clause',
   'non_compete', 'non_compete_compensation', 'report_date', 'receiver', 'contact']
+const followupRow = ref(null)
 const types = ref([])
 const disclaimer = ref('')
 const cur = ref('pack')

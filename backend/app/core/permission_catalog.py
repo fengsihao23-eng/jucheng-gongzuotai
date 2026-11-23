@@ -12,6 +12,7 @@ OPERATION_SECTIONS = {
 MENU_SECTIONS = {"operations": OPERATION_SECTIONS}
 
 BUTTON_MENUS = {
+    "portal": ["record:manage"],
     "operations": ["operations:manage", "operations:archive", "operations:approve"],
     "market": ["project:key"], "projects": ["milestone:write", "feedback:write", "project:weekly"],
     "reviews": ["review:write"], "intel": ["intel:write"],

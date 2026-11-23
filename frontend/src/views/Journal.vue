@@ -38,7 +38,7 @@
           <el-option label="全部来源" value="" /><el-option label="流水核对" :value="1" /><el-option label="手工" :value="2" />
         </el-select>
       </template>
-      <el-table :data="filtered" :row-class-name="({ row }) => (row.source_type === 2 ? 'manual' : '')" max-height="620">
+      <el-table :data="filtered" @row-click="row => followupRow = row" :row-class-name="({ row }) => (row.source_type === 2 ? 'manual' : '')" max-height="620">
         <el-table-column label="日期" width="105" prop="journal_date" />
         <el-table-column v-if="!account" label="账户" width="180" prop="account_name" show-overflow-tooltip />
         <el-table-column label="摘要" min-width="240" prop="summary" show-overflow-tooltip />
@@ -53,8 +53,8 @@
         <el-table-column v-if="canWrite" width="100" fixed="right">
           <template #default="{ row }">
             <template v-if="row.editable">
-              <el-button link type="primary" @click="openForm(row)">编辑</el-button>
-              <el-button link type="danger" @click="remove(row)">删除</el-button>
+              <el-button link type="primary" @click.stop="openForm(row)">编辑</el-button>
+              <el-button link type="danger" @click.stop="remove(row)">删除</el-button>
             </template>
           </template>
         </el-table-column>
@@ -80,10 +80,16 @@
         <el-button type="primary" :loading="form.saving" :disabled="!form.amount || !form.summary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+    <RecordRowDetails v-model:row="followupRow" kind="journal" title="日记账详情" heading-field="summary"
+      :fields="{ account_name: '账户', journal_date: '日期', project_code: '项目编号', biz_ref: '关联单号', register_by: '登记人' }"
+      progress-hint="记录账务核对情况和待补资料。">
+      <template #actions><el-button v-if="canWrite && followupRow?.editable" @click="openForm(followupRow)">编辑现金账</el-button></template>
+    </RecordRowDetails>
   </div>
 </template>
 
 <script setup>
+import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
@@ -95,6 +101,7 @@ import { PALETTE, baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
 
 const auth = useAuth()
 const canWrite = computed(() => auth.can('journal:write'))
+const followupRow = ref(null)
 const mode = ref('day'); const day = ref(dayjs().format('YYYY-MM-DD')); const period = ref(dayjs().format('YYYY-MM'))
 const route = useRoute()
 const account = ref(''); const view = ref({}); const loading = ref(false)

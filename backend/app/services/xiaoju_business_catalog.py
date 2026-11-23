@@ -39,6 +39,7 @@ MODULES = {
     "wecom_external": ("企业微信客户联系", "/opportunities"),
     "wecom_console": ("企业微信接口中心", "/admin/wecom-api"),
     "imports": ("资料导入与处理进度", "/imports"),
+    "record_followups": ("业务留言与进展跟进", "/notifications"),
 }
 
 # Identity, credentials and sign-off stay in their dedicated UI. The rest of the
@@ -176,6 +177,10 @@ LABELS = {
 }
 
 ROUTE_LABELS = {
+    "record_followups.linked_record": "查看通知关联的跟进记录",
+    "record_followups.history": "查看业务记录的留言、办理要求和进展",
+    "record_followups.recipients": "查询可查看此记录的跟进接收人",
+    "record_followups.add": "提交业务留言、办理要求、回复或进展",
     "role_members": "查角色实名名单", "effective_permissions": "查指定人员有效权限",
     "signing": "查询累计、本月、本周和今日签约统计",
     "collection_board": "查询回款情况、未收金额、本月已回款及当月/次月预估回款金额", "follow_up": "登记回款跟进或催办",
@@ -274,6 +279,7 @@ def resolve(schema, components, seen=()):
 def _effect(module, method, path, name):
     if method == "GET": return "query"
     if method == "DELETE": return "confirm"
+    if module == "record_followups": return "confirm"
     if module == "business_workbook" and name == "save_collection_reminder": return "confirm"
     if module == "operations":
         return "query" if name in {"draft_feedback", "draft_proposal"} else "confirm"

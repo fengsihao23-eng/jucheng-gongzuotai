@@ -26,7 +26,7 @@ import { datetime } from '@/utils/format'
 const TYPES = { morning_report: '晨报', daily_expense: '每日支出', reminder: '催交提醒', alert: '预警', overdue: '延期', job_failed: '任务告警', approval: '审批登记', report: '报表', operations_project_assignment: '运营项目', operations_task: '运营任务', operations_assignment: '运营任务', operations_reminder: '待办提醒', workbook_collection_request: '回款跟进', workbook_collection_reply: '跟进回复', workbook_collection_progress: '跟进进展' }
 const TONE = { alert: 'warn', overdue: 'down', job_failed: 'down', morning_report: 'brand', approval: 'up', operations_task: 'brand', operations_reminder: 'warn', workbook_collection_request: 'warn', workbook_collection_reply: 'up', workbook_collection_progress: 'up' }
 const router = useRouter()
-Object.assign(TYPES, { workbook_payment_due: '到期未收', workbook_collection_overdue: '回款反馈超时' })
+Object.assign(TYPES, { workbook_payment_due: '到期未收', workbook_collection_overdue: '回款反馈超时', record_followup: '业务跟进' })
 Object.assign(TONE, { workbook_payment_due: 'warn', workbook_collection_overdue: 'warn' })
 const rows = ref([]); const total = ref(0); const page = ref(1); const loading = ref(false); const unreadOnly = ref(false)
 async function load(p = page.value) {

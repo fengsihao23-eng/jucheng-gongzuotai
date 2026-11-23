@@ -8,7 +8,7 @@
     <el-tabs v-model="tab" @tab-change="onTab">
       <!-- ================= 核对工作台 ================= -->
       <el-tab-pane label="核对工作台" name="workbench">
-        <div class="wb">
+        <div class="wb flow-records">
           <Panel class="left" :padding="false" :loading="wbLoading">
             <template #extra>
               <span class="jc-muted jc-small">未核对 {{ wb.unmatched || 0 }} 笔</span>
@@ -21,7 +21,7 @@
               <el-input v-model="wf.keyword" placeholder="对方 / 摘要" clearable style="width: 140px" @change="loadWb" />
             </div>
             <div class="flow-list">
-              <div v-for="r in wb.items" :key="r.id" class="flow-item" :class="{ on: cur?.id === r.id }" @click="pick(r)">
+              <div v-for="r in wb.items" :key="r.id" class="flow-item" :class="{ on: cur?.id === r.id }" @click="showFlow(r)">
                 <div class="jc-row between">
                   <span class="jc-small jc-muted">{{ r.trade_date }} · {{ shortAcct(r.bank_account) }}</span>
                   <span class="jc-num amt" :class="r.direction === 1 ? 'jc-up' : ''">{{ r.direction === 1 ? '+' : '−' }}{{ money(r.amount) }}</span>
@@ -36,12 +36,13 @@
             </div>
           </Panel>
 
-          <Panel class="right" :title="cur ? '匹配建议' : '选择左侧流水'" :loading="detLoading">
-            <template v-if="cur" #extra>
+          <RecordDetailDialog v-model="flowOpen" dialog-title="流水详情" :heading="cur?.counterparty || cur?.summary || '流水核对'"
+            :target="{ kind: 'bank-flow', id: cur?.id }" progress-hint="记录对账差异、关联单据和待核对事项。">
+            <template v-if="cur" #actions>
               <span class="jc-muted jc-small">来源 {{ cur.source_file }} 第 {{ cur.source_row }} 行</span>
             </template>
             <div v-if="!cur" class="empty jc-muted">左侧选择一笔未核对流水，查看系统匹配建议并一键确认</div>
-            <div v-else class="jc-stack">
+            <div v-else v-loading="detLoading" class="jc-stack">
               <div class="flow-head">
                 <div>
                   <div class="jc-muted jc-small">{{ cur.bank_account }} · {{ cur.trade_date }} {{ time(cur.trade_time) }}</div>
@@ -110,7 +111,7 @@
                 </div>
               </div>
             </div>
-          </Panel>
+          </RecordDetailDialog>
         </div>
       </el-tab-pane>
 
@@ -138,7 +139,7 @@
             <span>收入 <b class="jc-num jc-up">{{ money(list.summary?.income) }}</b></span>
             <span>支出 <b class="jc-num">{{ money(list.summary?.expense) }}</b></span>
           </div>
-          <el-table :data="list.items" :row-class-name="({ row }) => (row.match_status === 0 ? 'is-alert' : '')">
+          <el-table :data="list.items" @row-click="showFlow" :row-class-name="({ row }) => (row.match_status === 0 ? 'is-alert' : '')">
             <el-table-column label="交易日期" width="105" prop="trade_date" />
             <el-table-column label="账户" width="190" prop="bank_account" show-overflow-tooltip />
             <el-table-column label="收入" width="130" align="right"><template #default="{ row }"><span v-if="row.direction === 1" class="jc-num jc-up">{{ money(row.amount) }}</span></template></el-table-column>
@@ -150,8 +151,8 @@
             <el-table-column label="关联单号" width="160"><template #default="{ row }"><span class="jc-mono">{{ row.biz_ref || '' }}</span></template></el-table-column>
             <el-table-column width="80" fixed="right">
               <template #default="{ row }">
-                <el-button v-if="row.match_status === 0" link type="primary" @click="gotoWb(row)">核对</el-button>
-                <el-button v-else-if="can('flows:match')" link type="danger" @click="undo(row)">撤销</el-button>
+                <el-button v-if="row.match_status === 0" link type="primary" @click.stop="gotoWb(row)">核对</el-button>
+                <el-button v-else-if="can('flows:match')" link type="danger" @click.stop="undo(row)">撤销</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -201,7 +202,8 @@
     </el-dialog>
 
     <!-- 导入报告 -->
-    <el-dialog v-model="rep.open" title="导入报告" width="680px">
+    <RecordDetailDialog v-model="rep.open" dialog-title="银行流水导入详情" :heading="rep.data?.filename"
+      :target="{ kind: 'bank-import', id: rep.data?.id }" progress-hint="说明导入错误、重复记录或余额差异的核对进展。">
       <div v-if="rep.data" class="jc-stack">
         <div class="jc-muted jc-small">{{ rep.data.filename }} · {{ rep.data.template_name }} · 耗时 {{ rep.data.cost_ms }} ms</div>
         <div class="jc-grid c4">
@@ -233,7 +235,7 @@
         <el-button @click="rep.open = false">关闭</el-button>
         <el-button type="primary" @click="rep.open = false; tab = 'workbench'; loadWb()">去核对</el-button>
       </template>
-    </el-dialog>
+    </RecordDetailDialog>
 
     <!-- 自动核对预览 -->
     <el-dialog v-model="auto.open" title="自动核对高置信建议" width="640px">
@@ -253,6 +255,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
@@ -271,6 +274,7 @@ const shortAcct = (s) => (s || '').replace(/(基本户|一般户)/, '')
 // 工作台
 const wf = reactive({ account: '', direction: 0, keyword: '' })
 const wb = ref({ items: [] }); const wbLoading = ref(false)
+const flowOpen = ref(false)
 const cur = ref(null); const detail = ref({}); const detLoading = ref(false); const saving = ref(false)
 const man = reactive({ kind: '', keyword: '', target: null, cands: [], project: '', cost_type: '采购', remark: '' })
 
@@ -278,10 +282,10 @@ async function loadWb() {
   wbLoading.value = true
   try {
     wb.value = await api.get('/flows/workbench', { account: wf.account, direction: wf.direction || undefined, keyword: wf.keyword })
-    if (cur.value && !wb.value.items.find((x) => x.id === cur.value.id)) cur.value = null
-    if (!cur.value && wb.value.items.length) pick(wb.value.items[0])
+    if (cur.value && !wb.value.items.find((x) => x.id === cur.value.id)) { cur.value = null; flowOpen.value = false }
   } finally { wbLoading.value = false }
 }
+function showFlow(row) { flowOpen.value = true; pick(row) }
 async function pick(r) {
   cur.value = r; detLoading.value = true
   Object.assign(man, { kind: r.direction === 1 ? 'payment' : 'expense', keyword: '', target: null, cands: [], project: '', remark: '' })
@@ -345,7 +349,7 @@ async function loadList(p = lPage.value) {
       min_amount: lf.min ?? undefined, max_amount: lf.max ?? undefined, keyword: lf.keyword, page: p, page_size: 20 })
   } finally { lLoading.value = false }
 }
-function gotoWb(row) { tab.value = 'workbench'; wf.account = row.bank_account; loadWb().then(() => pick(row)) }
+function gotoWb(row) { tab.value = 'workbench'; wf.account = row.bank_account; loadWb().then(() => showFlow(row)) }
 async function undo(row) {
   await ElMessageBox.confirm(`撤销该流水的核对（${row.match_status_name}）？将回滚关联的回款/报销付款状态/项目成本与日记账。`, '撤销核对', { type: 'warning' })
   await api.post(`/flows/${row.id}/unmatch`)
@@ -390,6 +394,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.wb.flow-records { grid-template-columns: minmax(0, 1fr); }
 .wb { display: grid; grid-template-columns: minmax(340px, 5fr) 7fr; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .wb { grid-template-columns: 1fr; } }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--jc-line-2); align-items: center; }

@@ -150,7 +150,8 @@
     </el-tabs>
 
     <!-- 批次详情 -->
-    <el-drawer v-model="bd.open" :title="bd.data ? `同步批次 ${bd.data.batch_no}` : ''" size="640px">
+    <RecordDetailDialog v-model="bd.open" dialog-title="同步批次详情" :heading="bd.data?.batch_no"
+      :target="{ kind: 'finance-batch', id: bd.data?.id }" progress-hint="说明同步差异的核对结果和后续处理。">
       <div v-if="bd.data" class="jc-stack">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="通道">{{ bd.data.channel === 'api' ? 'API' : '文件' }}</el-descriptions-item>
@@ -190,7 +191,7 @@
       <template v-if="canSync && bd.data" #footer>
         <el-button @click="rerun">重新对账</el-button>
       </template>
-    </el-drawer>
+    </RecordDetailDialog>
 
     <!-- 成本登记 -->
     <el-dialog v-model="cost.open" :title="cost.id ? '编辑项目成本' : '登记项目成本'" width="480px">
@@ -215,6 +216,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'

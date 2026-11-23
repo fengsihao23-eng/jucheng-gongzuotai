@@ -69,9 +69,7 @@
         </el-dropdown>
       </header>
       <main class="content">
-        <router-view v-slot="{ Component }">
-          <component :is="Component" :key="route.fullPath.split('?')[0]" />
-        </router-view>
+        <RecordRouteOutlet />
       </main>
     </div>
   </div>
@@ -86,6 +84,7 @@ import { useAuth } from '@/store/auth'
 import { MENU_GROUPS } from '@/config/menu'
 import { fromNow } from '@/utils/format'
 import { useAssistant } from '@/store/assistant'
+import RecordRouteOutlet from '@/components/records/RecordRouteOutlet.vue'
 
 const route = useRoute()
 const router = useRouter()

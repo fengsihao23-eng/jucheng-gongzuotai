@@ -90,32 +90,45 @@
     <el-skeleton v-else-if="loading" :rows="7" animated />
     <el-empty v-else-if="data" description="暂无已同步的项目数据" />
 
-    <el-drawer v-model="detailOpen" :title="selected?.name || '项目详情'" size="min(650px, 100vw)" destroy-on-close @close="closeDetail">
-      <div class="project-detail" v-loading="detailLoading">
-        <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
-        <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" />
-        <Panel v-for="(record, index) in detail?.rows || []" :key="record.row"
-          :title="detail.rows.length > 1 ? `标段明细 ${index + 1}` : '项目详情'" class="project-detail-panel">
-          <dl class="project-detail-fields">
-            <template v-for="cell in visibleFields(record.cells)" :key="cell.address">
-              <dt>{{ fieldLabel(cell.label) }}</dt>
-              <dd>{{ cell.text || '' }}
-                <a v-for="(href, i) in cell.links" :key="href" :href="href" target="_blank" rel="noopener noreferrer">查看附件{{ cell.links.length > 1 ? ' ' + (i + 1) : '' }}</a>
-              </dd>
-            </template>
-          </dl>
-        </Panel>
-      </div>
-    </el-drawer>
+    <RecordDetailDialog v-model="detailOpen" :title="selected?.name || '项目详情'" :heading="selected?.name"
+      dialog-title="项目详情" :status="selected?.progress" @close="closeDetail"
+      :target="{ kind: 'workbook-tender', id: selected?.group, sheet: data?.sheet?.id, revision: detail?.revision || data?.source?.revision }"
+      :progress-hint="isTender ? '记录招标准备、开标节点、中标进展或待协调事项。' : '记录工程、验收、签约或交付进展。'">
+      <template v-if="selected" #default>
+        <h3>{{ isTender ? '招标安排' : '项目安排' }}</h3>
+        <dl class="project-detail-fields">
+          <dt>{{ isTender ? '运营商' : '对接单位' }}</dt><dd>{{ selected.customers || '待定' }}</dd>
+          <template v-if="isTender"><dt>开标时间</dt><dd>{{ selected.dates || '待定' }}</dd></template>
+          <template v-else-if="selected.parties"><dt>签约主体</dt><dd>{{ selected.parties }}</dd></template>
+          <template v-if="selected.lots.length > 1"><dt>标段</dt><dd>{{ selected.lots.length }} 个</dd></template>
+        </dl>
+      </template>
+      <template #workspace>
+        <div class="project-detail" v-loading="detailLoading">
+          <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+          <Panel v-for="(record, index) in detail?.rows || []" :key="record.row"
+            :title="detail.rows.length > 1 ? `标段明细 ${index + 1}` : '原表记录'" class="project-detail-panel">
+            <dl class="project-detail-fields">
+              <template v-for="cell in visibleFields(record.cells)" :key="cell.address">
+                <dt>{{ fieldLabel(cell.label) }}</dt>
+                <dd>{{ cell.text || '' }}
+                  <a v-for="(href, i) in cell.links" :key="href" :href="href" target="_blank" rel="noopener noreferrer">查看附件{{ cell.links.length > 1 ? ' ' + (i + 1) : '' }}</a>
+                </dd>
+              </template>
+            </dl>
+          </Panel>
+        </div>
+      </template>
+    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
-import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 

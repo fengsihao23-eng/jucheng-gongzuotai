@@ -11,7 +11,8 @@
       <el-table-column v-if="project.can_manage" width="90"><template #default="{ row }"><el-button link type="primary" @click="edit(row)">编辑</el-button></template></el-table-column>
       <template #empty><el-empty description="暂无产品，新增后可在学校设备清单中选用" /></template>
     </el-table>
-    <el-dialog v-model="visible" :title="id ? '编辑产品' : '新增产品'" width="min(560px, 94vw)" destroy-on-close>
+    <RecordDetailDialog v-model="visible" :dialog-title="id ? '产品详情' : '新增产品'" :heading="form.name"
+      :target="{ kind: 'operation-product', id }" progress-hint="记录产品核对、设备采购或维护进展。">
       <el-form ref="formRef" :model="form" label-position="top">
         <el-form-item label="产品名称" prop="name" :rules="[{ required: true, whitespace: true, message: '填写产品名称' }]"><el-input v-model="form.name" maxlength="128" /></el-form-item>
         <div class="two"><el-form-item label="品牌"><el-input v-model="form.brand" maxlength="64" /></el-form-item><el-form-item label="型号 / 规格"><el-input v-model="form.model" type="textarea" maxlength="6000" /></el-form-item></div>
@@ -19,10 +20,11 @@
         <el-form-item label="备注"><el-input v-model="form.note" type="textarea" maxlength="6000" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="visible = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存产品</el-button></template>
-    </el-dialog>
+    </RecordDetailDialog>
   </div>
 </template>
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'

@@ -91,7 +91,8 @@
     </Panel>
 
     <!-- 详情 + 阶段历史 -->
-    <el-drawer v-model="detailOpen" size="520px" :title="detail?.name">
+    <RecordDetailDialog v-model="detailOpen" dialog-title="商机详情" :heading="detail?.name"
+      :target="{ kind: 'opportunity', id: detail?.id }" progress-hint="记录客户沟通、方案和预计签约进展。">
       <template v-if="detail">
         <div class="jc-row wrap" style="gap: 8px">
           <StatusPill :text="detail.stage_name" :tone="stageTone(detail.stage)" />
@@ -141,7 +142,7 @@
           </el-timeline-item>
         </el-timeline>
       </template>
-    </el-drawer>
+    </RecordDetailDialog>
 
     <!-- 新增 / 编辑 -->
     <el-drawer v-model="editOpen" size="460px" :title="form.id ? '编辑商机' : '新增商机'">
@@ -256,6 +257,7 @@
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import dayjs from 'dayjs'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

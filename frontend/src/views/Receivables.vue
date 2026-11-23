@@ -119,18 +119,22 @@
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="busy" @click="save">确认</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="detailOpen" title="记录明细" width="min(640px, 94vw)">
+    <RecordDetailDialog v-model="detailOpen" dialog-title="开票回款详情"
+      :heading="detailFields.customer || detailFields.payer" :status="detailFields.state"
+      :target="{ kind: detailType === 'source' ? 'receivables-source' : detailType, id: detailId }"
+      progress-hint="填写发票、到账或核销核对进展。">
       <el-descriptions :column="1" border>
         <el-descriptions-item v-for="(value, key) in detailFields" :key="key" :label="labels[key] || key">{{ value === null || value === '' ? '—' : value }}</el-descriptions-item>
       </el-descriptions>
       <div v-if="detailType === 'receipt' && detailAllocations.length" class="mt-16">
         <el-table :data="detailAllocations"><el-table-column prop="invoice_no" label="核销发票" /><el-table-column prop="amount" label="核销金额（元）" /></el-table>
       </div>
-    </el-dialog>
+    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -158,6 +162,7 @@ const syncStatus = ref(null)
 const dialog = ref(false), action = ref(''), target = ref(null), form = ref({})
 const visibleFields = computed(() => (formFields[action.value] || []).filter((field) => action.value !== 'receipt' || form.value.kind === 'contract' || !['contract_no', 'payment_id'].includes(field)))
 const allocations = ref([]), invoiceOptions = ref([]), invoicePage = ref(1), invoiceCount = ref(0)
+const detailId = ref(null)
 const detailOpen = ref(false), detailFields = ref({}), detailType = ref(''), detailAllocations = ref([])
 const isApplicable = (row) => ['pending', 'error'].includes(row.state)
 let requestNo = 0
@@ -218,7 +223,7 @@ async function loadInvoices() {
   invoiceOptions.value = [...new Map([...invoiceOptions.value, ...result.items].map((i) => [i.id, i])).values()]
 }
 async function detail(type, row) {
-  detailType.value = type; detailAllocations.value = []
+  detailType.value = type; detailId.value = row.id; detailAllocations.value = []
   const values = type === 'source' ? row.payload : { ...row }
   if (type === 'invoice') values.state = invoiceFilters[row.state]
   if (type === 'receipt') { values.kind = kinds[row.kind]; values.state = row.state === 'void' ? '已撤销' : '已确认' }

@@ -1,12 +1,60 @@
 <template>
-  <div class="jc-page followup-page">
-    <PageHeader eyebrow="回款跟进" :title="item?.contract_name || '回款跟进'" desc="填写当前阶段，保留每次跟进记录，发起人会收到更新通知。">
-      <el-button @click="router.push('/notifications')">返回消息</el-button>
+  <RecordDetailDialog :model-value="true" @update:model-value="emit('update:modelValue', $event)"
+    dialog-title="回款跟进" :heading="item?.contract_name" :status="item ? states[item.state] : ''"
+    :status-tone="item?.state === 'pending' ? 'warn' : 'up'"
+    :target="item ? { kind: 'collection-thread', id: route.params.id } : null"
+    :facts="item ? [
+      { label: '负责人', value: item.recipient_name || '—' },
+      { label: '待回款金额', value: number(item.contract?.outstanding) + ' 元' },
+      { label: '约定回款日期', value: item.payment_due_on || '待确认' },
+    ] : []" :history-entries="nativeHistory">
+    <template #actions>
       <el-button v-if="item?.contract_link" @click="router.push({ path: item.contract_link.path, query: { revision: item.contract_link.revision } })">查看合同</el-button>
-    </PageHeader>
-    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon class="mb-16" />
-    <template v-if="item">
-      <Panel v-if="item.contract" title="对应合同" class="mb-16">
+    </template>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+    <el-skeleton v-else-if="!item && loading" :rows="5" animated />
+    <div v-if="item" class="jc-stack">
+      <h3>跟进要求</h3>
+        <div class="jc-row wrap">
+          <b>{{ item.author_name || '历史成员' }} → {{ item.recipient_name || '负责人' }}</b>
+          <StatusPill :text="states[item.state]" :tone="item.state === 'pending' ? 'warn' : item.state === 'replied' ? 'up' : ''" />
+          <span class="jc-small jc-muted">{{ datetime(item.created_at) }}</span>
+        </div>
+        <p class="message">{{ item.content }}</p>
+        <p v-if="item.request_delivery" class="jc-small jc-muted">企业微信通知：{{ delivery[item.request_delivery.status] }}</p>
+        <el-button v-if="item.can_cancel" link type="danger" :loading="saving" @click="withdraw">撤回要求</el-button>
+    </div>
+    <template #progress>
+  <h3>执行情况反馈</h3>
+    <el-alert v-if="item.payment_due_on" :title="`约定或预计回款日 ${item.payment_due_on}，仍有未收余额，请填写跟进情况和未收原因。`" type="warning" :closable="false" />
+    <p v-if="item.stage" class="jc-small">当前流程：{{ item.stages.find(s => s.value === item.stage)?.label }}</p>
+    <p class="jc-small jc-muted">联系沟通 → 付款审批 → 等待付款 → 回款反馈；遇到问题可记录为“需协调”。</p>
+    <template v-if="item.reply">
+      <div class="jc-row wrap"><b>{{ item.recipient_name || '负责人' }}</b><span class="jc-small jc-muted">{{ datetime(item.replied_at) }}</span></div>
+      <p class="message">{{ item.reply }}</p>
+      <p v-if="item.expected_on" class="jc-small jc-muted">预计回款日：{{ item.expected_on }}</p>
+    </template>
+    <el-form v-if="item.can_update" label-position="top" @submit.prevent="reply">
+      <el-form-item label="当前阶段">
+        <el-select v-model="stage" aria-label="当前阶段">
+          <el-option v-for="option in item.stages" :key="option.value" :value="option.value" :label="option.label" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="跟进情况">
+        <el-input v-model="content" aria-label="回复跟进情况" type="textarea" :rows="4" maxlength="1600" show-word-limit placeholder="例如：已与客户确认付款流程，目前在走付款审批" />
+      </el-form-item>
+      <el-form-item :label="needsReason ? '到期未收原因（必填）' : '存在问题及需协调事项（可选）'">
+        <el-input v-model="problems" aria-label="存在问题" type="textarea" :rows="2" maxlength="2000" placeholder="若遇到审批阻碍、资料缺失等需要协调解决的问题，请在此注明" />
+      </el-form-item>
+      <el-form-item label="预计回款日（可选）">
+        <el-date-picker v-model="expectedOn" aria-label="预计回款日" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
+      </el-form-item>
+      <el-form-item label="下一步安排"><el-input v-model="nextStep" aria-label="下一步安排" maxlength="1600" placeholder="下一步联系谁，安排什么" /></el-form-item>
+    </el-form>
+    <el-empty v-else-if="!item.reply" :description="item.state === 'cancelled' ? '此要求已撤回' : '等待负责人回复'" :image-size="55" />
+    </template>
+    <template v-if="item?.contract" #workspace>
+      <Panel v-if="item.contract" title="对应合同" >
         <el-descriptions :column="1">
           <el-descriptions-item label="合同名称">{{ item.contract.name }}</el-descriptions-item>
           <el-descriptions-item label="客户">{{ item.contract.customer || '—' }}</el-descriptions-item>
@@ -17,60 +65,13 @@
         </el-descriptions>
         <a v-for="file in item.contract.attachments" :key="file.url" :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.filename }}</a>
       </Panel>
-      <Panel title="跟进要求">
-        <div class="jc-row wrap">
-          <b>{{ item.author_name || '历史成员' }} → {{ item.recipient_name || '负责人' }}</b>
-          <StatusPill :text="states[item.state]" :tone="item.state === 'pending' ? 'warn' : item.state === 'replied' ? 'up' : ''" />
-          <span class="jc-small jc-muted">{{ datetime(item.created_at) }}</span>
-        </div>
-        <p class="message">{{ item.content }}</p>
-        <p v-if="item.request_delivery" class="jc-small jc-muted">企业微信通知：{{ delivery[item.request_delivery.status] }}</p>
-        <el-button v-if="item.can_cancel" link type="danger" :loading="saving" @click="withdraw">撤回要求</el-button>
-      </Panel>
-      <Panel title="跟进情况" class="mt-16">
-        <el-alert v-if="item.payment_due_on" :title="`约定或预计回款日 ${item.payment_due_on}，仍有未收余额，请填写跟进情况和未收原因。`" type="warning" :closable="false" />
-        <p v-if="item.stage" class="jc-small">当前流程：{{ item.stages.find(s => s.value === item.stage)?.label }}</p>
-        <p class="jc-small jc-muted">联系沟通 → 付款审批 → 等待付款 → 回款反馈；遇到问题可记录为“需协调”。</p>
-        <template v-if="item.reply">
-          <div class="jc-row wrap"><b>{{ item.recipient_name || '负责人' }}</b><span class="jc-small jc-muted">{{ datetime(item.replied_at) }}</span></div>
-          <p class="message">{{ item.reply }}</p>
-          <p v-if="item.expected_on" class="jc-small jc-muted">预计回款日：{{ item.expected_on }}</p>
-        </template>
-        <el-form v-if="item.can_update" label-position="top" @submit.prevent="reply">
-          <el-form-item label="当前阶段">
-            <el-select v-model="stage" aria-label="当前阶段">
-              <el-option v-for="option in item.stages" :key="option.value" :value="option.value" :label="option.label" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="跟进情况">
-            <el-input v-model="content" aria-label="回复跟进情况" type="textarea" :rows="4" maxlength="1600" show-word-limit placeholder="例如：已与客户确认付款流程，目前在走付款审批" />
-          </el-form-item>
-          <el-form-item :label="needsReason ? '到期未收原因（必填）' : '存在问题及需协调事项（可选）'">
-            <el-input v-model="problems" aria-label="存在问题" type="textarea" :rows="2" maxlength="2000" placeholder="若遇到审批阻碍、资料缺失等需要协调解决的问题，请在此注明" />
-          </el-form-item>
-          <el-form-item label="预计回款日（可选）">
-            <el-date-picker v-model="expectedOn" aria-label="预计回款日" type="date" value-format="YYYY-MM-DD" placeholder="选择日期" />
-          </el-form-item>
-          <el-form-item label="下一步安排"><el-input v-model="nextStep" aria-label="下一步安排" maxlength="1600" placeholder="下一步联系谁，安排什么" /></el-form-item>
-          <el-button type="primary" native-type="submit" :disabled="saving || !content.trim() || (needsReason && !problems.trim())" :loading="saving">{{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}</el-button>
-        </el-form>
-        <el-empty v-else-if="!item.reply" :description="item.state === 'cancelled' ? '此要求已撤回' : '等待负责人回复'" :image-size="55" />
-      </Panel>
-      <Panel v-if="item.reports?.length" title="跟进过程记录" class="mt-16">
-        <el-timeline>
-          <el-timeline-item v-for="entry in item.reports" :key="entry.id" :timestamp="datetime(entry.created_at)" placement="top">
-            <b>{{ entry.stage_name }} · {{ entry.author_name }}</b>
-            <p class="message">{{ entry.content }}</p>
-            <p v-if="entry.problems" class="jc-small problem-note">存在问题：{{ entry.problems }}</p>
-            <p v-if="entry.expected_on" class="jc-small jc-muted">预计回款日：{{ entry.expected_on }}</p>
-            <p v-if="entry.next_step" class="jc-small jc-muted">下一步：{{ entry.next_step }}</p>
-          </el-timeline-item>
-        </el-timeline>
-        <p class="jc-small jc-muted">跟进人的回款反馈需与原表核对，不会自动修改合同金额或登记到账。</p>
-      </Panel>
     </template>
-    <el-skeleton v-else-if="loading" :rows="5" animated />
-  </div>
+    <template v-if="item?.can_update" #footer>
+      <el-button type="primary" :disabled="saving || !content.trim() || (needsReason && !problems.trim())" :loading="saving" @click="reply">
+        {{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}
+      </el-button>
+    </template>
+  </RecordDetailDialog>
 </template>
 
 <script setup>
@@ -78,10 +79,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
 
+const emit = defineEmits(['update:modelValue'])
 const route = useRoute(), router = useRouter()
 const item = ref(null), error = ref(''), content = ref(''), expectedOn = ref(''), loading = ref(false), saving = ref(false)
+const nativeHistory = computed(() => (item.value?.reports || []).map(entry => ({ ...entry, key: `collection-progress-${entry.id}`,
+  author: entry.author_name, action: 'progress', title: entry.stage_name, next_due_on: entry.expected_on })))
 const stage = ref('contact')
 const problems = ref('')
 const needsReason = computed(() => Boolean(item.value?.payment_due_on) && stage.value !== 'reported_paid')
@@ -108,6 +114,7 @@ async function submit(action, body) {
     const next = await api.post(endpoint.value + '/' + action, body)
     if (id !== generation) return
     item.value = next
+    announceBusinessChange()
     content.value = ''
     problems.value = ''
     expectedOn.value = ''
@@ -130,6 +137,5 @@ onBeforeUnmount(() => { generation++; clearInterval(timer) })
 </script>
 
 <style scoped>
-.followup-page { max-width: 1000px; }.message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }.mb-16 { margin-bottom: 16px; }
-.problem-note { color: var(--jc-down, #c23b2b); white-space: pre-wrap; overflow-wrap: anywhere; }
+.message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 </style>

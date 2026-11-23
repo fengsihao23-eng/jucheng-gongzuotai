@@ -73,7 +73,7 @@ BEGIN
   FOR item IN SELECT c.oid,c.relname,n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relkind='r'
       AND c.relname NOT LIKE 'audit_%' AND c.relname NOT LIKE 'log_%'
-      AND c.relname NOT IN ('alembic_version','sync_job_log','sys_wecom_api_call')
+      AND c.relname NOT IN ('alembic_version','sync_job_log','sys_wecom_api_call','record_followup')
   LOOP
     IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=item.oid AND tgname='jc_operation_audit' AND NOT tgisinternal) THEN
       EXECUTE format('CREATE TRIGGER jc_operation_audit AFTER INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION public.jc_audit_capture()',item.nspname,item.relname);

@@ -111,7 +111,8 @@
     </el-drawer>
 
     <!-- 详情 / 溯源 -->
-    <el-drawer v-model="detail.open" title="报销单详情" size="560px">
+    <RecordDetailDialog v-model="detail.open" dialog-title="报销单详情" :heading="detail.data?.approval_no"
+      :target="{ kind: 'expense', id: detail.data?.id }" progress-hint="说明报销资料核对、费用归集或付款跟进情况。">
       <div v-if="detail.data" v-loading="detail.loading" class="jc-stack">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="审批单号"><span class="jc-mono">{{ detail.data.approval_no }}</span></el-descriptions-item>
@@ -173,13 +174,14 @@
       <template v-if="canAllocate && detail.data && (detail.data.status === 2 || detail.data.status === 4)" #footer>
         <el-button type="primary" @click="openAllocate([detail.data])">{{ detail.data.status === 2 ? '补充归集' : '修改归集' }}</el-button>
       </template>
-    </el-drawer>
+    </RecordDetailDialog>
 
     <WecomApprovalDialog v-model="approvalOpen" kind="expense" title="费用报销" @submitted="load(1)" />
   </div>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'

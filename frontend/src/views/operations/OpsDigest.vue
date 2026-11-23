@@ -35,9 +35,15 @@
       </el-tabs>
     </template>
     <details v-if="currentProject && settings" class="schedule"><summary>自动生成安排</summary><p class="jc-small jc-muted">{{ settings.schedule }} 报告生成后保存在这里，并通知报告本人。历史报告继续保留。</p><div class="digest-controls"><el-checkbox v-model="settings.weekly" :disabled="!settings.can_manage">自动周报</el-checkbox><el-checkbox v-model="settings.monthly" :disabled="!settings.can_manage">自动月报</el-checkbox><el-button v-if="settings.can_manage" :loading="saving" @click="saveSettings">保存生成安排</el-button></div></details>
+    <RecordDetailDialog v-model="historyOpen" dialog-title="运营报告详情" :heading="savedReport?.person"
+      :target="{ kind: 'ops-digest', id: savedReport?.id }" progress-hint="记录报告中的待办、问题和后续安排。">
+      <template #workspace><pre class="digest-text">{{ savedReport?.text }}</pre></template>
+      <template #actions><el-button @click="download">下载文字报告</el-button></template>
+    </RecordDetailDialog>
   </div>
 </template>
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -47,6 +53,7 @@ const props = defineProps({ projectId: Number, active: Boolean, initialMode: { t
 const router = useRouter(), route = useRoute(), mode = ref(props.initialMode), period = ref(''), mine = ref(false)
 const selectedProject = ref(null), projects = ref([]), settings = ref(null), report = ref(null), savedReport = ref(null), history = ref([])
 const ownerId = ref(null), members = ref([])
+const historyOpen = ref(false)
 const view = ref('text'), loading = ref(false), saving = ref(false), currentProject = computed(() => props.projectId || selectedProject.value)
 let revision = 0
 async function refresh() {
@@ -66,7 +73,7 @@ async function refresh() {
 }
 async function openSaved(id) {
   const data = await api.get(`/operations/digest/reports/${id}`)
-  savedReport.value = data; report.value = { ...data.facts, text: data.text }; view.value = 'text'
+  savedReport.value = data; report.value = { ...data.facts, text: data.text }; view.value = 'text'; historyOpen.value = true
 }
 async function generate(newVersion) {
   if (saving.value) return

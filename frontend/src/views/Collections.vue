@@ -58,7 +58,8 @@
     </Panel>
     <el-pagination v-model:current-page="page" :page-size="30" :total="board.total" layout="total, prev, pager, next" @current-change="load" />
     </template>
-    <el-drawer v-model="opened" title="回款跟进" size="min(640px, 100vw)" @closed="clearDetail">
+    <RecordDetailDialog v-model="opened" dialog-title="回款跟进"
+      :target="{ kind: 'legacy-collection', id: selection ? `${selection.contract_id}:${selection.plan_key}` : undefined }" @closed="clearDetail" progress-hint="说明催收、付款审批或预计到账的情况。">
       <div v-loading="detailLoading" style="min-height: 90px">
         <template v-if="detail">
           <h3>{{ detail.customer }} · {{ detail.label }}</h3>
@@ -95,11 +96,12 @@
           <el-empty v-else description="暂无跟进记录" :image-size="55" />
         </template>
       </div>
-    </el-drawer>
+    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

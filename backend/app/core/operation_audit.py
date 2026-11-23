@@ -25,7 +25,7 @@ AREAS = {"auth":"账号与登录", "admin":"系统管理", "files":"文件资料
          "journal":"出纳日记账", "finance_data":"财务数据", "reports":"报表中心", "receivables":"开票与收款",
          "projects":"项目台账", "market":"重点项目", "hr":"人事中心", "service":"客服工单", "kb":"知识库",
          "imports":"资料导入", "clean":"数据清洗", "notify":"消息通知", "notifications":"消息通知",
-         "assistant":"小聚", "operation-records":"操作记录", "submissions":"汇报提交",
+         "assistant":"小聚", "operation-records":"操作记录", "record-followups":"业务跟进", "submissions":"汇报提交",
          "source_checks":"数据源核对", "source-checks":"数据源核对", "wecom":"企业微信",
          "finance-data":"财务数据","performance":"业绩与运营","intel":"竞品情报","reviews":"项目复盘",
          "mcp_config":"工具接入","mcp-config":"工具接入"}

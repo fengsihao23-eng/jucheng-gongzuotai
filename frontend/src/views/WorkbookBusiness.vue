@@ -328,7 +328,6 @@ async function openRow(row) {
     const saved = Object.fromEntries(Object.entries({ ...filters, page: page.value }).filter(([key, value]) => !['sheet', 'raw', 'basis', 'period'].includes(key) && value !== '' && value != null))
     const back = '/contracts?' + new URLSearchParams(saved).toString()
     const revision = data.value.source.revision
-    await router.replace(back)
     return router.push({ path: row.detail_path || `/contracts/items/${row.sheet_id || route.query.sheet}/${row.row}`, query: { revision, back } })
   }
   const id = ++detailId

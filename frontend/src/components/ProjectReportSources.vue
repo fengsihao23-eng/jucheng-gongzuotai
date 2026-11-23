@@ -21,7 +21,9 @@
     <el-pagination v-if="total > 30" class="source-pages" v-model:current-page="page" :page-size="30" :total="total" layout="prev, pager, next" @current-change="load" />
   </component>
 
-  <el-drawer v-model="opened" title="项目报表来源与核对" size="88%" destroy-on-close>
+  <RecordDetailDialog v-model="opened" dialog-title="项目报表来源与核对" :heading="detail?.source_name"
+    :target="{ kind: 'project-source-report', id: detail?.id }" progress-hint="说明报表差异、凭证或待支付记录的核对进展。">
+    <template #workspace>
     <div v-loading="detailLoading" class="jc-stack">
       <template v-if="detail">
         <div class="jc-row between wrap">
@@ -115,10 +117,12 @@
         </el-tabs>
       </template>
     </div>
-  </el-drawer>
+    </template>
+  </RecordDetailDialog>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, ref, watch } from 'vue'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'

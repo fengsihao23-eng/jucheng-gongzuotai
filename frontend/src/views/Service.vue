@@ -102,7 +102,7 @@
           </Panel>
         </div>
         <Panel class="mt-16" title="历史报告" :padding="false">
-          <el-table :data="reports">
+          <el-table :data="reports" @row-click="row => reportRow = row">
             <el-table-column prop="title" label="报告" min-width="240" />
             <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
             <el-table-column label="来源" width="80"><template #default="{ row }">{{ row.trigger === 'schedule' ? '定时' : '手动' }}</template></el-table-column>
@@ -113,6 +113,11 @@
         </Panel>
       </el-tab-pane>
     </el-tabs>
+
+    <RecordRowDetails v-model:row="reportRow" kind="service-report" title="工单归因报告" heading-field="title"
+      :fields="{ period: '统计期间', version: '版本' }" progress-hint="记录报告提出的改善事项和处理进展。">
+      <FileLink v-if="reportRow?.files?.length" :file="reportRow.files[0]" />
+    </RecordRowDetails>
 
     <el-dialog v-model="formOpen" title="表单登记" width="520px">
       <el-form label-width="84px">
@@ -130,7 +135,8 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="drawer" :title="cur ? `${cur.ticket_no} · ${cur.customer_name}` : ''" size="52%" destroy-on-close>
+    <RecordDetailDialog v-model="drawer" dialog-title="客服工单详情" :heading="cur ? `${cur.ticket_no} · ${cur.customer_name}` : ''"
+      :target="{ kind: 'ticket', id: cur?.id }" progress-hint="记录问题排查、客户沟通、处理结果或待协调事项。">
       <div v-if="cur" class="jc-stack">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="状态"><StatusPill :text="cur.status_text" :tone="statusTone(cur.status)" /></el-descriptions-item>
@@ -173,11 +179,13 @@
           <div v-else class="jc-muted">暂无建议，点击“重新生成”。</div>
         </Panel>
       </div>
-    </el-drawer>
+    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
+import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -194,6 +202,7 @@ const text = ref('')
 const saving = ref(false)
 const result = ref(null)
 const formOpen = ref(false)
+const reportRow = ref(null)
 const form = reactive({ customer_name: '', contact: '', channel: '电话', device: '', problem_desc: '' })
 const f = reactive({ keyword: '', status: null, category: null, page: 1, page_size: 20 })
 const range = ref(null)

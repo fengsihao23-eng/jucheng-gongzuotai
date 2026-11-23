@@ -1,229 +1,147 @@
 <template>
-  <el-dialog
-    v-model="visible"
-    class="ops-task-dialog collection-exec-dialog"
-    title="执行情况"
-    width="min(1050px, calc(100vw - 40px))"
-    align-center
-    append-to-body
-    destroy-on-close
-    :close-on-click-modal="false"
-  >
-    <div v-loading="loading" class="task-page">
-      <el-empty v-if="unavailable && !loading" description="无法读取该项目执行情况，可能原表版本已更新或无访问权限。">
-        <el-button @click="load()">重试</el-button>
-      </el-empty>
-
-      <template v-if="item && !unavailable">
-        <header class="task-header">
-          <div class="task-identity">
-            <div class="jc-row tags">
-              <StatusPill :text="item.status_label" :tone="item.status_tone" dot />
-              <span>{{ item.profile_label }} · 签订日期 {{ item.contract.date || '未注明' }}</span>
-            </div>
-            <h2>{{ item.contract.name }}</h2>
-            <p class="context">{{ [item.contract.customer, item.contract.party].filter(Boolean).join(' · ') || '—' }}</p>
-          </div>
-          <div class="actions">
-            <el-button plain @click="withXiaoju">用小聚办理</el-button>
-            <el-button plain @click="goReport">项目报告</el-button>
-            <el-button v-if="hasHistory" plain @click="historyOpen = true">过程记录</el-button>
-          </div>
-        </header>
-
-        <dl class="facts">
-          <div>
-            <dt>负责人</dt>
-            <dd>{{ item.contract.owner || '待确认' }}</dd>
-          </div>
-          <div>
-            <dt>合同金额</dt>
-            <dd>{{ item.contract.amount_note || (moneyText(item.contract.amount) + ' 元') }}</dd>
-          </div>
-          <div>
-            <dt>未收金额</dt>
-            <dd>{{ item.contract.outstanding != null ? moneyText(item.contract.outstanding) + ' 元' : '待核对' }}</dd>
-            <small>{{ item.collection_state_name }}</small>
-          </div>
-          <div>
-            <dt>预计回款安排</dt>
-            <dd>{{ item.latest?.expected_on ? '预计 ' + item.latest.expected_on : (primaryPlan ? primaryPlan.period + ' 预估' : '待反馈日期') }}</dd>
-            <small v-if="primaryPlan">{{ primaryPlan.title }}：{{ primaryPlan.plan_shared ? '合并预估' : (primaryPlan.plan_text || '—') }}</small>
-          </div>
-        </dl>
-
-        <el-alert
-          v-if="item.pending_request"
-          :title="`${item.pending_request.author_name} 发起跟进要求（待 ${item.pending_request.recipient_name} 回复）：${item.pending_request.content}`"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="notice"
-        />
-        <el-alert
-          v-if="item.has_problem && item.latest?.problems"
-          :title="`当前反映存在问题：${item.latest.problems}`"
-          type="error"
-          :closable="false"
-          show-icon
-          class="notice"
-        />
-
-        <div class="body-grid" :class="{ 'one-column': !item.can_feedback }">
-          <div class="details">
-            <section v-if="item.latest" class="section">
-              <h3>最新执行情况 <small>{{ datetime(item.latest.created_at) }} · {{ item.latest.author_name }}</small></h3>
-              <p class="plain"><b>当前阶段：</b>{{ item.latest.stage_name }}</p>
-              <p class="plain mt-6"><b>跟进进展：</b>{{ item.latest.content }}</p>
-              <p v-if="item.latest.problems" class="plain problem-highlight mt-6"><b>存在问题：</b>{{ item.latest.problems }}</p>
-              <p v-if="item.latest.next_step" class="plain jc-muted mt-6"><b>下一步安排：</b>{{ item.latest.next_step }}</p>
-            </section>
-
-            <section v-if="item.plans?.length" class="section">
-              <h3>原表预估回款计划</h3>
-              <div v-for="plan in item.plans" :key="plan.period" class="plan-item">
-                <b>{{ plan.period }} · {{ plan.title }}</b>
-                <p class="plain">{{ plan.plan_shared ? '合并预估金额（按项目组计一次）' : '预估金额' }}：{{ plan.plan_text || '原表未填写' }}</p>
-                <p v-if="plan.source_progress" class="plain jc-muted">原表进度备注：{{ plan.source_progress }}</p>
-              </div>
-            </section>
-
-            <section v-if="item.notes?.length || item.attachments?.length" class="section">
-              <h3>合同说明与附件</h3>
-              <p v-for="(note, idx) in item.notes" :key="idx" class="plain">{{ note }}</p>
-              <div v-if="item.attachments?.length" class="attachments mt-6">
-                <a v-for="file in item.attachments" :key="file.url" :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.filename }}</a>
-              </div>
-            </section>
-
-            <section v-if="item.pending_request?.can_cancel" class="section">
-              <h3>催办管理</h3>
-              <p class="jc-small jc-muted mb-8">当前催办单尚未回复，发起人可按需撤回。</p>
-              <el-button size="small" :loading="cancelling" @click="cancelPending">撤回待回复要求</el-button>
-            </section>
-
-            <CollectionReminderPanel :data="item.reminder" :sheet="props.sheet" :row="props.row" :revision="item.revision" :suggested-recipient="item.suggested_recipient_id" :pending-recipient="item.pending_request?.recipient_id" @saved="load(true); emit('saved')" />
-            <details v-if="item.can_request" class="section request-collapse">
-              <summary>定向指派 / 发送企业微信跟进提醒</summary>
-              <div class="request-body">
-                <el-select v-model="reqForm.recipient_id" filterable placeholder="选择在职公司账号" aria-label="指定回复人" class="w-full mb-8">
-                  <el-option v-for="u in item.choices" :key="u.id" :value="u.id" :label="[u.name, u.department].filter(Boolean).join(' · ')" />
-                </el-select>
-                <el-input v-model="reqForm.content" type="textarea" :rows="2" maxlength="1600" placeholder="填写具体跟进要求，发送企微通知提醒负责人回复" class="mb-8" />
-                <el-button size="small" type="primary" plain :loading="requesting" :disabled="!reqForm.recipient_id || !reqForm.content.trim()" @click="sendRequest">发送企微提醒</el-button>
-              </div>
-            </details>
-          </div>
-
-          <div v-if="item.can_feedback" class="work">
-            <section class="section feedback-box">
-              <h3>执行情况反馈</h3>
-              <el-form ref="formRef" :model="form" label-position="top">
-                <el-form-item label="完成情况" class="result-choice">
-                  <el-radio-group v-model="outcome" aria-label="完成情况">
-                    <el-radio-button value="pending">跟进推进中</el-radio-button>
-                    <el-radio-button value="done">已反馈回款</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-
-                <el-form-item v-if="outcome === 'pending'" label="跟进阶段">
-                  <el-select v-model="form.stage" aria-label="跟进阶段" class="w-full" @change="onStageChange">
-                    <el-option value="contact" label="联系沟通" />
-                    <el-option value="approval" label="付款审批" />
-                    <el-option value="awaiting" label="等待付款" />
-                    <el-option value="blocked" label="需协调（遇到阻碍）" />
-                  </el-select>
-                </el-form-item>
-
-                <el-form-item
-                  :label="outcome === 'done' ? '回款情况说明' : '目前跟进情况'"
-                  prop="content"
-                  :rules="[{ required: true, whitespace: true, message: '请填写目前跟进情况或回款结果' }]"
-                >
-                  <el-input
-                    v-model="form.content"
-                    type="textarea"
-                    :rows="3"
-                    maxlength="2000"
-                    :validate-event="false"
-                    placeholder="请填写当前与客户沟通进展、审批状态或回款情况…"
-                    @input="formRef?.clearValidate('content')"
-                  />
-                </el-form-item>
-
-                <el-button link type="primary" :loading="drafting" :disabled="!form.content.trim() || saving" @click="polishDraft">让 AI 整理文字</el-button>
-                <div v-if="draftText" class="draft-preview mt-6 mb-8">
-                  <p class="plain">{{ draftText }}</p>
-                  <div class="mt-6">
-                    <el-button size="small" @click="form.content = draftText; draftText = ''">采用这段文字</el-button>
-                    <el-button size="small" text @click="draftText = ''">保留原文</el-button>
-                  </div>
-                </div>
-
-                <el-form-item v-if="outcome === 'pending'" label="当前情况" class="mt-6">
-                  <el-checkbox v-model="hasProblem">遇到阻碍 / 存在问题（需协调）</el-checkbox>
-                </el-form-item>
-
-                <el-form-item
-                  :label="needsReason ? '到期未收原因（必填）' : `存在问题及需协调事项（${hasProblem ? '必填' : '可选'}）`"
-                  prop="problems"
-                >
-                  <el-input
-                    v-model="form.problems"
-                    type="textarea"
-                    :rows="2"
-                    maxlength="2000"
-                    placeholder="如存在验收资料缺失、甲方审批卡点、争议扣款或需公司协调事项，请在此详细说明"
-                  />
-                </el-form-item>
-
-                <el-form-item label="下一步安排（可选）">
-                  <el-input v-model="form.next_step" maxlength="2000" placeholder="下一步推进计划、责任人及时间节点" />
-                </el-form-item>
-
-                <el-form-item label="预计回款日期（可选）">
-                  <el-date-picker
-                    v-model="form.expected_on"
-                    type="date"
-                    value-format="YYYY-MM-DD"
-                    placeholder="选择预计到账日期"
-                    class="w-full"
-                  />
-                </el-form-item>
-              </el-form>
-            </section>
-          </div>
-        </div>
-      </template>
+  <RecordDetailDialog v-model="visible" dialog-title="执行情况" :heading="item?.contract.name"
+    :subtitle="[item?.contract.customer, item?.contract.party].filter(Boolean).join(' · ')"
+    :status="item?.status_label" :status-tone="item?.status_tone || 'brand'"
+    :target="item && !unavailable ? { kind: 'workbook-collections', id: props.row, sheet: props.sheet, revision: item.revision } : null"
+    :facts="item ? [
+      { label: '负责人', value: item.contract.owner || '待确认' },
+      { label: '合同金额', value: item.contract.amount_note || (moneyText(item.contract.amount) + ' 元') },
+      { label: '待回款金额', value: moneyText(item.contract.outstanding) + ' 元' },
+    ] : []" :history-entries="nativeHistory" progress-hint="说明客户沟通、付款审批和预计到账情况。">
+    <template v-if="item && !unavailable" #actions>
+      <el-button plain @click="withXiaoju">用小聚办理</el-button>
+      <el-button plain @click="goReport">项目报告</el-button>
+    </template>
+    <div v-loading="loading">
+      <el-empty v-if="unavailable && !loading" description="无法读取该项目执行情况，请刷新后重试。"><el-button @click="load()">重试</el-button></el-empty>
+      <section v-if="item && !unavailable">
+        <h3>回款安排</h3>
+        <p v-if="item.pending_request" class="plain problem-highlight">待 {{ item.pending_request.recipient_name }} 回复 · {{ item.pending_request.content }}</p>
+        <template v-if="item.latest">
+          <p class="plain"><b>当前阶段：</b>{{ item.latest.stage_name }}</p>
+          <p class="plain mt-6"><b>跟进进展：</b>{{ item.latest.content }}</p>
+          <p v-if="item.latest.problems" class="plain problem-highlight mt-6"><b>存在问题：</b>{{ item.latest.problems }}</p>
+          <p v-if="item.latest.next_step" class="plain jc-muted mt-6"><b>下一步安排：</b>{{ item.latest.next_step }}</p>
+        </template>
+        <p v-else-if="!item.pending_request" class="plain">预计回款日 {{ item.plans?.[0]?.period || '待确认' }}</p>
+      </section>
     </div>
+    <template v-if="item && !unavailable" #workspace>
+      <div class="jc-stack">
+        <section v-if="item.plans?.length" class="section">
+          <h3>原表预估回款计划</h3>
+          <div v-for="plan in item.plans" :key="plan.period" class="plan-item">
+            <b>{{ plan.period }} · {{ plan.title }}</b>
+            <p class="plain">{{ plan.plan_shared ? '合并预估金额（按项目组计一次）' : '预估金额' }}：{{ plan.plan_text || '原表未填写' }}</p>
+            <p v-if="plan.source_progress" class="plain jc-muted">原表进度备注：{{ plan.source_progress }}</p>
+          </div>
+        </section>
 
-    <el-dialog
-      v-model="historyOpen"
-      title="过程记录"
-      width="min(720px, calc(100vw - 24px))"
-      align-center
-      append-to-body
-      destroy-on-close
-      class="task-history-dialog"
-    >
-      <h3 v-if="item" class="history-count">过程记录 <small>{{ item.updates.length }} 条</small></h3>
-      <el-timeline v-if="item?.updates?.length" class="history-timeline">
-        <el-timeline-item
-          v-for="u in item.updates"
-          :key="u.id"
-          :timestamp="`${datetime(u.created_at)} · ${u.author_name}`"
-          placement="top"
-        >
-          <b>{{ u.title }}</b>
-          <p class="plain">{{ u.content }}</p>
-          <p v-if="u.problems" class="plain problem-highlight jc-small">存在问题：{{ u.problems }}</p>
-          <p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
-          <p v-if="u.expected_on" class="plain jc-small jc-muted">预计回款日：{{ u.expected_on }}</p>
-        </el-timeline-item>
-      </el-timeline>
-      <p v-else class="jc-muted">暂无过程记录</p>
+        <section v-if="item.notes?.length || item.attachments?.length" class="section">
+          <h3>合同说明与附件</h3>
+          <p v-for="(note, idx) in item.notes" :key="idx" class="plain">{{ note }}</p>
+          <div v-if="item.attachments?.length" class="attachments mt-6">
+            <a v-for="file in item.attachments" :key="file.url" :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.filename }}</a>
+          </div>
+        </section>
 
-      <details v-if="item?.notification_deliveries?.length" class="section delivery-history">
+        <section v-if="item.pending_request?.can_cancel" class="section">
+          <h3>催办管理</h3>
+          <p class="jc-small jc-muted mb-8">当前催办单尚未回复，发起人可按需撤回。</p>
+          <el-button size="small" :loading="cancelling" @click="cancelPending">撤回待回复要求</el-button>
+        </section>
+
+        <CollectionReminderPanel :data="item.reminder" :sheet="props.sheet" :row="props.row" :revision="item.revision" :suggested-recipient="item.suggested_recipient_id" :pending-recipient="item.pending_request?.recipient_id" @saved="load(true); emit('saved')" />
+        <details v-if="item.can_request" class="section request-collapse">
+          <summary>定向指派 / 发送企业微信跟进提醒</summary>
+          <div class="request-body">
+            <el-select v-model="reqForm.recipient_id" filterable placeholder="选择在职公司账号" aria-label="指定回复人" class="w-full mb-8">
+              <el-option v-for="u in item.choices" :key="u.id" :value="u.id" :label="[u.name, u.department].filter(Boolean).join(' · ')" />
+            </el-select>
+            <el-input v-model="reqForm.content" type="textarea" :rows="2" maxlength="1600" placeholder="填写具体跟进要求，发送企微通知提醒负责人回复" class="mb-8" />
+            <el-button size="small" type="primary" plain :loading="requesting" :disabled="!reqForm.recipient_id || !reqForm.content.trim()" @click="sendRequest">发送企微提醒</el-button>
+          </div>
+        </details>
+      </div>
+    </template>
+    <template v-if="item?.can_feedback && !unavailable" #progress>
+    <h3>执行情况反馈</h3>
+    <el-form ref="formRef" :model="form" label-position="top">
+      <el-form-item label="完成情况" class="result-choice">
+        <el-radio-group v-model="outcome" aria-label="完成情况">
+          <el-radio-button value="pending">跟进推进中</el-radio-button>
+          <el-radio-button value="done">已反馈回款</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+
+      <el-form-item v-if="outcome === 'pending'" label="跟进阶段">
+        <el-select v-model="form.stage" aria-label="跟进阶段" class="w-full" @change="onStageChange">
+          <el-option value="contact" label="联系沟通" />
+          <el-option value="approval" label="付款审批" />
+          <el-option value="awaiting" label="等待付款" />
+          <el-option value="blocked" label="需协调（遇到阻碍）" />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item
+        :label="outcome === 'done' ? '回款情况说明' : '目前跟进情况'"
+        prop="content"
+        :rules="[{ required: true, whitespace: true, message: '请填写目前跟进情况或回款结果' }]"
+      >
+        <el-input
+          v-model="form.content"
+          type="textarea"
+          :rows="3"
+          maxlength="2000"
+          :validate-event="false"
+          placeholder="请填写当前与客户沟通进展、审批状态或回款情况…"
+          @input="formRef?.clearValidate('content')"
+        />
+      </el-form-item>
+
+      <el-button link type="primary" :loading="drafting" :disabled="!form.content.trim() || saving" @click="polishDraft">让 AI 整理文字</el-button>
+      <div v-if="draftText" class="draft-preview mt-6 mb-8">
+        <p class="plain">{{ draftText }}</p>
+        <div class="mt-6">
+          <el-button size="small" @click="form.content = draftText; draftText = ''">采用这段文字</el-button>
+          <el-button size="small" text @click="draftText = ''">保留原文</el-button>
+        </div>
+      </div>
+
+      <el-form-item v-if="outcome === 'pending'" label="当前情况" class="mt-6">
+        <el-checkbox v-model="hasProblem">遇到阻碍 / 存在问题（需协调）</el-checkbox>
+      </el-form-item>
+
+      <el-form-item
+        :label="needsReason ? '到期未收原因（必填）' : `存在问题及需协调事项（${hasProblem ? '必填' : '可选'}）`"
+        prop="problems"
+      >
+        <el-input
+          v-model="form.problems"
+          type="textarea"
+          :rows="2"
+          maxlength="2000"
+          placeholder="如存在验收资料缺失、甲方审批卡点、争议扣款或需公司协调事项，请在此详细说明"
+        />
+      </el-form-item>
+
+      <el-form-item label="下一步安排（可选）">
+        <el-input v-model="form.next_step" maxlength="2000" placeholder="下一步推进计划、责任人及时间节点" />
+      </el-form-item>
+
+      <el-form-item label="预计回款日期（可选）">
+        <el-date-picker
+          v-model="form.expected_on"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择预计到账日期"
+          class="w-full"
+        />
+      </el-form-item>
+    </el-form>
+    </template>
+    <template v-if="item?.notification_deliveries?.length" #history>
+      <details class="section delivery-history">
         <summary>企业微信提醒投递情况</summary>
         <p class="jc-small jc-muted">企微已受理表示发送请求成功。请在企业微信「消息」里的「聚成工作台」会话查看。</p>
         <div v-for="n in item.notification_deliveries" :key="n.id" class="node-entry">
@@ -232,21 +150,11 @@
           <p v-if="n.error" class="jc-small jc-muted">{{ n.error }}</p>
         </div>
       </details>
-    </el-dialog>
-
-    <template v-if="!unavailable && item" #footer>
-      <div class="task-footer">
-        <el-button @click="visible = false">关闭</el-button>
-        <el-button
-          v-if="item.can_feedback"
-          type="primary"
-          :loading="saving"
-          :disabled="drafting"
-          @click="submit"
-        >提交执行情况</el-button>
-      </div>
     </template>
-  </el-dialog>
+    <template v-if="item?.can_feedback && !unavailable" #footer>
+      <el-button type="primary" :loading="saving" :disabled="drafting" @click="submit">提交执行情况</el-button>
+    </template>
+  </RecordDetailDialog>
 </template>
 
 <script setup>
@@ -257,6 +165,7 @@ import api from '@/api/client'
 import { useAssistant } from '@/store/assistant'
 import { datetime } from '@/utils/format'
 import CollectionReminderPanel from './CollectionReminderPanel.vue'
+import RecordDetailDialog from './records/RecordDetailDialog.vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -272,6 +181,9 @@ const assistant = useAssistant()
 
 const visible = computed({ get: () => props.modelValue, set: v => emit('update:modelValue', v) })
 const item = ref(null)
+const nativeHistory = computed(() => (item.value?.updates || []).map(update => ({
+  ...update, key: `collection-${update.id}`, author: update.author_name, next_due_on: update.expected_on,
+})))
 const loading = ref(false)
 const unavailable = ref(false)
 const saving = ref(false)
@@ -279,7 +191,6 @@ const drafting = ref(false)
 const draftText = ref('')
 const requesting = ref(false)
 const cancelling = ref(false)
-const historyOpen = ref(false)
 const formRef = ref()
 
 const form = reactive({
@@ -319,9 +230,7 @@ function onStageChange(val) {
   if (val !== 'reported_paid') lastNonDoneStage = val
 }
 
-const hasHistory = computed(() => !!(item.value?.updates?.length || item.value?.notification_deliveries?.length))
 const needsReason = computed(() => item.value?.reminder?.payment_due && outcome.value !== 'done')
-const primaryPlan = computed(() => item.value?.plans?.[0] || null)
 const moneyText = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 
 let reqVersion = 0
@@ -371,7 +280,6 @@ async function load(quiet = false) {
 
 watch(() => [visible.value, props.sheet, props.row], () => {
   reqVersion++
-  historyOpen.value = false
   item.value = null
   unavailable.value = false
   draftText.value = ''
@@ -481,35 +389,10 @@ async function cancelPending() {
 </script>
 
 <style scoped>
-:global(.collection-exec-dialog.el-dialog) { display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 13px; }
-:global(.collection-exec-dialog > .el-dialog__header) { padding: 15px 23px 13px; border-bottom: 1px solid var(--jc-line); margin: 0; }
-:global(.collection-exec-dialog > .el-dialog__header .el-dialog__title) { font-size: 14px; font-weight: 600; }
-:global(.collection-exec-dialog > .el-dialog__header .el-dialog__headerbtn) { top: 1px; right: 4px; }
-:global(.collection-exec-dialog > .el-dialog__body) { flex: 1; min-height: 0; max-height: min(76vh, calc(100dvh - 124px)); overflow: auto; overscroll-behavior: contain; padding: 0; }
-:global(.collection-exec-dialog > .el-dialog__footer) { border-top: 1px solid var(--jc-line); padding: 9px 23px; }
-:global(.task-history-dialog > .el-dialog__body) { max-height: 68dvh; overflow: auto; overscroll-behavior: contain; }
 .mt-6 { margin-top: 6px; }
 .mb-8 { margin-bottom: 8px; }
 .w-full { width: 100%; }
-.task-footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.task-footer .el-button + .el-button { margin-left: 0; }
-.task-page { min-height: 140px; padding: 20px 23px 24px; }
-.task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
-.task-identity { flex: 1 1 220px; min-width: 0; }
-.tags { flex-wrap: wrap; gap: 8px; color: var(--jc-ink-3); font-size: 12px; }
-h2 { font: 600 clamp(20px, 2.8vw, 26px)/1.35 var(--jc-font-serif); color: var(--jc-ink); margin: 8px 0 4px; overflow-wrap: anywhere; }
-.context { color: var(--jc-ink-3); margin: 0; font-size: 13px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.actions .el-button + .el-button { margin: 0; }
-.facts { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 10px; margin: 17px 0; }
-.facts > div { min-width: 0; padding: 9px 11px; background: var(--jc-bg-2, #f9f8f5); border: 1px solid var(--jc-line); border-radius: 7px; }
-.facts dt { font-size: 12px; color: var(--jc-ink-3); }
-.facts dd { margin: 4px 0 0; color: var(--jc-ink); font-weight: 600; overflow-wrap: anywhere; }
-.facts small { display: block; color: var(--jc-ink-3); margin-top: 3px; }
 .notice { margin-bottom: 12px; }
-.body-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-.body-grid.one-column { grid-template-columns: minmax(0, 1fr); }
-.details, .work { min-width: 0; }
 .section { border: 1px solid var(--jc-line); border-radius: 8px; padding: 14px; }
 .section + .section { margin-top: 10px; }
 .section h3 { font-size: 15px; margin: 0 0 10px; color: var(--jc-ink); }
@@ -521,28 +404,13 @@ h2 { font: 600 clamp(20px, 2.8vw, 26px)/1.35 var(--jc-font-serif); color: var(--
 .attachments a { display: block; font-size: 13px; margin-top: 4px; }
 .request-collapse summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--jc-ink); }
 .request-body { margin-top: 10px; }
-.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }
-.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }
 .draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
 .result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
 .result-choice :deep(.el-radio-button__inner) { width: 100%; }
-.history-count { font-size: 15px; margin: 0 0 14px; color: var(--jc-ink); }
-.history-count small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }
 .history-timeline { padding: 0 4px 0 2px; }
 .history-timeline :deep(.el-timeline-item:last-child) { padding-bottom: 0; }
 .delivery-history { margin-top: 14px; }
 .delivery-history summary { cursor: pointer; }
 .delivery-history > p { margin-top: 8px; }
 .node-entry { border-top: 1px solid var(--jc-line); padding-top: 10px; margin-top: 10px; }
-@media (max-width: 740px) {
-  .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .work { grid-row: 1; }
-  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 600px) {
-  :global(.collection-exec-dialog.el-dialog) { width: 100vw !important; height: 100dvh; border-radius: 0; }
-  :global(.collection-exec-dialog > .el-dialog__body) { max-height: none; }
-  .task-page { padding: 14px; }
-  .section { padding: 12px; }
-}
 </style>

@@ -100,7 +100,10 @@
     <el-empty v-else-if="data" :description="data.warning || '市场商机还没有可用的表格数据'" />
     <el-skeleton v-else-if="loading" :rows="8" animated />
 
-    <el-drawer v-model="detailOpen" :title="detail?.name || '商机详情'" size="min(540px, 100vw)" destroy-on-close>
+    <RecordDetailDialog v-model="detailOpen" :title="detail?.name || '商机详情'" dialog-title="商机详情" :heading="detail?.name"
+      :status="detail?.progress" :subtitle="detail?.sequence"
+      :target="{ kind: 'workbook-opportunities', id: detail?.row, sheet: detail?.sheet_id, revision: data?.source?.revision }"
+      progress-hint="说明客户沟通、方案确认或转化的最新进展。">
       <template v-if="detail">
         <div class="jc-row wrap">
           <StatusPill v-if="detail.progress" :text="detail.progress" tone="info" />
@@ -118,18 +121,17 @@
           <h3 class="detail-heading">描述</h3>
           <p class="detail-note">{{ detail.note }}</p>
         </template>
-        <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" />
       </template>
-    </el-drawer>
+    </RecordDetailDialog>
   </div>
 </template>
 
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
-import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 

@@ -12,7 +12,8 @@
       <el-table-column prop="problems" label="存在问题" min-width="170" show-overflow-tooltip />
       <el-table-column width="110" fixed="right"><template #default="{row}"><el-button link type="primary" @click="edit(row)">{{ row.can_edit ? '查看 / 更新' : '查看详情' }}</el-button></template></el-table-column>
     </el-table>
-    <el-dialog v-model="opened" :title="`${labels[kind]} · ${form.id ? '详情与跟进' : '新增记录'}`" width="min(760px, 94vw)" class="ops-maintenance-dialog" append-to-body destroy-on-close>
+    <RecordDetailDialog v-model="opened" :dialog-title="`${labels[kind]} · ${form.id ? '详情与跟进' : '新增记录'}`"
+      :heading="form.title" :target="{ kind: 'maintenance', id: form.id }">
       <el-form ref="formRef" :model="form" :disabled="readOnly" label-position="top">
         <el-form-item label="事项名称 / 资料标题" prop="title" :rules="[{ required:true, whitespace:true, message:'填写名称' }]"><el-input aria-label="维护事项" v-model="form.title" maxlength="160" /></el-form-item>
         <div class="two"><el-form-item label="客户名称"><el-input aria-label="维护客户" v-model="form.customer_name" maxlength="128" /></el-form-item><el-form-item label="负责人" prop="owner_id" :rules="[{required:true,message:'选择负责人'}]"><el-select v-model="form.owner_id" :disabled="!data?.can_manage" filterable><el-option v-for="m in data?.members || []" :key="m.user_id" :value="m.user_id" :label="m.name" /></el-select></el-form-item></div>
@@ -25,10 +26,11 @@
       </el-form>
       <div v-if="history.length" class="history"><h3>过程记录</h3><article v-for="h in history" :key="h.id"><small class="jc-muted">{{ datetime(h.created_at) }} · {{ h.author }} · {{ statuses[h.status] }}</small><p>{{ h.content || '更新基础资料' }}</p><p v-if="h.problems">存在问题：{{ h.problems }}</p><p v-if="h.next_step">下一步：{{ h.next_step }}</p></article></div>
       <template #footer><el-button @click="opened=false">关闭</el-button><el-button v-if="!readOnly" type="primary" :loading="saving" @click="save">保存维护记录</el-button></template>
-    </el-dialog>
+    </RecordDetailDialog>
   </div>
 </template>
 <script setup>
+import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
