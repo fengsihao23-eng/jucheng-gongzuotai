@@ -75,6 +75,9 @@ router.beforeEach(async (to) => {
   if (to.name === 'expenses' && ['bank_expense', 'cash_journal'].includes(to.query.ledger)) {
     return { name: 'journal', query: to.query }
   }
+  if (to.name === 'receivables' && to.query.ledger === 'bank_receipt') {
+    return { name: 'journal', query: to.query }
+  }
   if (to.path === '/' && typeof to.query.xiaoju === 'string') return { name: 'xiaoju', params: { id: to.query.xiaoju } }  // 旧版企业微信回复链接
   if (!getToken()) return { name: 'login', query: { redirect: to.fullPath } }
   const auth = useAuth()

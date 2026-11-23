@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 import { WEB, call, loginPage, save, shot, step } from './lib.mjs'
 
@@ -13,6 +14,22 @@ async function capture(page, name) {
 }
 let previewResponse
 
+function xlsx(sheets) {
+  return execFileSync(process.env.FINANCE_TEST_PYTHON || 'python3', ['-c', `
+import io, json, sys
+from openpyxl import Workbook
+workbook = Workbook()
+workbook.remove(workbook.active)
+for name, rows in json.load(sys.stdin).items():
+    sheet = workbook.create_sheet(name)
+    for row in rows:
+        sheet.append(row)
+buffer = io.BytesIO()
+workbook.save(buffer)
+sys.stdout.buffer.write(buffer.getvalue())
+`], { input: JSON.stringify(sheets) })
+}
+
 async function visit(path, heading) {
   const before = screen.waitForResponse((res) => res.ok() && res.url().includes(`${base}/entries/`))
   await screen.goto(`${WEB}${path}`)
@@ -25,7 +42,8 @@ async function preview(filename, content) {
   await screen.getByRole('button', { name: '导入财务账表', exact: true }).click()
   const dialog = screen.getByRole('dialog', { name: '导入财务账表' })
   const pending = screen.waitForResponse((res) => res.url().endsWith(`${base}/preview`), { timeout: 105000 })
-  await dialog.locator('input[type=file]').setInputFiles({ name: filename, mimeType: 'text/csv', buffer: Buffer.from(content) })
+  const mimeType = filename.endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv'
+  await dialog.locator('input[type=file]').setInputFiles({ name: filename, mimeType, buffer: Buffer.from(content) })
   const result = await (await pending).json()
   assert.equal(result.code, 0, result.message)
   previewResponse = result.data
@@ -47,30 +65,28 @@ async function confirm(dialog) {
   return result.data
 }
 
-await step('FIN-01', '真实小聚整理非标准银行表头，预览时尚无入账', async () => {
-  await visit('/receivables?ledger=bank_receipt', '开票回款')
+await step('FIN-01', '图六银行收入 XLSX 直接核对，旧入口跳转出纳日记账', async () => {
+  await visit('/receivables?ledger=bank_receipt', '出纳日记账')
+  const directions = screen.getByRole('group', { name: '收支方向' })
+  assert.equal(await directions.getByRole('button', { name: '收入', exact: true }).getAttribute('aria-pressed'), 'true')
   assert.equal((await existing('bank_receipt')).total, 0)
-  const dialog = await preview('测试_渠道到账明细.csv', `哪天到账,钱进了哪个户,谁转来的,进了多少钱,归到哪项,随款说明
-2026/11/4,测试银行尾号 2208,示例技术公司,3680.50,校园设备项目,首批设备款
-2026/11/5,测试银行尾号 2208,示例教育中心,15620.90,实验室改造,阶段款
-2026/11/6,测试银行尾号 6702,示例文化中心,865.35,校园服务,维护补款
-2026/11/7,测试银行尾号 6702,示例服务公司,,校园服务,待核对金额`)
-  assert.equal(previewResponse.groups[0].method, 'xiaoju', JSON.stringify(previewResponse.groups))
+  const columns = ['序号', '收款日期', '收款银行', '汇款公司', '收入金额', '摘要', '项目']
+  const dialog = await preview('测试_银行收款明细.xlsx', xlsx({ 银行收入: [
+    ['收款记录明细表'],
+    columns,
+    [1, '2026/11/4', '测试银行尾号 2208', '示例技术公司', 3680.50, '首批设备款', '校园设备项目'],
+    [2, '2026/11/5', '测试银行尾号 2208', '示例教育中心', 15620.90, '阶段款', '实验室改造'],
+    [3, '2026/11/6', '测试银行尾号 6702', '示例文化中心', 865.35, '维护补款', '校园服务'],
+  ] }))
+  assert.equal(previewResponse.groups[0].method, 'rule')
   assert.equal(previewResponse.counts.ready, 3)
-  const missingAmount = previewResponse.rows.find((row) => row.row === 5)
-  assert.equal(missingAmount?.status, 'error')
-  assert.ok(missingAmount.errors.net)
-  assert.equal(previewResponse.counts.error, 1)
   assert.equal((await existing('bank_receipt')).total, 0)
-  await dialog.getByRole('button', { name: /^待补充 / }).click()
-  await dialog.getByRole('button', { name: '补充', exact: true }).first().waitFor()
-  assert.equal(await dialog.getByText('示例技术公司', { exact: true }).count(), 0)
-  await dialog.getByRole('button', { name: /^全部 / }).click()
-  const evidence = await capture(screen, '01-小聚整理与逐行确认')
   assert.equal((await confirm(dialog)).inserted, 3)
   await screen.getByText('示例技术公司', { exact: true }).waitFor()
   assert.equal((await existing('bank_receipt')).totals.inflow, '20166.75')
-  return { evidence: [evidence, await capture(screen, '01b-银行收款入账后')] }
+  const region = screen.getByRole('region', { name: '银行收入日记账' })
+  assert.deepEqual(await region.getByRole('columnheader').allTextContents(), [...columns, '操作'])
+  return { evidence: await capture(screen, '01-银行日记账-收入') }
 })
 
 await step('FIN-02', '开票台账在前，二维码入口停用，年份和月份可切换', async () => {
@@ -79,22 +95,33 @@ await step('FIN-02', '开票台账在前，二维码入口停用，年份和月�
   assert.deepEqual(await tabs.getByRole('button').allTextContents(), ['开票台账', '收款记录明细'])
   assert.equal(await tabs.getByRole('button', { name: '开票台账' }).getAttribute('aria-current'), 'page')
   await tabs.getByRole('button', { name: '收款记录明细' }).click()
-  const extra = await preview('测试_跨年度收款.csv', `收款日期,收款银行,汇款公司,收入金额
-2025/12/15,测试银行尾号 2208,示例旧年收款,900
-2026/3/15,测试银行尾号 2208,示例本年三月款,1400`)
-  assert.equal((await confirm(extra)).inserted, 2)
+  const columns = ['开票日期', '开票单位', '名称', '收款日期', '收款金额', '备注']
+  const extra = await preview('测试_已收账款明细.xlsx', xlsx({ 已收账款明细: [
+    ['已收账款明细表'],
+    ['编制单位：示例教育科技公司'],
+    columns,
+    [null, null, '已收款合计', null, 86850.90],
+    ['2025/11/15', '示例一部', '示例旧年收款', '2025/12/15', 900],
+    ['2025/12/25', '示例一部', '示例教育中心—实验室改造第一期项目款', '2026/3/15', 54600.00, '跨年到账'],
+    ['2026/6/8', '示例二部', '示例中学—智慧校园设备及安装服务款', '2026/6/23', 23600.90, '阶段款'],
+    ['2026/10/20', '示例一部', '示例图书馆—图书流通系统升级', '2026/11/5', 7750.00, '尾款'],
+  ] }))
+  assert.equal(previewResponse.groups[0].method, 'rule')
+  assert.equal((await confirm(extra)).inserted, 4)
   const region = screen.getByRole('region', { name: '收款记录明细' })
+  assert.deepEqual(await region.getByRole('columnheader').allTextContents(), [...columns, '操作'])
   await region.getByRole('combobox', { name: '按年份筛选' }).click()
-  const annual = screen.waitForResponse((res) => res.url().includes('/entries/bank_receipt?') && new URL(res.url()).searchParams.get('period') === '2026')
+  const annual = screen.waitForResponse((res) => res.url().includes('/entries/collection_receipt?') && new URL(res.url()).searchParams.get('period') === '2026')
   await screen.getByRole('gridcell', { name: '2026', exact: true }).click()
   const result = (await (await annual).json()).data
-  assert.equal(result.total, 4)
-  await region.getByText('示例本年三月款', { exact: true }).waitFor()
+  assert.equal(result.total, 3)
+  assert.equal(result.items.find((item) => item.values.name.includes('第一期项目款')).values.invoice_date, '2025-12-25')
+  await region.getByText('示例教育中心—实验室改造第一期项目款', { exact: true }).waitFor()
   await screen.getByRole('gridcell', { name: '2026', exact: true }).waitFor({ state: 'hidden' })
   assert.equal(await region.getByText('示例旧年收款', { exact: true }).count(), 0)
   const evidence = await capture(screen, '02-开票回款-全年收款记录')
   await region.getByRole('combobox', { name: '按月份筛选' }).press('Enter')
-  const monthly = screen.waitForResponse((res) => res.url().includes('/entries/bank_receipt?') && new URL(res.url()).searchParams.get('period') === '2026-03')
+  const monthly = screen.waitForResponse((res) => res.url().includes('/entries/collection_receipt?') && new URL(res.url()).searchParams.get('period') === '2026-03')
   await screen.getByRole('option', { name: '3 月', exact: true }).click()
   assert.equal((await (await monthly).json()).data.total, 1)
   return { evidence }
@@ -112,6 +139,11 @@ await step('FIN-03', '截图中的银行支出归出纳日记账，报销归集�
   assert.equal((await (await yearlyExpenses).json()).data.start, '2026-01-01')
   const expenseEvidence = await capture(screen, '03-报销归集-全年统计')
   await visit('/journal', '出纳日记账')
+  const directions = screen.getByRole('group', { name: '收支方向' })
+  await directions.getByRole('button', { name: '收入', exact: true }).click()
+  await screen.getByText('示例技术公司', { exact: true }).waitFor()
+  await directions.getByRole('button', { name: '支出', exact: true }).click()
+  await screen.getByRole('region', { name: '银行支出日记账' }).waitFor()
   const dialog = await preview('测试_银行支出日记账.csv', `序号,日期,汇款公司,摘要,收款方资料,金额,申请人,审批编号,备注
 1,2026/11/5,示例银行 2208,教室布线及设备首款,示例工程公司,15000.00,示例员工甲,202611050001,按进度支付
 2,2026/11/6,示例银行 2208,实验室设备配件,示例设备公司,14150.00,示例员工乙,202611060002,已付款
@@ -128,30 +160,60 @@ await step('FIN-03', '截图中的银行支出归出纳日记账，报销归集�
   return { evidence: [expenseEvidence, await capture(screen, '04-出纳日记账-银行支出')] }
 })
 
-await step('FIN-04', '现金结转只保留余额，来源行号可溯源', async () => {
+await step('FIN-04', '图五标准现金 XLSX，收入、支出、结转和零发生', async () => {
   await visit('/journal?ledger=cash_journal', '出纳日记账')
-  const dialog = await preview('测试账户 3302 现金日记账.csv', `序号,日期,对方科目,申请编号,摘要,收入金额,支付金额,结余金额,备注
-1,,,,上月结转,,,810.59,
-2,2026/11/2,示例银行,,备用金补充,5000,,5810.59,
-3,2026/11/7,示例员工甲,202611070034,报销交通费,,125.30,5685.29,凭证齐全
-4,2026/11/8,示例员工乙,202611080002,日常采购,,2000,3685.29,`)
+  const columns = ['序号', '日期', '对方科目', '申请编号', '摘要', '收入金额', '支付金额', '结余金额', '备注']
+  const dialog = await preview('测试_现金日记账.xlsx', xlsx({ 现金日记账: [
+    columns,
+    [1, null, null, null, '上月结转', null, null, 810.59],
+    [2, '2026/11/2', '示例银行', null, '备用金补充', 5000, null, 5810.59],
+    [3, '2026/11/7', '示例员工甲', '202611070034', '报销交通费', null, 125.30, 5685.29, '凭证齐全'],
+    [4, '2026/11/8', '示例员工乙', '202611080002', '日常采购', null, 2000, 3685.29],
+    [5, '2026/11/8', '内部转记', null, '零发生核对行', null, 0, 3685.29],
+  ] }))
+  assert.equal(previewResponse.groups[0].method, 'rule')
   await dialog.getByText('有核对提示', { exact: true }).waitFor()
-  assert.equal((await confirm(dialog)).inserted, 4)
+  await dialog.getByRole('button', { name: '零发生 1', exact: true }).waitFor()
+  assert.equal((await confirm(dialog)).inserted, 5)
   await screen.getByText('上月结转', { exact: true }).waitFor()
   const result = await existing('cash_journal', { period: '2026-11' })
   assert.equal(result.totals.inflow, '5000.00')
   assert.equal(result.totals.outflow, '2125.30')
   assert.equal(result.items[0].source.row, 2)
-  return { evidence: await capture(screen, '05-出纳日记账-现金日记账') }
+  const region = screen.getByRole('region', { name: '现金日记账' })
+  assert.deepEqual(await region.getByRole('columnheader').allTextContents(), [...columns, '操作'])
+  const overview = await capture(screen, '05-现金日记账-全部')
+  const directions = screen.getByRole('group', { name: '收支方向' })
+  const income = screen.waitForResponse((res) => res.url().includes('/entries/cash_journal?') && new URL(res.url()).searchParams.get('direction') === 'income')
+  await directions.getByRole('button', { name: '收入', exact: true }).click()
+  assert.equal((await (await income).json()).data.total, 1)
+  await region.getByText('备用金补充', { exact: true }).waitFor()
+  assert.equal(await region.getByText('零发生核对行', { exact: true }).count(), 0)
+  const inflow = await capture(screen, '05b-现金日记账-收入')
+  const expense = screen.waitForResponse((res) => res.url().includes('/entries/cash_journal?') && new URL(res.url()).searchParams.get('direction') === 'expense')
+  await directions.getByRole('button', { name: '支出', exact: true }).click()
+  assert.equal((await (await expense).json()).data.total, 2)
+  await region.getByText('日常采购', { exact: true }).waitFor()
+  assert.equal(await region.getByText('上月结转', { exact: true }).count(), 0)
+  return { evidence: [overview, inflow, await capture(screen, '05c-现金日记账-支出')] }
 })
 
-await step('FIN-05', '开票台账登记原表发票号，保留前导零', async () => {
+await step('FIN-05', '图一 XLSX 可直接导入无票号开票台账，跳过合计', async () => {
   await visit('/receivables?ledger=invoice', '开票回款')
-  const dialog = await preview('测试_开票台账.csv', `序号,开票日期,发票号码,购方名称,价税合计,备注
-1,2026/11/5,00023100001992,示例教育中心,17550.00,一期款
-2,2026/11/6,00023100001993,示例文化中心,965.35,年度服务`)
-  assert.equal((await confirm(dialog)).inserted, 2)
-  await screen.getByText('00023100001992', { exact: true }).waitFor()
+  const columns = ['开票日期', '开票单位', '客户', '项目名称', '借方', '备注']
+  const dialog = await preview('测试_开票台账.xlsx', xlsx({ 开票台账: [
+    ['编制单位：示例教育科技公司'],
+    columns,
+    [null, null, '应收账款合计', null, 48515.35],
+    ['2026/11/3', '示例一部', '示例教育中心', '实验室改造设备项目', 17550.00, '一期款'],
+    ['2026/11/5', '示例二部', '示例文化中心', '文化中心年度运维服务', 965.35, '年度服务'],
+    ['2026/11/6', '示例一部', '示例职业技术学校', '实训教室设备更新', 30000.00, '设备款'],
+  ] }))
+  assert.equal(previewResponse.groups[0].method, 'rule')
+  assert.equal((await confirm(dialog)).inserted, 3)
+  await screen.getByText('实训教室设备更新', { exact: true }).waitFor()
+  assert.deepEqual(await screen.getByRole('region', { name: '开票台账' }).getByRole('columnheader').allTextContents(), [...columns, '操作'])
+  assert.equal((await existing('invoice')).totals.inflow, '48515.35')
   return { evidence: await capture(screen, '06-开票回款-开票台账') }
 })
 
@@ -167,7 +229,7 @@ await step('FIN-06', '手机可打开导入弹窗', async () => {
 })
 
 await step('FIN-07', '取消与确认单条删除，校验合计和更正后的重复流水号', async () => {
-  await visit('/receivables?ledger=bank_receipt', '开票回款')
+  await visit('/journal?ledger=bank_receipt', '出纳日记账')
   const file = `收款日期,收款银行,汇款公司,收入金额,流水号
 2026/11/5,验收更正账户,验收单条更正客户,2150.90,FIN-QA-R001`
   assert.equal((await confirm(await preview('测试_单笔导入.csv', file))).inserted, 1)
@@ -238,6 +300,34 @@ await step('FIN-09', '粘贴表格、统一补账户、保存待确认与继续�
   assert.equal((await confirm(review)).inserted, 2)
   assert.equal((await existing('cash_journal', { account: '粘贴验收现金账户', period: '2026' })).totals.inflow, '6500.00')
   return { evidence: historyEvidence }
+})
+
+await step('FIN-10', '真实小聚整理非标准现金 XLSX，来源不明的金额待人工核对', async () => {
+  await visit('/journal?ledger=cash_journal', '出纳日记账')
+  const dialog = await preview('测试_零用金登记_非标准.xlsx', xlsx({ 十月零用金: [
+    ['2026 年 10 月零用金备查'],
+    ['是哪一天', '发生什么', '资金怎么走', '实际动了多少', '还剩多少'],
+    [null, '上月结转', null, null, 1000],
+    ['2026/10/2', '补充零用金', '补入备用金', 850, 1850],
+    ['2026/10/3', '购买办公耗材', '从备用金付出', 350, 1500],
+    ['2026/10/4', '待核对原始凭证', '未填写', 90, null],
+  ] }))
+  assert.equal(previewResponse.groups[0].method, 'xiaoju', JSON.stringify(previewResponse.groups))
+  assert.deepEqual(previewResponse.rows.map((row) => row.cash_category), ['opening', 'income', 'expense', 'unknown'])
+  assert.equal(previewResponse.counts.ready, 3)
+  assert.equal((await existing('cash_journal', { period: '2026-10' })).total, 0)
+  const evidence = await capture(screen, '11-小聚整理现金混合表')
+  await dialog.getByRole('button', { name: '待核对 1', exact: true }).click()
+  const row = dialog.getByRole('row').filter({ hasText: '待核对原始凭证' })
+  await row.getByRole('button', { name: '补充', exact: true }).click()
+  const edit = screen.getByRole('dialog', { name: '核对源数据' })
+  await edit.getByRole('textbox', { name: '支付金额' }).fill('90.00')
+  await edit.getByRole('button', { name: '保存并校验' }).click()
+  await dialog.getByRole('button', { name: '确认导入 4 笔', exact: true }).waitFor()
+  assert.equal((await confirm(dialog)).inserted, 4)
+  const result = await existing('cash_journal', { period: '2026-10' })
+  assert.deepEqual(result.totals, { inflow: '850.00', outflow: '440.00', fee: '0.00' })
+  return { evidence }
 })
 
 await browser.close()

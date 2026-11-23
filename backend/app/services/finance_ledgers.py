@@ -40,8 +40,8 @@ def build_draft(db, principal, filename, content, preferred, use_xiaoju, ip):
         if kind not in allowed:
             plan, strong = source.rule_plan(group, allowed, preferred, filename)
         group.update(plan)
-        if not strong:
-            ambiguous[ident] = group
+        if not strong or source.needs_xiaoju(group):
+            ambiguous[ident] = {**group, "recognized_kind": group["kind"] if strong else None}
     if not groups:
         raise bad_request("没有可导入的工作表。" + "；".join(dict.fromkeys(g["reason"] for g in skipped)))
     notice = ""
@@ -92,16 +92,18 @@ def raw_rows(group):
         if number <= header_row or number in used:
             continue
         labels = {f.header(cell) for cell in cells if cell}
-        if any(f.header(cell) in source.TOTALS for cell in [v for v in cells if v][:2]):
-            continue
         if header_row and source.recognizable(kind, set(source.mapping_for(kind, cells).values()), labels):
             continue
-        values = {key: cells[int(col)] if int(col) < len(cells) else "" for col, key in mapping.items()}
+        values = source.mapped_values(cells, mapping)
         end, values = extracted.get(number, (number, values))
+        if source.is_total(cells, values):
+            continue
         if group["account"] and any(field.key == "account" for field in f.LEDGERS[kind].fields):
             values = {**values, "account": values.get("account") or group["account"]}
         raw = [v[:250] for i in range(number, end + 1) for v in by_number.get(i, []) if v][:14]
-        yield number, values, raw
+        values = values.copy()
+        flow_error = source.cash_source_values(values, group.get("direction_labels", {})) if kind == "cash_journal" else ""
+        yield number, values, raw, flow_error
 
 
 def proposed_rows(batch):
@@ -111,7 +113,7 @@ def proposed_rows(batch):
         if kind not in f.ACTIVE_KINDS:
             continue
         candidates = list(raw_rows(group))
-        for i, (number, values, raw) in enumerate(candidates):
+        for i, (number, values, raw, flow_error) in enumerate(candidates):
             row_id = f"{ident}:{number}"
             amended = batch.draft["edits"].get(row_id, {})
             values = {**values, **amended}
@@ -121,10 +123,13 @@ def proposed_rows(batch):
                 if inferred:
                     values["period"] = inferred
             values, errors, warnings = f.normalize(kind, values)
+            if flow_error and not (values["income"] or values["payment"]):
+                errors["income"] = flow_error
             if inferred:
                 warnings.append(f"结转月份取自账表（{inferred}），请核对")
             rows.append({"id": row_id, "group": ident, "kind": kind, "sheet": group["name"], "row": number,
-                         "values": values, "errors": errors, "warnings": warnings, "status": "error" if errors else "ready", "raw": raw})
+                         "values": values, "errors": errors, "warnings": warnings, "status": "error" if errors else "ready", "raw": raw,
+                         "cash_category": f.cash_category(values, errors) if kind == "cash_journal" else None})
     return rows
 
 
@@ -140,9 +145,13 @@ def identify(rows):
         kind, values = row["kind"], row["values"]
         keys = ("date", "account", "payer", "payee", "counterparty", "customer", "approval_no", "gross", "fee", "net",
                 "income", "payment", "balance", "summary", "period")
+        if kind == "invoice":
+            keys += ("issuer", "project")
+        elif kind == f.COLLECTION:
+            keys += ("issuer", "invoice_date", "name")
         facts = {k: values[k] for k in keys if values.get(k)}
         row["signature"] = signature = digest([kind, facts])
-        if kind == "invoice":
+        if kind == "invoice" and values.get("invoice_no"):
             row["identity"] = digest([kind, values["invoice_no"]])
         elif values.get("reference"):
             row["identity"] = digest([kind, values.get("account"), values["reference"]])
@@ -215,6 +224,7 @@ def review(db, batch, principal, version, settings, updates):
         mapping = source.valid_mapping(group, setting.kind, setting.header, setting.mapping)
         if (setting.kind, setting.header, mapping) != (group["kind"], group["header"], group["mapping"]):
             group.pop("records", None)
+            group.pop("direction_labels", None)
             draft["edits"] = {key: value for key, value in draft["edits"].items() if not key.startswith(f"{setting.id}:")}
         group.update(kind=setting.kind, header=setting.header, mapping=mapping, account=setting.account.strip(),
                      period=f.parse_month(setting.period) if setting.period else "", method="manual")
@@ -295,12 +305,13 @@ def can_remove(principal, kind, owner_id):
 
 def entry_row(row, batch, principal):
     return {"id": row.id, "kind": row.kind, "period": row.period, "values": row.values,
+            "cash_category": f.cash_category(row.values) if row.kind == "cash_journal" else None,
             "can_delete": can_remove(principal, row.kind, batch.owner_id),
             "source": {"filename": batch.filename, "sheet": row.source_sheet, "row": row.source_row,
                        "batch": batch.token, "imported_at": row.created_at}}
 
 
-def list_entries(db, principal, kind, period, account, keyword, project, page, size):
+def list_entries(db, principal, kind, period, account, keyword, project, page, size, direction=None):
     m, batch = FinLedgerEntry, FinLedgerImport
     base = [m.kind == kind, m.deleted_at.is_(None)]
     filters = [*base]
@@ -312,6 +323,10 @@ def list_entries(db, principal, kind, period, account, keyword, project, page, s
         filters.append(m.account == account)
     if keyword:
         filters.append(m.search_text.icontains(keyword, autoescape=True))
+    if direction == "income":
+        filters.append(m.inflow != 0)
+    elif direction == "expense":
+        filters.append(m.outflow != 0)
     if project == "unassigned":
         filters.extend((m.project.is_(None), m.outflow != 0))
     elif project:
@@ -322,7 +337,8 @@ def list_entries(db, principal, kind, period, account, keyword, project, page, s
     rows = db.execute(select(m, batch).join(batch, batch.id == m.import_id).where(*filters)
                       .order_by(*order).offset((page - 1) * size).limit(size))
     return page_data([entry_row(r, b, principal) for r, b in rows], total, page, size, totals={
-        "inflow": inflow or f.ZERO, "outflow": outflow or f.ZERO, "fee": fee or f.ZERO},
+        "inflow": (inflow or f.ZERO) if direction != "expense" else f.ZERO,
+        "outflow": (outflow or f.ZERO) if direction != "income" else f.ZERO, "fee": fee or f.ZERO},
         accounts=list(db.scalars(select(m.account).where(*base, m.account.is_not(None)).distinct().order_by(m.account).limit(300))))
 
 

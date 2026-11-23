@@ -14,7 +14,7 @@ from app.services import finance_ledger_fields as f, finance_ledgers as service
 router = APIRouter(prefix="/finance-ledgers", tags=["财务账表"])
 PrincipalDep = Annotated[Principal, Depends(require_menu("receivables", "journal"))]
 DB = Annotated[Session, Depends(get_db)]
-Kind = Literal["invoice", "bank_receipt", "bank_expense", "cash_journal"]
+Kind = Literal["invoice", "collection_receipt", "bank_receipt", "bank_expense", "cash_journal"]
 LedgerMenu = Literal["receivables", "journal"]
 RowID = Annotated[str, Field(pattern=r"^\d{1,4}:\d{1,8}$")]
 GroupID = Annotated[str, Field(pattern=r"^\d{1,4}$")]
@@ -60,7 +60,10 @@ class Removal(Strict):
 
 @router.get("/schema")
 def schema(p: PrincipalDep):
-    return ok({"ledgers": {kind: f.LEDGERS[kind].meta(f.can_import(p, kind)) for kind in f.ACTIVE_KINDS if f.can_read(p, kind)},
+    ledgers = {kind: f.LEDGERS[kind].meta(f.can_import(p, kind)) for kind in f.ACTIVE_KINDS if f.can_read(p, kind)}
+    if "cash_journal" in ledgers:
+        ledgers["cash_journal"]["import_columns"] = [field.meta() for field in f.CASH_IMPORT_COLUMNS]
+    return ok({"ledgers": ledgers,
                "limits": {"bytes": f.MAX_BYTES, "rows": f.MAX_ROWS, "columns": f.MAX_COLUMNS},
                "can_allocate": p.can("expense:allocate") and f.can_read(p, "bank_expense")})
 
@@ -68,9 +71,11 @@ def schema(p: PrincipalDep):
 @router.get("/entries/{kind}")
 def entries(kind: Kind, p: PrincipalDep, db: DB, period: str = Query("", pattern=r"^(?:20\d\d(?:-(?:0[1-9]|1[0-2]))?)?$"),
             account: str = Query("", max_length=128), keyword: str = Query("", max_length=120), project: str = Query("", max_length=128),
-            page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100)):
+            page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100), direction: Literal["income", "expense"] | None = None):
     service.require_access(p, kind)
-    return ok(service.list_entries(db, p, kind, period, account, keyword.strip(), project, page, size))
+    if direction and kind != "cash_journal":
+        raise bad_request("收支方向筛选适用于现金日记账")
+    return ok(service.list_entries(db, p, kind, period, account, keyword.strip(), project, page, size, direction))
 
 
 @router.delete("/entries/{ident}")

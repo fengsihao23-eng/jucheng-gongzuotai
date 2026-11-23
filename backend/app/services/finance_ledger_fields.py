@@ -47,20 +47,37 @@ class Ledger:
 SEQ = Field("sequence", "序号", aliases=("序", "行号", "NO", "index"), size=32)
 RECEIVED = Field("date", "收款日期", "date", ("日期", "到账日期", "入账日期", "交易日期", "付款日", "收款时间", "入账时间"), True)
 DAY = Field("date", "日期", "date", ("支付日期", "付款日期", "交易日期", "支出日期", "记账日期", "发生时间", "记账日"), True)
+ISSUED = Field("date", "开票日期", "date", ("开具日期", "出票日期", "开票时间", "日期"), True)
+ISSUER = Field("issuer", "开票单位", aliases=("开票公司", "销方名称", "销售方名称", "销售方", "开票方"))
 SUMMARY = Field("summary", "摘要", aliases=("事由", "用途", "说明", "支出用途", "交易摘要", "业务摘要"), size=500)
 PROJECT = Field("project", "项目", aliases=("归属项目", "所属项目", "项目名称", "项目编码", "费用归属"))
 NOTE = Field("note", "备注", aliases=("附言", "其他说明", "备注说明"), size=500)
 REF = Field("reference", "流水号", aliases=("交易流水号", "银行流水号", "交易单号", "订单号", "凭证号", "商户单号", "交易编号"), visible=False)
 APPROVAL = Field("approval_no", "审批编号", aliases=("申请编号", "审批单号", "报销单号", "申请单号"), size=64)
 CASH_APPROVAL = Field("approval_no", "申请编号", aliases=("审批编号", "审批单号", "报销单号", "申请单号"), size=64)
+CASH_IMPORT_COLUMNS = (
+    Field("flow_direction", "收支方向", aliases=("方向", "收支类型", "资金方向", "收支类别", "收支", "款项方向", "交易方向")),
+    Field("flow_amount", "收支共用金额", "money", ("收支金额", "发生额", "发生金额", "交易金额", "变动金额", "金额")),
+    Field("signed_amount", "正负号金额", "money", ("带符号金额", "带正负号金额", "正负金额", "有符号金额")),
+)
+COLLECTION = "collection_receipt"
 
 LEDGERS = {
-    "bank_receipt": Ledger("收款记录明细", "receivables", "receivables:receipt", (
+    COLLECTION: Ledger("收款记录明细", "receivables", "receivables:receipt", (
+        Field("invoice_date", "开票日期", "date", ("开具日期", "出票日期", "开票时间")),
+        ISSUER,
+        Field("name", "名称", aliases=("客户名称", "客户", "项目名称", "收款名称", "付款方名称"), required=True, size=500),
+        RECEIVED,
+        Field("net", "收款金额", "money", ("实收金额", "到账金额", "回款金额", "已收金额", "金额"), True),
+        NOTE, REF,
+    ), (("inflow", "收款金额"),)),
+    "bank_receipt": Ledger("银行收入日记账", "journal", "journal:write", (
         SEQ, RECEIVED,
         Field("account", "收款银行", aliases=("收款账户", "收款账号", "到账银行", "收款行", "银行账户", "账户", "收款户名"), required=True),
         Field("payer", "汇款公司", aliases=("付款方", "付款人", "打款方", "付款单位", "汇款单位", "对方户名", "付款户名"), required=True),
         Field("net", "收入金额", "money", ("收款金额", "到账金额", "入账金额", "实收金额", "收款", "收入", "金额"), True),
-        SUMMARY, PROJECT, REF, NOTE,
+        SUMMARY, PROJECT, REF,
+        Field("note", "备注", aliases=NOTE.aliases, size=500, visible=False),
     ), (("inflow", "收入金额"),)),
     "qr_receipt": Ledger("二维码收款明细", "receivables", "receivables:receipt", (
         SEQ, RECEIVED,
@@ -81,27 +98,37 @@ LEDGERS = {
     ), (("outflow", "支出金额"),)),
     "cash_journal": Ledger("现金日记账", "journal", "journal:write", (
         SEQ, Field("date", "日期", "date", DAY.aliases),
-        Field("account", "现金账户", aliases=("账户", "账套", "账户名称", "账号", "现金账号"), required=True),
         Field("counterparty", "对方科目", aliases=("对方户名", "对方单位", "对方", "往来科目", "对方账户", "科目")),
         CASH_APPROVAL, SUMMARY,
-        Field("income", "收入金额", "money", ("收入", "收款金额", "收方金额", "借方金额", "进账")),
-        Field("payment", "支付金额", "money", ("支付", "支出金额", "付款金额", "付方金额", "贷方金额", "支出")),
+        Field("income", "收入金额", "money", ("收入", "收款金额", "收方金额", "借方金额", "进账", "流入金额", "收到金额")),
+        Field("payment", "支付金额", "money", ("支付", "支出金额", "付款金额", "付方金额", "贷方金额", "支出", "流出金额", "付出金额")),
         Field("balance", "结余金额", "money", ("余额", "结余", "期末余额", "本次余额", "现金余额")),
-        NOTE, PROJECT, REF,
+        NOTE,
+        Field("account", "现金账户", aliases=("账户", "账套", "账户名称", "账号", "现金账号"), visible=False),
+        Field("project", "项目", aliases=PROJECT.aliases, visible=False),
+        REF,
         Field("period", "所属月份", "month", ("归属月份", "月份", "账期"), visible=False),
     ), (("inflow", "本期收入"), ("outflow", "本期支付"))),
     "invoice": Ledger("开票台账", "receivables", "receivables:invoice", (
-        SEQ,
-        Field("date", "开票日期", "date", ("开具日期", "出票日期", "开票时间", "日期"), True),
-        Field("invoice_no", "发票号码", aliases=("发票号", "票号", "数电票号码", "发票编号"), required=True, size=80),
-        Field("customer", "购方名称", aliases=("客户", "客户名称", "发票抬头", "购买方名称", "开票抬头"), required=True),
-        Field("net", "开票金额", "money", ("价税合计", "价税合计小写", "含税金额", "发票金额", "票面金额", "金额"), True),
-        Field("contract_no", "合同编号", aliases=("合同号",), size=80), APPROVAL, NOTE,
-    ), (("inflow", "开票金额"),)),
+        ISSUED, ISSUER,
+        Field("customer", "客户", aliases=("购方名称", "客户名称", "发票抬头", "购买方名称", "开票抬头"), required=True),
+        Field("project", "项目名称", aliases=PROJECT.aliases + ("项目",)),
+        Field("net", "借方", "money", ("借方金额", "借方发生额", "开票金额", "价税合计", "价税合计小写", "含税金额", "发票金额", "票面金额", "金额"), True),
+        NOTE,
+        Field("invoice_no", "发票号码", aliases=("发票号", "票号", "数电票号码", "发票编号"), size=80, visible=False),
+        Field("contract_no", "合同编号", aliases=("合同号",), size=80, visible=False),
+        Field("approval_no", "审批编号", aliases=APPROVAL.aliases, size=64, visible=False),
+        Field("sequence", "序号", aliases=SEQ.aliases, size=32, visible=False),
+    ), (("inflow", "借方合计"),)),
 }
 
 
-ACTIVE_KINDS = ("invoice", "bank_receipt", "bank_expense", "cash_journal")
+ACTIVE_KINDS = ("invoice", COLLECTION, "bank_receipt", "bank_expense", "cash_journal")
+
+
+def mapping_fields(kind):
+    fields = LEDGERS[kind].fields
+    return fields + CASH_IMPORT_COLUMNS if kind == "cash_journal" else fields
 
 
 def can_read(p, kind):
@@ -151,7 +178,7 @@ def parse_money(text):
 
 
 def clean_value(field, value):
-    raw = str(value or "").strip()
+    raw = str(value if value is not None else "").strip()
     if raw in {"", "—", "--", "-"}:
         return ""
     text = unicodedata.normalize("NFKC", raw) if field.kind != "text" else raw
@@ -198,15 +225,30 @@ def normalize(kind, raw):
         else:
             if not values["date"]:
                 errors["date"] = "请补充日期"
-            if not (has_income or has_payment):
+            if not (values["income"] or values["payment"]):
                 errors["income"] = "请填写收入或支付金额"
         if values["date"] and values["period"] and not values["date"].startswith(values["period"]):
             errors["period"] = "所属月份与日期不一致"
-    if kind == "invoice" and Decimal(values["net"]) <= ZERO:
-        errors["net"] = "开票金额须大于零"
-    if kind in {"bank_receipt", "bank_expense"} and Decimal(values.get("net") or values.get("payment")) == ZERO:
-        errors["net" if kind == "bank_receipt" else "payment"] = "金额不能为零"
+    amount_key = "payment" if kind == "bank_expense" else "net"
+    if kind != "cash_journal" and values.get(amount_key) and Decimal(values[amount_key]) == ZERO:
+        errors[amount_key] = "金额不能为零"
     return values, errors, warnings
+
+
+def cash_category(values, errors=None):
+    errors = errors or {}
+    if {"income", "payment"} & errors.keys():
+        return "unknown"
+    income, payment = (Decimal(values.get(key) or "0") != ZERO for key in ("income", "payment"))
+    if income and payment:
+        return "both"
+    if income:
+        return "income"
+    if payment:
+        return "expense"
+    if is_opening(values):
+        return "opening"
+    return "zero" if values.get("income") or values.get("payment") else "unknown"
 
 
 def amounts(kind, values):

@@ -16,7 +16,7 @@
         <el-progress :percentage="50" :indeterminate="true" :show-text="false" :duration="2" />
       </div>
       <template v-else>
-        <div class="intake-destination">当前台账 <strong>{{ ledgers[kind]?.label }}</strong></div>
+        <div class="intake-destination">从 <strong>{{ ledgers[kind]?.label }}</strong> 导入</div>
         <el-alert v-if="prepareError" :title="prepareError" type="error" :closable="false" show-icon />
         <template v-if="!pasteMode">
           <button class="dropzone" :class="{ dragging }" type="button" @click="picker?.click()"
@@ -24,6 +24,7 @@
             <el-icon :size="32"><UploadFilled /></el-icon>
             <strong>选择文件或拖到这里</strong>
             <span>Excel、CSV、文档、PDF、图片 · 单份最大 20 MB</span>
+            <span v-if="kind === 'cash_journal'">可上传整张现金表，自动识别收入、支出和结转</span>
           </button>
           <input ref="picker" type="file" class="visually-hidden" tabindex="-1" aria-label="选择账表文件"
             accept=".xlsx,.xlsm,.csv,.tsv,.txt,.md,.markdown,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp"
@@ -33,7 +34,7 @@
           placeholder="把从 Excel、在线表格或消息里复制的内容粘贴到这里。" />
         <div class="intake-options">
           <el-button link type="primary" :icon="pasteMode ? UploadFilled : DocumentCopy" @click="togglePaste">{{ pasteMode ? '改用文件' : '粘贴表格' }}</el-button>
-          <el-checkbox v-model="useXiaoju">小聚协助识别非标准格式</el-checkbox>
+          <el-checkbox v-model="useXiaoju">格式不匹配时由小聚整理</el-checkbox>
         </div>
       </template>
     </div>
@@ -46,8 +47,12 @@
         </div>
         <div class="preview-totals" aria-label="核对结果筛选">
           <button type="button" :class="{ selected: rowFilter === 'all' }" :aria-pressed="rowFilter === 'all'" @click="setFilter('all')">全部 {{ draft.rows.length }}</button>
+          <template v-for="[category, label] in cashFilters" :key="category">
+            <button v-if="cashCounts[category]" type="button" :class="{ selected: rowFilter === category }"
+              :aria-pressed="rowFilter === category" @click="setFilter(category)">{{ label }} {{ cashCounts[category] }}</button>
+          </template>
           <button v-if="draft.counts.error" type="button" class="preview-issue" :class="{ selected: rowFilter === 'error' }"
-            :aria-pressed="rowFilter === 'error'" @click="setFilter('error')">待补充 {{ draft.counts.error }}</button>
+            :aria-pressed="rowFilter === 'error'" @click="setFilter('error')">待核对 {{ draft.counts.error }}</button>
           <button v-if="duplicateCount" type="button" class="preview-warning" :class="{ selected: rowFilter === 'duplicate' }"
             :aria-pressed="rowFilter === 'duplicate'" @click="setFilter('duplicate')">重复 {{ duplicateCount }}</button>
         </div>
@@ -113,7 +118,14 @@
         <el-table-column label="原表行" width="72">
           <template #default="{ row }"><el-tooltip :content="row.raw.join(' ｜ ')" placement="top"><span class="source-row">{{ row.row }}</span></el-tooltip></template>
         </el-table-column>
-        <el-table-column v-for="field in previewFields" :key="field.key" :label="field.label" :min-width="field.type === 'money' || field.type === 'date' ? 104 : 117"
+        <el-table-column v-if="activeGroup.kind === 'cash_journal'" label="收支" width="83">
+          <template #default="{ row }">
+            <span :class="{ 'preview-ready': row.cash_category === 'income', 'preview-issue': row.cash_category === 'unknown' }">
+              {{ cashLabels[row.cash_category] }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column v-for="field in previewFields" :key="field.key" :label="field.label" :min-width="previewWidth(field)"
           :align="field.type === 'money' ? 'right' : 'left'" show-overflow-tooltip>
           <template #default="{ row }">
             <span :class="{ 'jc-num': field.type === 'money', 'preview-issue': row.errors[field.key] }">
@@ -121,7 +133,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="核对结果" min-width="150">
+        <el-table-column label="核对结果" min-width="128" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.status === 'error'" class="preview-issue">{{ firstError(row) }}</span>
             <span v-else-if="row.status === 'duplicate'">已入账</span>
@@ -147,7 +159,7 @@
         </template>
         <template v-else-if="draft">
           <div class="selection-summary"><strong>已选 {{ selectedRows.size }} 笔</strong>
-            <span v-if="draft.counts.error">{{ draft.counts.error }} 笔待补充，未补齐的行会略过</span>
+            <span v-if="draft.counts.error">{{ draft.counts.error }} 笔待核对。修正后可勾选导入。</span>
           </div>
           <div class="preview-actions">
             <el-button text :disabled="busy" @click="reset">换一份文件</el-button>
@@ -202,22 +214,35 @@ let showHistory = false
 const excluded = ref(new Set()), editOpen = ref(false), editedRow = ref(null), editValues = ref({})
 const PAGE_SIZE = 8
 const methodLabels = { rule: '表头识别', xiaoju: '小聚已整理', manual: '已调整列对应' }
+const cashLabels = { income: '收入', expense: '支出', both: '收支都有', opening: '结转', zero: '零发生', unknown: '待确认' }
+const cashFilters = [['income', '收入'], ['expense', '支出'], ['opening', '结转'], ['zero', '零发生']]
 const previewKeys = {
-  bank_receipt: ['date', 'account', 'payer', 'net', 'project'],
+  bank_receipt: ['date', 'account', 'payer', 'net', 'summary', 'project'],
   bank_expense: ['date', 'account', 'payee', 'payment', 'approval_no'],
-  cash_journal: ['date', 'account', 'summary', 'income', 'payment', 'balance'],
-  invoice: ['date', 'invoice_no', 'customer', 'net', 'approval_no'],
+  cash_journal: ['date', 'counterparty', 'summary', 'income', 'payment', 'balance'],
+  invoice: ['date', 'issuer', 'customer', 'project', 'net', 'note'],
+  collection_receipt: ['invoice_date', 'issuer', 'name', 'date', 'net', 'note'],
 }
 const dialogTitle = computed(() => receipt.value ? '导入完成' : draft.value ? '核对导入数据' : '导入财务账表')
 const duplicateCount = computed(() => (draft.value?.counts.duplicate || 0) + (draft.value?.counts.repeated || 0))
 const activeGroup = computed(() => draft.value?.groups.find((group) => group.id === groupID.value))
 const activeRows = computed(() => draft.value?.rows.filter((row) => row.group === groupID.value) || [])
-const matchesFilter = (row, filter) => filter === 'all' || row.status === filter || (filter === 'duplicate' && row.status === 'repeated')
+function inCashCategory(row, category) {
+  return row.cash_category === category || (row.cash_category === 'both' && ['income', 'expense'].includes(category))
+}
+const cashCounts = computed(() => Object.fromEntries(cashFilters.map(([category]) => [
+  category, (draft.value?.rows || []).filter((row) => inCashCategory(row, category)).length,
+])))
+const matchesFilter = (row, filter) => filter === 'all' || row.status === filter ||
+  (filter === 'duplicate' && row.status === 'repeated') || inCashCategory(row, filter)
 const filteredRows = computed(() => activeRows.value.filter((row) => matchesFilter(row, rowFilter.value)))
 const visibleRows = computed(() => filteredRows.value.slice((previewPage.value - 1) * PAGE_SIZE, previewPage.value * PAGE_SIZE))
-const missingAccounts = computed(() => activeRows.value.some((row) => row.errors.account && !row.values.account))
+const missingAccounts = computed(() => activeRows.value.some((row) => !row.values.account && (row.errors.account || row.kind === 'cash_journal')))
 const previewFields = computed(() => props.ledgers[activeGroup.value.kind].fields.filter((field) => previewKeys[activeGroup.value.kind].includes(field.key)))
-const configFields = computed(() => props.ledgers[config.value.kind].fields)
+const configFields = computed(() => {
+  const ledger = props.ledgers[config.value.kind]
+  return [...ledger.fields, ...(ledger.import_columns || [])]
+})
 const selectable = (row) => row.status === 'ready' || row.status === 'repeated'
 const selectableGroup = computed(() => filteredRows.value.filter(selectable))
 const selectedRows = computed(() => new Set((draft.value?.rows || []).filter((row) => selectable(row) && !excluded.value.has(row.id)).map(({ id }) => id)))
@@ -358,6 +383,11 @@ function firstError(row) {
   const key = Object.keys(row.errors)[0]
   const label = props.ledgers[row.kind].fields.find((field) => field.key === key)?.label
   return label ? `${label} · ${row.errors[key]}` : row.errors[key]
+}
+
+function previewWidth(field) {
+  if (field.type === 'money' || field.type === 'date') return 102
+  return { name: 206, summary: 145, issuer: 98 }[field.key] || 112
 }
 
 function groupConfig() {

@@ -13,14 +13,19 @@
 
     <template v-if="activeLedger">
       <nav class="ledger-tabs" aria-label="财务账表">
-        <button v-for="[key, item] in tabs" :key="key" type="button" :class="{ active: activeKind === key }"
-          :aria-current="activeKind === key ? 'page' : undefined" @click="go(key)">
-          <el-icon><component :is="icons[key]" /></el-icon>{{ item.label }}
+        <button v-for="[key, item] in tabs" :key="key" type="button" :class="{ active: activeTab === key }"
+          :aria-current="activeTab === key ? 'page' : undefined" @click="go(key)">
+          <el-icon><component :is="icons[key]" /></el-icon>{{ key === 'bank_expense' ? '银行日记账' : item.label }}
         </button>
       </nav>
 
-      <div class="ledger-stats" :style="{ '--stat-columns': Object.keys(activeLedger.totals).length + 1 }">
-        <div v-for="(label, key) in activeLedger.totals" :key="key" class="ledger-stat">
+      <div v-if="isJournal" class="ledger-directions" role="group" aria-label="收支方向">
+        <button v-for="[value, label] in directionOptions" :key="value" type="button" :aria-pressed="activeDirection === value"
+          @click="changeDirection(value)">{{ label }}</button>
+      </div>
+
+      <div class="ledger-stats" :style="{ '--stat-columns': Object.keys(visibleTotals).length + 1 }">
+        <div v-for="(label, key) in visibleTotals" :key="key" class="ledger-stat">
           <span>{{ label }}</span>
           <strong class="jc-num">{{ money(result.totals?.[key] || '0.00') }}</strong>
         </div>
@@ -39,14 +44,14 @@
             <el-option label="全年" value="" />
             <el-option v-for="month in months" :key="month" :label="`${Number(month)} 月`" :value="month" />
           </el-select>
-          <el-select v-if="activeKind !== 'invoice'" v-model="filters.account" clearable filterable
-            :placeholder="activeKind === 'bank_expense' ? '全部汇款公司' : '全部账户'" aria-label="按账户筛选" @change="search">
+          <el-select v-if="isJournal && (activeKind !== 'cash_journal' || result.accounts.length)" v-model="filters.account" clearable filterable
+            :placeholder="accountLabels[activeKind]" aria-label="按账户筛选" @change="search">
             <el-option v-for="account in result.accounts" :key="account" :value="account" />
           </el-select>
           <el-input v-model="filters.keyword" clearable maxlength="120" :prefix-icon="Search"
-            :placeholder="isJournal ? '摘要、申请编号、项目' : '付款方、发票号码、项目'" aria-label="搜索台账"
+            :placeholder="searchLabels[activeKind]" aria-label="搜索台账"
             @change="search" @keyup.enter="search" />
-          <el-checkbox v-if="isJournal" v-model="filters.unassigned" @change="search">待归集支出</el-checkbox>
+          <el-checkbox v-if="showsExpense" v-model="filters.unassigned" @change="search">待归集支出</el-checkbox>
         </div>
         <el-table :key="activeKind" :data="result.items" row-key="id" :row-class-name="rowClass" stripe>
           <el-table-column v-for="field in mainFields" :key="field.key" :label="field.label"
@@ -58,11 +63,11 @@
               <span v-else>{{ row.values[field.key] || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isJournal && canAllocate ? 134 : 96" fixed="right">
+          <el-table-column label="操作" :width="showsExpense && canAllocate ? 134 : 96" fixed="right">
             <template #default="{ row }">
               <div class="ledger-actions">
                 <el-button link type="primary" @click="selected = row">明细</el-button>
-                <el-button v-if="canAllocate && Number(row.values.payment)" link type="primary" @click="openAllocation(row)">归集</el-button>
+                <el-button v-if="showsExpense && canAllocate && Number(row.values.payment)" link type="primary" @click="openAllocation(row)">归集</el-button>
                 <el-button v-if="row.can_delete" link type="danger" @click="openEntryRemoval(row)">删除</el-button>
               </div>
             </template>
@@ -173,16 +178,37 @@ import { datetime, money, thousands } from '@/utils/format'
 
 const Journal = defineAsyncComponent(() => import('@/views/Journal.vue'))
 const Receivables = defineAsyncComponent(() => import('@/views/Receivables.vue'))
-const icons = { invoice: Document, bank_receipt: Wallet, bank_expense: Money, cash_journal: Memo }
-const ledgerOrder = ['invoice', 'bank_receipt', 'bank_expense', 'cash_journal']
+const icons = { invoice: Document, collection_receipt: Wallet, bank_receipt: Money, bank_expense: Money, cash_journal: Memo }
+const ledgerOrder = ['invoice', 'collection_receipt', 'bank_expense', 'cash_journal']
+const movements = [['income', '收入'], ['expense', '支出']]
+const accountLabels = { bank_receipt: '全部收款银行', bank_expense: '全部汇款公司', cash_journal: '全部现金账户' }
+const searchLabels = {
+  invoice: '客户、项目名称、开票单位',
+  collection_receipt: '名称、开票单位、备注',
+  bank_receipt: '汇款公司、摘要、项目',
+  bank_expense: '摘要、审批编号、项目',
+  cash_journal: '对方科目、摘要、申请编号',
+}
 const months = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))
 const historyStatus = { draft: '待确认', confirmed: '已完成', partial: '部分移除', removed: '已移除' }
 const route = useRoute(), router = useRouter()
 const schema = ref({}), canAllocate = ref(false), loadingSchema = ref(true), loadingEntries = ref(false)
 const isJournal = computed(() => route.meta.menu === 'journal')
 const tabs = computed(() => ledgerOrder.filter((kind) => schema.value[kind]?.menu === route.meta.menu).map((kind) => [kind, schema.value[kind]]))
-const activeKind = computed(() => tabs.value.find(([key]) => key === route.query.ledger)?.[0] || tabs.value[0]?.[0])
+const activeKind = computed(() => schema.value[route.query.ledger]?.menu === route.meta.menu ? route.query.ledger : tabs.value[0]?.[0])
+const activeTab = computed(() => activeKind.value === 'bank_receipt' ? 'bank_expense' : activeKind.value)
 const activeLedger = computed(() => schema.value[activeKind.value])
+const isCash = computed(() => activeKind.value === 'cash_journal')
+const cashDirection = computed(() => isCash.value && movements.some(([value]) => value === route.query.direction) ? route.query.direction : '')
+const directionOptions = computed(() => isCash.value ? [['', '全部'], ...movements] : movements)
+const activeDirection = computed(() => isCash.value ? cashDirection.value : activeKind.value === 'bank_receipt' ? 'income' : 'expense')
+const showsExpense = computed(() => activeKind.value === 'bank_expense' || (isCash.value && cashDirection.value !== 'income'))
+const visibleTotals = computed(() => {
+  const totals = activeLedger.value.totals
+  if (cashDirection.value === 'income') return { inflow: totals.inflow }
+  if (cashDirection.value === 'expense') return { outflow: totals.outflow }
+  return totals
+})
 const showReconciliation = computed(() => isJournal.value
   ? route.query.ledger === 'reconciliation' || Boolean(route.query.new) || (!loadingSchema.value && !tabs.value.length)
   : !route.query.ledger && ['tab', 'contract_no', 'state', 'keyword', 'period'].some((key) => key in route.query))
@@ -194,8 +220,8 @@ const allocationOpen = ref(false), allocationRow = ref(null), allocationProject 
 const removal = ref(null), removalOpen = ref(false), removalReason = ref(''), removing = ref(false), loadingBatch = ref(false)
 const removalValues = computed(() => removal.value?.row?.values || {})
 const removalLabel = computed(() => {
-  const { payer, payee, customer, summary, project, account } = removalValues.value
-  return payer || payee || customer || summary || project || account
+  const { payer, payee, customer, name, summary, project, account } = removalValues.value
+  return payer || payee || customer || name || summary || project || account
 })
 const removalAmount = computed(() => {
   const { net, payment, income, balance } = removalValues.value
@@ -217,17 +243,29 @@ onMounted(async () => {
   finally { loadingSchema.value = false }
 })
 
-watch([activeKind, showReconciliation], ([kind, reconciliation]) => {
-  filters.account = ''
-  filters.keyword = ''
-  filters.unassigned = false
+watch([activeKind, cashDirection, showReconciliation], ([kind, , reconciliation], [previousKind]) => {
+  if (kind !== previousKind) {
+    filters.account = ''
+    filters.keyword = ''
+    filters.unassigned = false
+  }
+  if (!showsExpense.value) filters.unassigned = false
   result.value = emptyResult()
   requestId++
   if (kind && !reconciliation) search()
 }, { immediate: true })
 
-function go(kind) {
-  if (kind !== activeKind.value || showReconciliation.value) router.push({ query: kind ? { ledger: kind } : {} })
+function go(kind, direction = '') {
+  if (kind !== activeKind.value || direction !== cashDirection.value || showReconciliation.value) {
+    const query = kind ? { ledger: kind } : {}
+    if (direction) query.direction = direction
+    router.push({ query })
+  }
+}
+
+function changeDirection(direction) {
+  if (isCash.value) go('cash_journal', direction)
+  else go(direction === 'income' ? 'bank_receipt' : 'bank_expense')
 }
 
 function changeYear() {
@@ -277,7 +315,7 @@ async function loadEntries() {
     const data = await api.get(`/finance-ledgers/entries/${activeKind.value}`, {
       period: filters.year && filters.month ? `${filters.year}-${filters.month}` : (filters.year || ''),
       account: filters.account, keyword: filters.keyword,
-      project: filters.unassigned ? 'unassigned' : '', page: page.value,
+      project: filters.unassigned ? 'unassigned' : '', direction: cashDirection.value || undefined, page: page.value,
     })
     if (request === requestId) result.value = data
   } catch { /* API client reports the error. */ }
@@ -286,11 +324,11 @@ async function loadEntries() {
 
 function columnWidth(field) {
   if (field.type === 'money' || field.type === 'date') return 112
-  return { sequence: 55, summary: 168, project: 130, note: 120, account: 120, approval_no: 133, applicant: 86 }[field.key] || 128
+  return { sequence: 55, summary: 168, project: 160, name: 270, note: 120, account: 120, approval_no: 133, applicant: 86 }[field.key] || 128
 }
 
 function opening(row) {
-  return row.kind === 'cash_journal' && !Number(row.values.income) && !Number(row.values.payment)
+  return row.cash_category === 'opening'
 }
 
 function rowClass({ row }) {
@@ -305,7 +343,10 @@ async function afterImport(receipt) {
   filters.account = ''
   filters.keyword = ''
   filters.unassigned = false
-  if (kinds.includes(activeKind.value)) await search()
+  if (kinds.includes(activeKind.value)) {
+    if (cashDirection.value) await router.replace({ query: { ledger: 'cash_journal' } })
+    else await search()
+  }
   else importedKind.value = kinds[0]
 }
 
@@ -384,6 +425,10 @@ async function saveRemoval() {
 .ledger-tabs button { display: inline-flex; gap: 8px; align-items: center; padding: 9px 4px 12px; color: var(--jc-ink-2); background: transparent; border: 0; border-bottom: 2px solid transparent; white-space: nowrap; font: inherit; cursor: pointer; }
 .ledger-tabs button.active { color: var(--jc-brand); border-bottom-color: var(--jc-brand); font-weight: 650; }
 .ledger-tabs button:hover { color: var(--jc-brand); }
+.ledger-directions { display: inline-flex; gap: 3px; margin-bottom: 14px; padding: 3px; border: 1px solid var(--jc-line); border-radius: 8px; background: var(--jc-surface-2); }
+.ledger-directions button { min-width: 66px; min-height: 30px; padding: 3px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--jc-ink-2); font: inherit; cursor: pointer; }
+.ledger-directions button[aria-pressed="true"] { background: var(--jc-brand); color: white; font-weight: 600; }
+.ledger-directions button:focus-visible { outline: 2px solid var(--jc-brand); outline-offset: 2px; }
 .ledger-stats { display: grid; grid-template-columns: repeat(var(--stat-columns), minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .ledger-stat { min-width: 0; display: grid; gap: 7px; padding: 15px 19px; border: 1px solid var(--jc-line); background: var(--jc-surface); border-radius: 10px; }
 .ledger-stat span { font-size: 12px; color: var(--jc-ink-2); }
