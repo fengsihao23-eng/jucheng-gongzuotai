@@ -47,9 +47,7 @@
     <Panel v-if="mode === 'income' && project.financials.daily.length" title="每日收入" class="mt-16"><Chart :option="incomeChart" height="240px" /></Panel>
     <Panel v-if="mode === 'income' && project.unassigned_incomes?.length" title="项目公共收入（未分摊学校）" :sub="`合计 ${money(project.financials.unassigned_income)}，已计入累计登记收入`" class="mt-16"><el-table :data="project.unassigned_incomes" max-height="300"><el-table-column prop="income_date" label="收款日期" width="130" /><el-table-column label="金额（元）" width="130"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="note" label="来源与说明" min-width="300" show-overflow-tooltip /></el-table></Panel>
 
-    <RecordDetailDialog :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }"
-      dialog-title="学校资料" :heading="selected?.name" :target="{ kind: 'school', id: selected?.id }"
-      progress-hint="记录学校拜访、需求核对或合作落地进展。"> { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
+    <el-drawer :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
       <template v-if="selected">
         <div class="jc-row between"><p><span v-if="can('procurement')">合计投入 <b>{{ money(selected.total_investment) }} 元</b> </span><span v-if="can('income')">· 累计收入 <b>{{ money(selected.total_income) }} 元</b></span></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
         <p v-if="can('outreach')" class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
@@ -92,7 +90,7 @@
           </el-tab-pane>
         </el-tabs>
       </template>
-    </RecordDetailDialog>
+    </el-drawer>
 
     <el-dialog v-model="dialog" :title="dialogTitle" width="min(620px, 94vw)" destroy-on-close>
       <el-form ref="formRef" :model="form" label-position="top">
@@ -131,7 +129,6 @@
   </div>
 </template>
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'

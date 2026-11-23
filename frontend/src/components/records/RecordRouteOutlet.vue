@@ -29,13 +29,12 @@ import RecordRouteContext from './RecordRouteContext.vue'
 
 const router = useRouter(), route = useRoute()
 const background = shallowRef(null), linked = shallowRef(null), linkedError = shallowRef('')
-const fallbacks = { 'key-project-detail': '/market', 'project-detail': '/projects', 'operation-detail': '/operations',
+const fallbacks = { 'key-project-detail': '/market', 'project-detail': '/projects',
   'contract-detail': '/contracts', 'performance-contract-detail': '/contracts', 'collection-contract-detail': '/collections',
   'collection-project-report': '/collections', 'collection-followup': '/notifications', 'linked-record': '/notifications' }
 const hints = {
   project: '说明项目目前推进到哪一步、需要协调什么。',
   'key-project': '说明关键事项、节点进展或需要协调的问题。',
-  operation: '说明项目进展、实际成果和待协调事项。',
   contract: '说明签署、履约或交付目前推进到哪一步。',
   'workbook-contracts': '说明签署、履约或交付目前推进到哪一步。',
   'workbook-collections': '说明催收、付款审批或预计到账的情况。',
