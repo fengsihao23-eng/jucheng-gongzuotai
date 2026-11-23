@@ -51,8 +51,7 @@
     </Panel>
     <p class="jc-small jc-muted coverage">完整记录自 {{ datetime(options.since) }} 起启用。此前只保留已有审计；密码与密钥已隐藏。界面操作为客户端上报，实际保存的数据变化由数据库记录。</p>
 
-    <RecordDetailDialog v-model="detailOpen" dialog-title="操作详情" :heading="detail?.action"
-      :target="{ kind: 'audit', id: detail?.key }" progress-hint="说明这条操作记录的核对情况。">
+    <el-drawer v-model="detailOpen" title="操作详情" size="min(920px, 100vw)" destroy-on-close>
       <div v-loading="detailLoading" class="audit-detail">
         <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
         <template v-if="detail">
@@ -95,11 +94,10 @@
           </details>
         </template>
       </div>
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import api from '@/api/client'
 import dayjs from 'dayjs'

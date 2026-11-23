@@ -38,8 +38,7 @@
       </el-table>
     </Panel>
 
-    <RecordDetailDialog v-model="handleOpen" dialog-title="到期预警详情" :heading="cur?.name"
-      :target="{ kind: 'hr-alert', id: cur?.id }" progress-hint="记录续签、转正或资料补充的进展。">
+    <el-dialog v-model="handleOpen" title="处理到期预警" width="440px">
       <p class="jc-muted">{{ cur?.name }} · {{ cur?.alert_type_name }} {{ cur?.due_date }}</p>
       <el-radio-group v-model="hf.handled" class="mb-16">
         <el-radio :value="true">已处理（续签 / 转正 / 不续签）</el-radio>
@@ -50,7 +49,7 @@
         <el-button @click="handleOpen = false">取消</el-button>
         <el-button type="primary" @click="saveHandle">保存</el-button>
       </template>
-    </RecordDetailDialog>
+    </el-dialog>
 
     <el-dialog v-model="ruleOpen" title="预警提前量" width="400px" @open="rf = { ...rule }">
       <el-form label-width="130px">
@@ -67,7 +66,6 @@
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

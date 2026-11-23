@@ -64,7 +64,7 @@
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`月度汇总 ${res.summary_rows.length}`" name="sum">
-            <el-table :data="res.summary_rows" @row-click="row => followupRow = row" size="small" max-height="480" :row-class-name="({ row }) => (row.absent_times ? 'is-alert' : '')">
+            <el-table :data="res.summary_rows" size="small" max-height="480" :row-class-name="({ row }) => (row.absent_times ? 'is-alert' : '')">
               <el-table-column prop="dept_name" label="部门" width="100" />
               <el-table-column prop="name" label="姓名" width="90" />
               <el-table-column prop="work_days" label="应出勤" width="80" align="right" />
@@ -121,15 +121,10 @@
         <el-button type="primary" :loading="saving" @click="saveRule">保存并重新核对</el-button>
       </template>
     </el-drawer>
-    <RecordRowDetails v-model:row="followupRow" kind="hr-attendance" title="月度考勤详情" heading-field="name"
-      :ident="followupRow ? `${period}:${followupRow.user_id}` : undefined"
-      :fields="{ dept_name: '部门', work_days: '应出勤', actual_days: '实际打卡', late_times: '迟到', early_times: '早退', missing_times: '缺卡', absent_times: '旷工' }"
-      progress-hint="记录考勤异常的核对结果及后续处理。" />
   </div>
 </template>
 
 <script setup>
-import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -139,7 +134,6 @@ import { useAuth } from '@/store/auth'
 const auth = useAuth()
 const TONE = { 迟到: 'warn', 早退: 'warn', 缺卡: 'info', 旷工: 'down', 请假: 'brand', 加班: 'up' }
 const prevP = dayjs().subtract(1, 'month').format('YYYY-MM')
-const followupRow = ref(null)
 const period = ref(prevP)
 const periods = ref([])
 const periodOptions = computed(() => [...new Set([dayjs().format('YYYY-MM'), prevP, ...periods.value.map((p) => p.period)])].sort().reverse())

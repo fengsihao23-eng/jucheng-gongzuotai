@@ -66,8 +66,7 @@
       </div>
     </Panel>
 
-    <RecordDetailDialog v-model="candOpen" dialog-title="候选人详情" :heading="cand?.name" :status="cand?.stage_name"
-      :target="{ kind: 'hr-candidate', id: cand?.id }" progress-hint="说明面试、录用或候选人沟通进展。">
+    <el-drawer v-model="candOpen" :title="cand?.name" size="520px">
       <template v-if="cand">
         <el-descriptions :column="2" size="small" border>
           <el-descriptions-item label="岗位">{{ cand.position }}</el-descriptions-item>
@@ -108,12 +107,11 @@
           <div v-if="offerRes" class="mt-8"><FileLink :file="offerRes.document.file" /></div>
         </template>
       </template>
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'

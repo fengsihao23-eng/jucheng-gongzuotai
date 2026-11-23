@@ -84,7 +84,7 @@
           </div>
 
           <Panel class="mt-16" title="历史快照" sub="每月 1 日 08:30 自动生成上月业绩、每周一 09:15 生成运营看板并推送营销管控与总办" :padding="false">
-            <el-table :data="reports" @row-click="row => followupRow = row" size="small" empty-text="暂无快照">
+            <el-table :data="reports" size="small" empty-text="暂无快照">
               <el-table-column prop="title" label="报表" min-width="180" />
               <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
               <el-table-column label="触发" width="80"><template #default="{ row }">{{ row.trigger === 'schedule' ? '定时' : '手动' }}</template></el-table-column>
@@ -186,15 +186,10 @@
         </div>
       </el-tab-pane>
     </el-tabs>
-    <RecordRowDetails v-model:row="followupRow" kind="performance-report" title="业绩快照详情" heading-field="title"
-      :fields="{ period: '期间', version: '版本' }" progress-hint="说明业绩核对、差异原因或需协调的事项。">
-      <FileLink v-for="file in followupRow?.files || []" :key="file.id" :file="file" />
-    </RecordRowDetails>
   </div>
 </template>
 
 <script setup>
-import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useRoute, useRouter } from 'vue-router'
@@ -205,7 +200,6 @@ import { PALETTE, baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
 
 const route = useRoute()
 const router = useRouter()
-const followupRow = ref(null)
 const tab = ref(route.query.tab === 'board' ? 'board' : 'perf')
 const period = ref(route.query.period || dayjs().format('YYYY-MM'))
 const line = ref('')

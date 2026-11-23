@@ -38,8 +38,7 @@
                      layout="prev, pager, next" @current-change="load" />
     </Panel>
 
-    <RecordDetailDialog v-model="drawer" dialog-title="审批详情" :heading="detail?.sp_name" :status="detail?.status_text"
-      :target="{ kind: 'approval', id: detail?.sp_no }" progress-hint="记录审批核对、台账登记或待补材料的进展。">
+    <el-drawer v-model="drawer" :title="detail?.sp_name || '审批详情'" size="52%" destroy-on-close>
       <div v-loading="detailLoading" class="jc-stack" v-if="detail">
         <div class="jc-row between wrap">
           <span class="jc-mono jc-small jc-muted">{{ detail.sp_no }}</span>
@@ -61,12 +60,11 @@
         </Panel>
       </div>
       <el-empty v-else-if="!detailLoading" description="未找到审批单" />
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/api/client'

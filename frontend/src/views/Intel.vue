@@ -49,8 +49,7 @@
       <el-pagination v-if="total > 50" v-model:current-page="page" :total="total" :page-size="50" layout="total, prev, pager, next" style="padding: 0 16px 12px" @current-change="load" />
     </Panel>
 
-    <RecordDetailDialog v-model="editDlg" :dialog-title="form.id ? '编辑情报' : view ? '情报详情' : '新增情报'" :heading="view?.title"
-      :target="{ kind: 'intel', id: view?.id }" progress-hint="说明情报核实、分析或后续行动的进展。">
+    <el-drawer v-model="editDlg" :title="form.id ? '编辑情报' : view ? '情报详情' : '新增情报'" size="520px">
       <template v-if="view">
         <div class="jc-row wrap mb-16"><StatusPill :text="view.kind_text" :tone="KTONE[view.kind]" /><StatusPill :text="view.importance_text" :tone="view.importance === 3 ? 'down' : view.importance === 2 ? 'warn' : ''" /><span class="jc-muted jc-small">{{ date(view.published_on) }} · {{ view.source_name || '—' }} · 录入 {{ view.author_name || '—' }}</span></div>
         <h3 class="jc-serif" style="margin: 0 0 12px">{{ view.title }}</h3>
@@ -95,7 +94,7 @@
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
         </template>
       </template>
-    </RecordDetailDialog>
+    </el-drawer>
 
     <el-dialog v-model="briefDlg" title="整理竞品简报" width="520px">
       <el-form label-width="84px">
@@ -134,7 +133,6 @@
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'

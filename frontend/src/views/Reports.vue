@@ -145,8 +145,7 @@
     </el-dialog>
 
     <!-- 详情抽屉 -->
-    <RecordDetailDialog v-model="drawer.show" dialog-title="报表详情" :heading="drawer.data?.title" full-width-content
-      :target="{ kind: 'report', id: drawer.data?.id }" progress-hint="记录报表核对、发现的差异或下一步处理。">
+    <el-drawer v-model="drawer.show" size="760px" :title="drawer.data?.title || '报表详情'">
       <div v-if="drawer.data" v-loading="drawer.loading" class="jc-stack">
         <div class="jc-row wrap jc-small jc-muted">
           <span>期间 {{ drawer.data.period_label }}</span><span>· v{{ drawer.data.version }}</span>
@@ -181,12 +180,11 @@
           </el-table>
         </Panel>
       </div>
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'

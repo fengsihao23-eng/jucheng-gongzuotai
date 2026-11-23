@@ -102,8 +102,7 @@
     </Panel>
 
     <!-- 文档详情 -->
-    <RecordDetailDialog v-model="drawer" dialog-title="知识文档详情" :heading="doc?.title"
-      :target="{ kind: 'knowledge', id: doc?.id }" progress-hint="说明文档补充、审核或更新的情况。">
+    <el-drawer v-model="drawer" :title="doc?.title" size="50%" destroy-on-close>
       <div v-if="doc" class="preview">
         <div class="info jc-small">
           <StatusPill :text="doc.status_name" :tone="STATUS_TONE[doc.status]" />
@@ -138,7 +137,7 @@
           <p v-html="mark(c.text)" />
         </section>
       </div>
-    </RecordDetailDialog>
+    </el-drawer>
 
     <!-- 上传 / 修改信息 -->
     <el-dialog v-model="formDlg" :title="editing ? '修改文档信息' : '上传文档到知识库'" width="620px" destroy-on-close>
@@ -174,7 +173,6 @@
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, defineComponent, h, nextTick, onMounted, ref, resolveComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

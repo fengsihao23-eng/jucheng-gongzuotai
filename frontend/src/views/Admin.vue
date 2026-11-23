@@ -257,7 +257,7 @@
       <template #footer><el-button @click="roleDlg = false">取消</el-button><el-button type="primary" @click="saveRole">保存</el-button></template>
     </el-dialog>
 
-    <RecordDetailDialog v-model="logDlg" dialog-title="执行日志">
+    <el-drawer v-model="logDlg" title="执行日志" size="640px">
       <el-timeline>
         <el-timeline-item v-for="l in logs" :key="l.id" :timestamp="datetime(l.run_at)" :type="l.status === 'success' ? 'success' : l.status === 'failed' ? 'danger' : 'info'">
           <b>{{ JOB_ST[l.status] }}</b> <span class="jc-muted jc-small">· {{ l.trigger === 'manual' ? '手动' : '定时' }} · 影响 {{ l.rows }} 行</span>
@@ -265,12 +265,11 @@
           <pre v-if="l.error" class="err">{{ l.error }}</pre>
         </el-timeline-item>
       </el-timeline>
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

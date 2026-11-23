@@ -28,10 +28,7 @@
             </el-table>
           </Panel>
         </div>
-        <RecordDetailDialog :model-value="!!doc" @update:model-value="value => { if (!value) doc = null }"
-          dialog-title="标书资料详情" :heading="doc?.title" :target="{ kind: 'tender-doc', id: doc?.id }">
-          <template v-if="doc" #workspace>
-        <Panel class="mt-16" :title="doc.title" :sub="`${doc.doc_type_text} · ${doc.clause_count} 条款`" :padding="false">
+        <Panel v-if="doc" class="mt-16" :title="doc.title" :sub="`${doc.doc_type_text} · ${doc.clause_count} 条款`" :padding="false">
           <template #extra><FileLink v-if="doc.file" :file="doc.file" /></template>
           <div class="filters">
             <el-radio-group v-model="kindFilter" size="small">
@@ -46,13 +43,11 @@
             <el-table-column prop="chapter" label="所属章节" width="160" show-overflow-tooltip />
           </el-table>
         </Panel>
-          </template>
-        </RecordDetailDialog>
       </el-tab-pane>
 
       <!-- 合规检查 -->
       <el-tab-pane label="合规检查" name="check">
-        <Panel title="新建合规检查" sub="选择需求书与投标文件后，系统按 5 个维度逐轮引导排查">
+        <Panel v-if="!chk" title="新建合规检查" sub="选择需求书与投标文件后，系统按 5 个维度逐轮引导排查">
           <div class="jc-row wrap">
             <el-select v-model="sel.tender" placeholder="需求书 / 招标文件" style="width: 320px" filterable>
               <el-option v-for="d in docsOf('tender')" :key="d.id" :label="d.title" :value="d.id" />
@@ -74,10 +69,7 @@
           </div>
         </Panel>
 
-        <RecordDetailDialog :model-value="!!chk" @update:model-value="value => { if (!value) closeCheck() }"
-          dialog-title="合规检查详情" :heading="chk?.tender?.title" :target="{ kind: 'tender-check', id: chk?.id }"
-          progress-hint="记录条款核对、风险处理和修改进展。">
-          <template v-if="chk" #workspace>
+        <template v-else>
           <div class="jc-row between mb-16">
             <div class="jc-small jc-muted">{{ chk.tender?.title }} ⇄ {{ chk.bid?.title }}</div>
             <div class="jc-row">
@@ -86,7 +78,7 @@
               </el-steps>
               <el-button @click="exportCheck('xlsx')">导出 xlsx</el-button>
               <el-button @click="exportCheck('docx')">导出 docx</el-button>
-              <el-button link @click="closeCheck">返回</el-button>
+              <el-button link @click="chk = null; loadChecks()">返回</el-button>
             </div>
           </div>
           <div class="chk">
@@ -149,13 +141,12 @@
               </div>
             </Panel>
           </div>
-          </template>
-        </RecordDetailDialog>
+        </template>
       </el-tab-pane>
 
       <!-- 方案生成 -->
       <el-tab-pane label="方案生成" name="gen">
-        <Panel title="生成方案" sub="按模板大纲逐章生成；大模型未配置时由规则引擎拼装，正文 [n] 角标可查看出处">
+        <Panel v-if="!gen" title="生成方案" sub="按模板大纲逐章生成；大模型未配置时由规则引擎拼装，正文 [n] 角标可查看出处">
           <el-form label-width="84px">
             <el-form-item label="方案类型"><el-segmented v-model="g.gen_type" :options="genTypeOptions" /></el-form-item>
             <el-form-item label="需求书">
@@ -180,11 +171,7 @@
             </el-table>
           </div>
         </Panel>
-        <RecordDetailDialog :model-value="!!gen" @update:model-value="value => { if (!value) closeGeneration() }"
-          dialog-title="方案详情" :heading="gen?.title" :target="{ kind: 'tender-generation', id: gen?.id }"
-          progress-hint="记录方案审核、内容修改和交付进展。">
-          <template v-if="gen" #workspace>
-        <div class="reader">
+        <div v-else class="reader">
           <aside class="toc jc-card">
             <div class="jc-small jc-muted">目录</div>
             <a v-for="s in gen.sections" :key="s.no" :class="{ on: activeSec === s.no }" @click="scrollSec(s.no)">{{ s.heading }}</a>
@@ -195,7 +182,7 @@
               <div class="jc-row">
                 <StatusPill :text="ENGINE[gen.engine] || gen.engine" tone="info" />
                 <el-button @click="exportGen">导出 docx</el-button>
-                <el-button link @click="closeGeneration">返回</el-button>
+                <el-button link @click="gen = null; loadGens()">返回</el-button>
               </div>
             </div>
             <section v-for="s in gen.sections" :key="s.no" :ref="(el) => (secEls[s.no] = el)" class="sec">
@@ -215,8 +202,6 @@
             </section>
           </article>
         </div>
-          </template>
-        </RecordDetailDialog>
         <el-dialog v-model="citeOpen" :title="cite ? `出处 [${cite.n}]` : ''" width="560px">
           <div v-if="cite">
             <div class="jc-row"><StatusPill :text="EV[cite.type] || cite.type" tone="brand" /><b>{{ cite.title }}</b></div>
@@ -256,7 +241,6 @@
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -326,7 +310,6 @@ function jumpDoc(e) {
   openDoc(Number(m[1]), m[2] ? decodeURIComponent(m[2]) : null)
 }
 
-function closeCheck() { chk.value = null; loadChecks() }
 async function loadChecks() { checks.value = await api.get('/tender/checks') }
 async function loadCheck(id) { chk.value = await api.get(`/tender/checks/${id}`); scrollChat() }
 async function startCheck() {
@@ -347,7 +330,6 @@ async function exportCheck(fmt) {
   openFile(f.url)
 }
 
-function closeGeneration() { gen.value = null; loadGens() }
 async function loadGens() { gens.value = await api.get('/tender/generations') }
 async function loadGen(id) { gen.value = await api.get(`/tender/generations/${id}`) }
 async function generate() {

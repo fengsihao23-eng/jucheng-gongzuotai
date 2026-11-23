@@ -46,8 +46,7 @@
       </Panel>
     </div>
 
-    <RecordDetailDialog v-model="dlg" dialog-title="复盘详情" :heading="form.title"
-      :target="{ kind: 'review', id: cur?.id }" progress-hint="记录复盘整改事项的推进情况。">
+    <el-drawer v-model="dlg" :title="form.title || '项目复盘'" size="720px">
       <el-form :model="form" label-position="top" :disabled="!data.can_write">
         <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
         <el-form-item label="目标（合同额 / 计划工期 / 预算）"><el-input v-model="form.goal" type="textarea" :autosize="{ minRows: 3 }" /></el-form-item>
@@ -67,12 +66,11 @@
           <el-button type="primary" :loading="saving" @click="save(2)">定稿</el-button>
         </template>
       </template>
-    </RecordDetailDialog>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'

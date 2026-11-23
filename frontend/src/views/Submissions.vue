@@ -50,7 +50,7 @@
               </template>
             </template>
             <el-table :data="d.missing" max-height="420" :row-class-name="({ row }) => (row.consecutive ? 'is-alert' : '')"
-                      empty-text="全部已提交" @row-click="row => followupRow = row" @selection-change="(v) => (selected = v.map((x) => x.user_id))">
+                      empty-text="全部已提交" @selection-change="(v) => (selected = v.map((x) => x.user_id))">
               <el-table-column v-if="d.can_remind" type="selection" width="40" />
               <el-table-column label="姓名" width="100" prop="name" />
               <el-table-column label="部门" width="110" prop="dept_name" />
@@ -75,7 +75,7 @@
               <el-option v-for="x in d.by_dept" :key="x.dept_code" :label="x.dept_name" :value="x.dept_code" />
             </el-select>
           </template>
-          <el-table :data="people" @row-click="row => followupRow = row" max-height="480">
+          <el-table :data="people" max-height="480">
             <el-table-column label="姓名" width="100" prop="name" />
             <el-table-column label="部门" width="110" prop="dept_name" />
             <el-table-column label="岗位" min-width="140" prop="position" />
@@ -91,14 +91,10 @@
         </Panel>
       </template>
     </div>
-    <RecordRowDetails v-model:row="followupRow" kind="submission-period" title="汇报跟进" heading-field="name"
-      :ident="followupRow && d ? `${d.report_type}:${d.period}:${followupRow.user_id}` : undefined"
-      :fields="{ dept_name: '部门', position: '岗位', submit_time: '提交时间' }" progress-hint="说明汇报补交、核对或事项跟进的进展。" />
   </div>
 </template>
 
 <script setup>
-import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -110,7 +106,6 @@ import { baseGrid } from '@/utils/chart'
 const TYPE_OPTS = [{ label: '周报', value: 'weekly' }, { label: '月报', value: 'monthly' }, { label: '日报', value: 'daily' }]
 const route = useRoute()
 const router = useRouter()
-const followupRow = ref(null)
 const type = ref(route.query.type || 'weekly')
 const period = ref(route.query.period || '')
 const periods = ref([])
