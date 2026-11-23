@@ -92,6 +92,51 @@ try {
     await shot(admin, 'permission-groups-desktop')
   })
 
+  await step('ACCESS-menu-parity', '个人配置列出整个侧栏，共用权限保存后与实际可见入口一致', async () => {
+    const checkbox = name => permissions.getByRole('checkbox', { name, exact: true })
+    const labels = async locator => (await locator.allTextContents()).map(label => label.trim())
+    const configuredEntries = permissions.locator('.group-heading > .el-checkbox:first-child .el-checkbox__label')
+    assert.deepEqual(await labels(configuredEntries), await labels(admin.locator('.side a.item')))
+
+    const contracts = checkbox('经营业绩'), approvals = checkbox('审批台账'), collections = checkbox('回款情况')
+    const invoices = checkbox('开票回款'), projectGroup = ['招标与在建', '一般项目', '历史项目'].map(checkbox)
+    await setChecked(invoices, false)
+    await setChecked(contracts, false)
+    assert.ok(await collections.isDisabled())
+    assert.equal(await collections.isChecked(), false)
+    await setChecked(invoices, true)
+    assert.equal(await collections.isChecked(), true)
+    assert.equal(await contracts.isChecked(), false)
+    await setChecked(invoices, false)
+    await setChecked(approvals, true)
+    assert.equal(await contracts.isChecked(), true)
+    assert.equal(await collections.isChecked(), true)
+    assert.equal(await invoices.isChecked(), false)
+    await setChecked(checkbox('导出合同'), true)
+    await setChecked(approvals, false)
+    assert.equal(await checkbox('导出合同').isChecked(), false)
+    await setChecked(approvals, true)
+
+    await setChecked(projectGroup[2], false)
+    for (const box of projectGroup) assert.equal(await box.isChecked(), false)
+    await setChecked(projectGroup[1], true)
+    for (const box of projectGroup) assert.equal(await box.isChecked(), true)
+
+    const profile = `/admin/users/${worker.id}/effective-permissions`
+    const saved = admin.waitForResponse(response => response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith(`/admin/users/${worker.id}/permissions`))
+    await permissions.getByRole('button', { name: '保存此人权限', exact: true }).click()
+    assert.ok((await saved).ok())
+    await permissions.getByRole('status').filter({ hasText: '已保存' }).waitFor()
+    const actual = await call('admin', 'GET', profile)
+    assert.ok(actual.menu_keys.includes('contracts') && actual.menu_keys.includes('projects'))
+    assert.ok(!actual.menu_keys.includes('receivables'))
+    await member.goto(WEB + '/')
+    await member.locator('.side a.item').filter({ hasText: '经营业绩' }).waitFor()
+    assert.deepEqual(await labels(permissions.locator('.effective-saved .jc-pill')), await labels(member.locator('.side a.item')))
+    await shot(admin, 'permission-workbench-menu-parity')
+  })
+
   await step('ACCESS-04', '成员已有登录态读取真实小项权限，未授权页签及接口不可见', async () => {
     await member.goto(`${WEB}/operations/${project.id}`)
     await member.getByRole('tab', { name: '设备产品库', exact: true }).waitFor()

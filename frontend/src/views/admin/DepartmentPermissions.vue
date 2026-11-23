@@ -51,7 +51,7 @@
                 <el-button link type="primary" @click="rosterTab = 'people'; filterRole(role.code)">{{ role.count }} 人</el-button>
               </header>
               <dl><div><dt>数据范围</dt><dd>{{ SCOPE[role.data_scope] }}</dd></div>
-                <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="key in role.menus" :key="key" class="jc-pill">{{ menus[key] || key }}</span><span v-if="!role.menus.length" class="jc-muted">仅公共入口</span></dd></div>
+                <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="label in visibleMenuLabels(role.menus, role.code === 'ADMIN-01')" :key="label" class="jc-pill">{{ label }}</span><span v-if="!role.menus.length" class="jc-muted">仅公共入口</span></dd></div>
                 <div><dt>操作权限</dt><dd class="role-tags"><span v-for="key in role.buttons" :key="key" class="jc-pill">{{ privileges[key] || key }}</span><span v-if="!role.buttons.length" class="jc-muted">仅基础操作</span></dd></div>
               </dl>
               <el-button v-if="canManage" link type="primary" @click="emit('edit-role', role)">调整角色规则</el-button>
@@ -116,7 +116,7 @@
             </el-form>
             <dl v-else class="role-defaults">
               <div><dt>数据范围</dt><dd>{{ SCOPE[roleDefaults.data_scope] }}</dd></div>
-              <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="key in roleDefaults.menus" :key="key" class="jc-pill">{{ menus[key] || key }}</span></dd></div>
+              <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="label in roleMenuLabels" :key="label" class="jc-pill">{{ label }}</span></dd></div>
               <div><dt>操作权限</dt><dd class="role-tags"><span v-for="key in roleDefaults.buttons" :key="key" class="jc-pill">{{ privileges[key] || key }}</span><span v-if="!roleDefaults.buttons.length" class="jc-muted">仅基础操作</span></dd></div>
             </dl>
           </section>
@@ -124,7 +124,7 @@
           <section v-if="effective.active" class="effective-saved">
             <h4>已保存并生效的权限</h4>
             <p v-if="changed" class="jc-small jc-muted">上方选择尚未保存；这里显示账号当前实际生效的权限。</p>
-            <div class="role-tags"><span v-for="label in effective.menus" :key="label" class="jc-pill">{{ label }}</span></div>
+            <div class="role-tags"><span v-for="label in effectiveMenuLabels" :key="label" class="jc-pill">{{ label }}</span></div>
             <p class="jc-small jc-muted">可执行操作：{{ effective.buttons.map(key => privileges[key] || key).join('、') || '基础查看操作' }}</p>
             <p v-for="(selected, menu) in effective.sections || {}" :key="menu" class="jc-small jc-muted">{{ menus[menu] }}功能：{{ sectionLabels(menu, selected).join('、') || '未授权任何小项' }}</p>
             <p v-for="note in effective.access_notes || []" :key="note" class="jc-small access-note">{{ note }}</p>
@@ -135,7 +135,7 @@
               <div><dt>当前生效角色</dt><dd>{{ effective.roles.map(roleName).join('、') }}</dd></div>
               <div><dt>数据范围</dt><dd>{{ SCOPE[effective.data_scope] }}</dd></div>
               <div><dt>运营项目</dt><dd>{{ effective.operations_manage_all ? '可管理全量' : effective.operations_all ? '可查看全量' : '按项目成员身份' }}<span v-if="effective.operations_archive"> · 已获任务作废权限</span></dd></div>
-              <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="name in effective.menus" :key="name" class="jc-pill">{{ name }}</span><span v-if="!effective.menus.length">无</span></dd></div>
+              <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="label in effectiveMenuLabels" :key="label" class="jc-pill">{{ label }}</span><span v-if="!effectiveMenuLabels.length">无</span></dd></div>
               <div><dt>操作权限</dt><dd class="role-tags"><span v-for="code in effective.buttons" :key="code" class="jc-pill">{{ privileges[code] || code }}</span><span v-if="!effective.buttons.length">仅基础操作</span></dd></div>
             </dl>
             <details v-if="effective.projects.length" class="projects">
@@ -189,6 +189,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { visibleMenuLabels } from '@/config/menu'
 import { datetime } from '@/utils/format'
 import { useAuth } from '@/store/auth'
 import { announcePermissionChange } from '@/composables/usePermissionRefresh'
@@ -249,6 +250,8 @@ const roleDefaults = computed(() => {
   }
   return normalized({ menus: [...menus], buttons: [...buttons], data_scope })
 })
+const roleMenuLabels = computed(() => visibleMenuLabels(roleDefaults.value.menus, administrator.value))
+const effectiveMenuLabels = computed(() => visibleMenuLabels(effective.value?.menu_keys || [], effective.value?.roles.includes('ADMIN-01')))
 const changed = computed(() => Boolean(added.value.length || removed.value.length) || Boolean(effective.value && workbenchEnabled.value !== effective.value.workbench_enabled) ||
   Boolean(effective.value && JSON.stringify(mode.value === 'personal' ? normalized(permissionDraft) : null) !==
     JSON.stringify(normalized(effective.value.individual_permissions))))

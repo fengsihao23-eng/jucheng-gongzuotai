@@ -62,3 +62,14 @@ export const MENU_GROUPS = [
     ],
   },
 ]
+
+export function canSeeMenu(item, hasMenu, isAdmin) {
+  return (!item.adminOnly || isAdmin) && (item.anyMenu || [item.key]).some(hasMenu)
+}
+
+export function visibleMenuLabels(keys, isAdmin) {
+  const granted = new Set(keys)
+  return MENU_GROUPS.flatMap(group => group.items
+    .filter(item => canSeeMenu(item, key => granted.has(key), isAdmin))
+    .map(item => item.label))
+}
