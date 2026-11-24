@@ -254,6 +254,46 @@ def test_cash_signed_and_separate_amounts_respect_source_conventions(client, log
     assert expense["totals"] == {"inflow": "0.00", "outflow": "5.00", "fee": "0.00"}
 
 
+def test_cash_preview_normalizes_tails_and_ignores_only_trailing_placeholders(client, login):
+    headers = login("chenjing")
+    columns = ["序号", "日期", "摘要", "收入金额", "支付金额", "结余金额", "备注"]
+    file = workbook({
+        "202606": [columns,
+                   [1, None, "上月结转", None, None, 4800.290000000001],
+                   [2, "2026/6/2", "示例收款", 99.77000000000001, None, 4900.060000000001],
+                   [3, "2026/6/2", "补足备用金", 10000, None, 14900.06],
+                   [4, "2026/6/2", "物资采购", None, 5000.000000000001, 9900.060000000002],
+                   [5, "2026/6/2", "零发生", None, -6.366462912410498e-12, 9900.060000000002],
+                   [6, None, None, None, None, 9900.06],
+                   [None, None, None, None, None, 9900.060000000002],
+                   [8],
+                   [9, None, None, None, None, 9900.07]],
+        "202607": [columns,
+                   [1, "2026/7/2", "真实多位小数", 12.345, None, 12.35],
+                   [2, None, None, None, None, 12.35, "凭证日期待补"]],
+    })
+    batch = data(upload(client, headers, "cash_journal", file, "现金余额公式测试.xlsx"))
+    reopened = data(client.get(f"{API}/imports/{batch['id']}", headers=headers))
+    assert reopened["counts"] == {"ready": 5, "duplicate": 0, "repeated": 0, "error": 3}
+    assert reopened["skipped_blank_rows"] == 3
+    rows = {r["id"]: r for r in reopened["rows"]}
+    assert rows["1:2"]["values"]["balance"] == "4800.29"
+    assert rows["1:3"]["values"]["income"] == "99.77"
+    assert rows["1:5"]["values"]["balance"] == "9900.06"
+    assert rows["1:5"]["raw"][-1].startswith("9900.060000")
+    assert rows["1:6"]["values"]["payment"] == "0.00" and rows["1:6"]["cash_category"] == "zero"
+    assert rows["1:10"]["status"] == "error"
+    assert "精确到分" in rows["2:2"]["errors"]["income"]
+    assert rows["2:3"]["values"]["note"] == "凭证日期待补" and rows["2:3"]["status"] == "error"
+    assert show(client, headers, "cash_journal", keyword="物资采购")["total"] == 0
+    assert confirm(client, headers, reopened, ["1:7"]).status_code == 400
+    assert confirm(client, headers, reopened, ["2:2"]).status_code == 409
+    assert data(confirm(client, headers, reopened))["inserted"] == 5
+    posted = show(client, headers, "cash_journal", keyword="物资采购")
+    assert posted["total"] == 1 and posted["totals"]["outflow"] == "5000.00"
+    assert posted["items"][0]["values"]["balance"] == "9900.06"
+
+
 def test_concurrent_confirm_and_conflicting_reference(client, login):
     headers = login("chenjing")
     content = "收款日期,收款银行,汇款公司,收入金额,银行流水号\n2026-06-11,并发测试账户,示例客户,1999,CI7008"

@@ -11,6 +11,10 @@ MAX_ROWS = 5000
 MAX_COLUMNS = 100
 MAX_BYTES = 20 * 1024 * 1024
 ZERO = Decimal("0.00")
+CENT = Decimal("0.01")
+MONEY_LIMIT = Decimal("1000000000000")
+# A worksheet calculation can leave a tiny residual around an exact cent.
+MONEY_TAIL_TOLERANCE = Decimal("0.00000001")
 
 
 @dataclass(frozen=True)
@@ -169,12 +173,17 @@ def parse_money(text):
     text = re.sub(r"(?i)人民币|CNY|RMB|[¥元\s]", "", text)
     if text.startswith("(") and text.endswith(")"):
         text = "-" + text[1:-1]
-    if not re.fullmatch(r"[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?", text):
+    if not re.fullmatch(r"[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?(?:[eE][+-]?\d{1,3})?", text):
         raise ValueError("请核对金额格式")
     amount = Decimal(text.replace(",", ""))
-    if abs(amount) >= Decimal("1000000000000") or amount.quantize(Decimal("0.01")) != amount:
-        raise ValueError("金额须小于一万亿元，且精确到分")
-    return format(amount.quantize(Decimal("0.01")) if amount else ZERO, "f")
+    if amount.copy_abs() >= MONEY_LIMIT:
+        raise ValueError("金额须小于一万亿元")
+    rounded = amount.quantize(CENT)
+    if rounded.copy_abs() >= MONEY_LIMIT:
+        raise ValueError("金额须小于一万亿元")
+    if abs(amount - rounded) > MONEY_TAIL_TOLERANCE:
+        raise ValueError("金额须精确到分，请核对原表小数")
+    return format(rounded if rounded else ZERO, "f")
 
 
 def clean_value(field, value):

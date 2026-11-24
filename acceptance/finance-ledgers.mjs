@@ -172,25 +172,32 @@ await step('FIN-03', '截图中的银行支出归出纳日记账，报销归集�
   return { evidence: [expenseEvidence, await capture(screen, '04-出纳日记账-银行支出')] }
 })
 
-await step('FIN-04', '图五标准现金 XLSX，收入、支出、结转和零发生', async () => {
+await step('FIN-04', '现金 XLSX 金额尾差自动归分，表尾占位行略过', async () => {
   await visit('/journal?ledger=cash_journal', '出纳日记账')
   const columns = ['序号', '日期', '对方科目', '申请编号', '摘要', '收入金额', '支付金额', '结余金额', '备注']
   const dialog = await preview('测试_现金日记账.xlsx', xlsx({ 现金日记账: [
     columns,
-    [1, null, null, null, '上月结转', null, null, 810.59],
-    [2, '2026/11/2', '示例银行', null, '备用金补充', 5000, null, 5810.59],
-    [3, '2026/11/7', '示例员工甲', '202611070034', '报销交通费', null, 125.30, 5685.29, '凭证齐全'],
-    [4, '2026/11/8', '示例员工乙', '202611080002', '日常采购', null, 2000, 3685.29],
-    [5, '2026/11/8', '内部转记', null, '零发生核对行', null, 0, 3685.29],
+    [1, null, null, null, '上月结转', null, null, 4800.290000000001],
+    [2, '2026/11/2', '示例银行', null, '备用金补充', 10099.77000000001, null, 14900.06],
+    [3, '2026/11/7', '示例员工甲', '202611070034', '日常采购', null, 5000.000000000001, 9900.060000000002, '凭证齐全'],
+    [4, '2026/11/8', '示例员工乙', '202611080002', '报销交通费', null, 125.3000000000001, 9774.760000000002],
+    [5, '2026/11/8', '内部转记', null, '零发生核对行', null, -6.366462912410498e-12, 9774.760000000002],
+    [6, null, null, null, null, null, null, 9774.760000000002],
+    [7],
   ] }))
   assert.equal(previewResponse.groups[0].method, 'rule')
+  assert.equal(previewResponse.counts.error, 0)
+  assert.equal(previewResponse.skipped_blank_rows, 2)
   await dialog.getByText('有核对提示', { exact: true }).waitFor()
   await dialog.getByRole('button', { name: '零发生 1', exact: true }).waitFor()
+  await dialog.getByText('已略过 2 行表尾占位', { exact: true }).waitFor()
+  await dialog.getByText('¥9,900.06', { exact: true }).waitFor()
+  const review = await capture(screen, '05a-现金金额修复-导入预览')
   assert.equal((await confirm(dialog)).inserted, 5)
   await screen.getByText('上月结转', { exact: true }).waitFor()
   const result = await existing('cash_journal', { period: '2026-11' })
-  assert.equal(result.totals.inflow, '5000.00')
-  assert.equal(result.totals.outflow, '2125.30')
+  assert.equal(result.totals.inflow, '10099.77')
+  assert.equal(result.totals.outflow, '5125.30')
   assert.equal(result.items[0].source.row, 2)
   const region = screen.getByRole('region', { name: '现金日记账' })
   assert.deepEqual(await region.getByRole('columnheader').allTextContents(), [...columns, '操作'])
@@ -207,7 +214,7 @@ await step('FIN-04', '图五标准现金 XLSX，收入、支出、结转和零�
   assert.equal((await (await expense).json()).data.total, 2)
   await region.getByText('日常采购', { exact: true }).waitFor()
   assert.equal(await region.getByText('上月结转', { exact: true }).count(), 0)
-  return { evidence: [overview, inflow, await capture(screen, '05c-现金日记账-支出')] }
+  return { evidence: [review, overview, inflow, await capture(screen, '05c-现金日记账-支出')] }
 })
 
 await step('FIN-05', '图一 XLSX 可直接导入无票号开票台账，跳过合计', async () => {

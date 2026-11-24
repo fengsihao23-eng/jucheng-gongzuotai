@@ -21,8 +21,9 @@
 | 出纳日记账 → 银行日记账 → 支出 | `bank_expense` | `sequence` 序号、`date` 日期、`account` 汇款公司、`summary` 摘要、`payee` 收款方资料、`payment` 金额、`applicant` 申请人、`approval_no` 审批编号、`note` 备注、`project` 项目。日期、汇款公司、收款方和金额必填。`reference` 可选。 |
 | 出纳日记账 → 现金日记账 | `cash_journal` | `sequence` 序号、`date` 日期、`counterparty` 对方科目、`approval_no` 申请编号、`summary` 摘要、`income` 收入金额、`payment` 支付金额、`balance` 结余金额、`note` 备注。普通行填写日期和至少一个金额，允许原表明确列示的零金额。结转行填写结余及日期或所属月份。`account`、`project`、`reference`、`period` 可按来源保存。 |
 
-- 金额单位为人民币元。成功校验的金额以两位小数字符串传输，如 `"3680.50"`。金额合计跟随台账的期间和账户筛选。
+- 金额单位为人民币元。成功校验的金额以两位小数字符串传输，如 `"3680.50"`。小数与最近一分相差不超过 `0.00000001` 元时，自动消除公式的浮点尾差，例如将 `9900.060000000002` 读为 `9900.06`。实际超过该精度差的金额仍待核对，原表值可从源行查看。金额合计跟随台账的期间和账户筛选。
 - 日期输出为 `YYYY-MM-DD`，月份为 `YYYY-MM`。账表标题或后续交易日期可为现金结转提供月份。结转余额与现金结余按源值保存，合计只累计发生额。存在两项非零发生额的原表行在两种方向中均可查到。
+- 现金表末尾只有预填序号、或只重复上一笔结余的占位行会略过，预览会显示数量。仍在有效期内的草稿从「导入记录」重新打开时，按当前校验规则生成预览。
 - 账号、审批编号、发票号和流水号按文本交接。Excel 里的长编号应保存为文本，以保留所有位数和前导零。
 - 同一个账户名用同一写法。现金账户可以来自文件或工作表标题，也可在预览中指定。现金模板没有账户列时可直接核对入账。
 - 二维码收款明细已停用。曾导入的这一类记录留档，混合工作簿中的二维码明细页会略过并在预览里提示。
@@ -52,6 +53,7 @@
 - `rows[]` 每项含稳定的预览行 `id`、`group`、`kind`、源工作表 `sheet`、原行号 `row`、原文摘录 `raw`、标准字段 `values`、按字段列出的 `errors`、`warnings` 和 `status`。`status` 取值 `ready`、`duplicate`（台账已存在）、`repeated`（本批有相同标识）、`error`（待核对）。`counts` 按这四种状态计数。
 - 现金行的 `cash_category` 可为 `income`、`expense`、`both`、`opening`、`zero` 或 `unknown`，其他台账返回 `null`。有两列金额时分别映射 `income` 和 `payment`，保留原符号。来源使用同一列金额时，可映射 `flow_amount` 和 `flow_direction`。来源明确用正数表示流入、负数表示流出时，可映射 `signed_amount`，支付金额按绝对值入账。方向无据可查的行保留原文供核对。
 - `skipped[]` 包含略过的工作表名 `name` 和原因 `reason`。批次列表的 `status` 取值 `draft`、`confirmed`、`partial` 或 `removed`，已入账数量与剩余数量按当前模块统计。
+- `skipped_blank_rows` 是现金表尾占位行数量。这些行无预览行 ID，确认接口只接收本次预览中返回的 ID。
 - `notice` 提示小聚暂不可用或未完成整理的情况。应用可以继续展示规则识别结果，允许用户调整列对应及逐行修订。
 - 正式台账 `items[]` 每项含数据库 `id`、`kind`、`period`、`values`、当前用户的删除权限 `can_delete` 和 `source`。`source` 含 `filename`、`sheet`、`row`、`batch`、`imported_at`。预览行 `id` 仅在当前批次使用，台账记录 `id` 用于之后的查询与归集。
 

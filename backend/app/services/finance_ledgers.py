@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import date, timedelta
 import hashlib
 import json
+import re
 from uuid import uuid4
 
 from sqlalchemy import column, delete, func, or_, select, text, update
@@ -106,16 +107,41 @@ def raw_rows(group):
         yield number, values, raw, flow_error
 
 
+def without_cash_placeholders(group, rows, edits):
+    if group.get("records"):
+        return rows
+    source_cells = dict(group["source"])
+    placeholder_columns = {int(col) for col, key in group["mapping"].items() if key in {"sequence", "balance"}}
+    end = len(rows)
+    # Cash templates may prefill row numbers and copy the closing balance down the sheet.
+    for row in reversed(rows):
+        if row["id"] in edits or set(row["errors"]) != {"date", "income"}:
+            break
+        sequence = row["values"]["sequence"]
+        if sequence and not re.fullmatch(r"\d+(?:\.0+)?", sequence):
+            break
+        if any(value for col, value in enumerate(source_cells[row["row"]]) if col not in placeholder_columns):
+            break
+        end -= 1
+    if not 0 < end < len(rows) or rows[end - 1]["errors"]:
+        return rows
+    previous_balance = rows[end - 1]["values"]["balance"]
+    return rows[:end] + [row for row in rows[end:] if row["values"]["balance"] not in {"", previous_balance}]
+
+
 def proposed_rows(batch):
     rows = []
+    skipped_blank_rows = 0
+    edits = batch.draft["edits"]
     for ident, group in batch.draft["groups"].items():
         kind = group["kind"]
         if kind not in f.ACTIVE_KINDS:
             continue
         candidates = list(raw_rows(group))
+        group_rows = []
         for i, (number, values, raw, flow_error) in enumerate(candidates):
             row_id = f"{ident}:{number}"
-            amended = batch.draft["edits"].get(row_id, {})
+            amended = edits.get(row_id, {})
             values = {**values, **amended}
             inferred = ""
             if kind == "cash_journal" and f.is_opening(values) and not values.get("date") and not values.get("period"):
@@ -127,10 +153,14 @@ def proposed_rows(batch):
                 errors["income"] = flow_error
             if inferred:
                 warnings.append(f"结转月份取自账表（{inferred}），请核对")
-            rows.append({"id": row_id, "group": ident, "kind": kind, "sheet": group["name"], "row": number,
-                         "values": values, "errors": errors, "warnings": warnings, "status": "error" if errors else "ready", "raw": raw,
-                         "cash_category": f.cash_category(values, errors) if kind == "cash_journal" else None})
-    return rows
+            group_rows.append({"id": row_id, "group": ident, "kind": kind, "sheet": group["name"], "row": number,
+                               "values": values, "errors": errors, "warnings": warnings, "status": "error" if errors else "ready", "raw": raw,
+                               "cash_category": f.cash_category(values, errors) if kind == "cash_journal" else None})
+        if kind == "cash_journal":
+            group_rows = without_cash_placeholders(group, group_rows, edits)
+        rows.extend(group_rows)
+        skipped_blank_rows += len(candidates) - len(group_rows)
+    return rows, skipped_blank_rows
 
 
 def digest(value):
@@ -203,10 +233,11 @@ def report(db, batch, principal):
                        "columns": source.columns_for(group),
                        "headers": [{"row": n, "text": " ｜ ".join(v[:50] for v in cells if v)[:180]}
                                    for n, cells in group["source"][:40]]})
-    rows = check_duplicates(db, proposed_rows(batch))
+    rows, skipped_blank_rows = proposed_rows(batch)
+    rows = check_duplicates(db, rows)
     counts = Counter(row["status"] for row in rows)
     return {"id": batch.token, "version": batch.version, "filename": batch.filename,
-            "notice": batch.draft["notice"], "skipped": skipped, "groups": groups, "allowed": kinds,
+            "notice": batch.draft["notice"], "skipped": skipped, "skipped_blank_rows": skipped_blank_rows, "groups": groups, "allowed": kinds,
             "rows": [{k: v for k, v in row.items() if k not in {"identity", "signature"}} for row in rows],
             "counts": {k: counts[k] for k in ("ready", "duplicate", "repeated", "error")}}
 
@@ -229,7 +260,8 @@ def review(db, batch, principal, version, settings, updates):
         group.update(kind=setting.kind, header=setting.header, mapping=mapping, account=setting.account.strip(),
                      period=f.parse_month(setting.period) if setting.period else "", method="manual")
     batch.draft = draft
-    rows = {row["id"]: row for row in proposed_rows(batch)}
+    proposed, _ = proposed_rows(batch)
+    rows = {row["id"]: row for row in proposed}
     for update in updates:
         row = rows.get(update.id)
         if row is None or row["kind"] not in allowed:
@@ -258,7 +290,8 @@ def write_rows(db, batch, principal, version, row_ids, ip):
                 require_access(principal, kind, write=True)
         return batch.result
     lock_ledger(db)
-    rows = check_duplicates(db, proposed_rows(batch))
+    proposed, _ = proposed_rows(batch)
+    rows = check_duplicates(db, proposed)
     selected = set(row_ids)
     rows = [row for row in rows if row["id"] in selected]
     if len(rows) != len(selected):

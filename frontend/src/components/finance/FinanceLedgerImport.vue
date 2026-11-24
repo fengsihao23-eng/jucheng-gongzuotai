@@ -48,7 +48,11 @@
       <div class="preview-header">
         <div class="preview-file">
           <el-icon><Document /></el-icon>
-          <div><strong>{{ draft.filename }}</strong><span>{{ draft.groups.length }} 张表 · {{ draft.rows.length }} 行 · 待确认</span></div>
+          <div>
+            <strong>{{ draft.filename }}</strong>
+            <span>{{ draft.groups.length }} 张表 · {{ draft.rows.length }} 行 · 待确认</span>
+            <span v-if="draft.skipped_blank_rows">已略过 {{ draft.skipped_blank_rows }} 行表尾占位</span>
+          </div>
         </div>
         <div class="preview-totals" aria-label="核对结果筛选">
           <button type="button" :class="{ selected: rowFilter === 'all' }" :aria-pressed="rowFilter === 'all'" @click="setFilter('all')">全部 {{ draft.rows.length }}</button>
