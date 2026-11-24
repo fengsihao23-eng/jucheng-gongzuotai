@@ -21,7 +21,7 @@
       <nav class="list">
         <template v-for="g in groups" :key="g.label">
           <div class="gl">{{ g.label }}</div>
-          <div v-for="c in g.items" :key="c.id" class="conv" :class="{ on: c.id === sessionId }">
+          <div v-for="c in g.items" :key="c.id" v-record-delete="conversationRemoval(c)" class="conv" :class="{ on: c.id === sessionId }">
             <button type="button" class="ct" :disabled="busy && c.id !== sessionId" @click="openConv(c.id)">
               <i v-if="c.active_task_id" class="live" title="正在执行" />{{ c.title || '新对话' }}
             </button>
@@ -31,6 +31,7 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="fork" :disabled="busy">复制为新对话</el-dropdown-item>
                   <el-dropdown-item command="compact" :disabled="busy || c.id !== sessionId || messages.length < 2">整理上下文</el-dropdown-item>
+                  <el-dropdown-item command="remove" divided :disabled="busy || !!c.active_task_id">删除</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -215,6 +216,7 @@
 </template>
 
 <script setup>
+import { deleteRecord } from '@/composables/useRecordDeletion'
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, toRefs, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '@/store/auth'
@@ -315,11 +317,19 @@ function openConv(id) {
   sideOpen.value = false
   if (id !== sessionId.value) router.push({ name: 'xiaoju', params: { id }, query: route.query.from ? { from: route.query.from } : {} })
 }
+const conversationRemoval = row => !busy.value && !row.active_task_id && {
+  endpoint: '/assistant/sessions/' + row.id, name: row.title, title: '删除对话',
+  onDeleted: () => {
+    if (row.id === sessionId.value) startNew()
+    return refreshConversations()
+  },
+}
 async function onConvCmd(c, cmd) {
   if (cmd === 'fork') {
     if (c.id !== sessionId.value) await loadConversation(c.id)
     await forkConversation()
   } else if (cmd === 'compact') ask('压缩当前对话', false, 'compact')
+  else if (cmd === 'remove') deleteRecord(conversationRemoval(c))
 }
 const toggleSide = () => { sideCollapsed.value = !sideCollapsed.value; localStorage.setItem('xj_side', sideCollapsed.value ? '0' : '1') }
 const openSide = () => { if (window.innerWidth < 900) sideOpen.value = true; else toggleSide() }

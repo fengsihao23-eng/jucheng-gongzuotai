@@ -24,7 +24,7 @@
       <h3>任务明细 <span>{{ rows.length }} 项</span></h3>
       <el-popover v-if="data.note" :content="data.note" trigger="click" placement="bottom-end" :width="256"><template #reference><el-button link>统计说明</el-button></template></el-popover>
     </div>
-    <el-table v-if="rows.length" class="monthly-table" :data="rows" :row-class-name="({row}) => row.overdue ? 'is-alert' : ''" @row-click="t => emit('open-task', t)">
+    <el-table v-if="rows.length" class="monthly-table" :data="rows" :row-class-name="({row}) => row.overdue ? 'is-alert' : ''" @row-click="t => emit('open-task', t)" @row-contextmenu="taskMenu">
       <el-table-column label="负责人 / 项目" min-width="170"><template #default="{row}"><b>{{ row.owner_name }}</b><div class="jc-muted jc-small">{{ row.project_name }}</div></template></el-table-column>
       <el-table-column label="本月任务" width="130"><template #default="{row}">{{ TASK_SOURCES[row.source] }}<div v-if="row.carryover" class="jc-small jc-muted">从 {{ row.plan_month }} 延续</div><div v-if="row.approval_status !== 'approved'" class="jc-small jc-down">{{ APPROVAL_STATUS[row.approval_status] }}</div></template></el-table-column>
       <el-table-column label="具体事项" min-width="260"><template #default="{row}"><b>{{ row.title }}</b><p class="plain jc-small jc-muted">{{ row.latest_feedback || row.plan_context?.progress || row.description || '尚未反馈进展' }}</p></template></el-table-column>
@@ -50,6 +50,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, reactive, ref, useId, watch } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/api/client'
@@ -91,6 +92,7 @@ function summarize() { assistant.open(`请查询 ${month.value} 的运营月度�
 watch(() => [props.active, props.projectId, month.value], () => load(), { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => props.active })
 onBeforeUnmount(() => { version++ })
+const taskMenu = rowDeletion(row => row.can_archive && recordRemoval('operation-task', row.id, row.title, () => load(), { title: '删除任务' }))
 </script>
 <style scoped>
 .toolbar, .toolbar-group, .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }.toolbar { justify-content: space-between; margin-bottom: 12px; }

@@ -46,7 +46,7 @@
             <el-button v-if="d.can_edit" type="primary" size="small" @click="openNode()">新增节点</el-button>
           </template>
           <ol class="steps">
-            <li v-for="(m, i) in d.milestones" :key="m.id" :class="['st-' + m.status, { alert: m.alert }]">
+            <li v-for="(m, i) in d.milestones" :key="m.id" v-record-delete="nodeRemoval(m)" :class="['st-' + m.status, { alert: m.alert }]">
               <span class="node">{{ m.status === 3 ? '✓' : i + 1 }}</span>
               <div class="body">
                 <div class="jc-row between">
@@ -61,9 +61,7 @@
                     <el-button link size="small" :disabled="i === d.milestones.length - 1" @click="move(m, 'down')">下移</el-button>
                     <el-button link size="small" @click="openNode(m)">编辑</el-button>
                     <el-button v-if="m.status !== 3" link size="small" type="primary" @click="complete(m)">完成</el-button>
-                    <el-popconfirm title="删除该节点？变更将留痕" @confirm="remove(m)">
-                      <template #reference><el-button link size="small" type="danger">删除</el-button></template>
-                    </el-popconfirm>
+                    <el-button link size="small" type="danger" @click="remove(m)">删除</el-button>
                   </div>
                 </div>
                 <div class="meta jc-small">
@@ -167,6 +165,7 @@
 </template>
 
 <script setup>
+import { deleteRecord } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -248,11 +247,10 @@ async function move(m, direction) {
   d.value.milestones = await api.post(`/projects/${code}/milestones/${m.id}/move`, { direction })
   load()
 }
-async function remove(m) {
-  await api.del(`/projects/${code}/milestones/${m.id}`)
-  ElMessage.success('已删除')
-  load()
+const nodeRemoval = row => d.value?.can_edit && {
+  endpoint: `/projects/${code}/milestones/${row.id}`, name: row.node_name, title: '删除节点', onDeleted: load,
 }
+const remove = row => deleteRecord(nodeRemoval(row))
 
 // 反馈
 const emptyFeedback = () => ({ content: '', kind: 'progress', problems: '', next_step: '', next_due_on: null })

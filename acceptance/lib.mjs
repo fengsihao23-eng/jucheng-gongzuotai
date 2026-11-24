@@ -5,6 +5,7 @@ import path from 'node:path'
 export const WEB = process.env.WEB || 'http://localhost:5180'
 export const API = process.env.API || 'http://localhost:8100'
 export const PWD = process.env.DEMO_PASSWORD || 'Jc@2026'
+export const DELETE_PASSWORD = process.env.OPERATIONS_DELETE_PASSWORD || 'admin123'
 export const OUT = path.resolve(process.env.OUT || './evidence')
 fs.mkdirSync(path.join(OUT, 'screens'), { recursive: true })
 
@@ -21,9 +22,9 @@ export async function token(userid) {
   return tokens[userid]
 }
 
-export async function call(userid, method, url, body, { raw = false } = {}) {
+export async function call(userid, method, url, body, { raw = false, deleteJSON = false } = {}) {
   const t = userid ? await token(userid) : null
-  if ((method === 'GET' || method === 'DELETE') && body) {
+  if ((method === 'GET' || (method === 'DELETE' && !deleteJSON)) && body) {
     const q = new URLSearchParams(Object.entries(body).filter(([, v]) => v !== undefined && v !== null))
     url += (url.includes('?') ? '&' : '?') + q
     body = undefined

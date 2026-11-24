@@ -135,12 +135,7 @@ def workbook_sheet(wb, view, sheet_id):
 
 
 def workbook_identity(row):
-    record = (row or {}).get("record") or {}
-    keys = dict(record.get("keys", ()))
-    for kind in ("external", "entity", "exact"):
-        if kind in keys:
-            return f"{kind}:{keys[kind]}"
-    return ""
+    return business_workbook.workbook_identity(row)
 
 
 def workbook_record(db, p, kind, ref):
@@ -163,7 +158,7 @@ def workbook_record(db, p, kind, ref):
         if row and row.get("parent"):
             row = sheet.rows.get(row["parent"])
         identity = workbook_identity(row)
-    if row is None or not row.get("record"):
+    if row is None or row["row"] in sheet.removed_rows or not row.get("record"):
         raise not_found("业务记录")
     if not identity:
         raise conflict("原表中有同名记录，请核对后再跟进")

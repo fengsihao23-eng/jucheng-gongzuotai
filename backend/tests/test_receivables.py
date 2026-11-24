@@ -8,7 +8,7 @@ from app.core.response import bad_request
 from app.integration.wecom.base import ApprovalDto
 from app.models import BizContract, BizPayment, BizPaymentPlan, FinReceipt, FinReceivablesSourceRow
 from app.services import dict_service, dispatch_service, receivables_sync
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 BASE = "/api/v1/receivables"
 DATE = "2026-10-10"
@@ -91,7 +91,7 @@ def test_invoice_approval_receipt_partial_allocation_and_reversal(client, login,
     assert D(got["plan_overdue_now"]) - D(before["plan_overdue_now"]) == -200
     assert client.post(f"{BASE}/invoices/{ident}/correct", headers=h,
                        json={"reduced_total": "500", "reason": "验收"}).status_code == 409
-    data(client.post(f"{BASE}/receipts/{receipt['id']}/void", headers=h, json={"reason": "重复到账凭证"}))
+    data(client.post(f"{BASE}/receipts/{receipt['id']}/void", headers=h, json=deletion_body(reason="重复到账凭证")))
     assert not db.get(BizPayment, receipt["payment_id"])
     assert D(data(client.get(BASE + "/summary", headers=leader))["contract_received"]) == D(before["contract_received"])
     data(client.post(f"{BASE}/invoices/{ident}/correct", headers=h, json={"reduced_total": "600", "reason": "已全额红冲"}))

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, ok
 from app.services import finance_ledger_fields as f, finance_ledgers as service
@@ -54,7 +55,7 @@ class Allocate(Strict):
     project: str = Field(max_length=128)
 
 
-class Removal(Strict):
+class Removal(DeletionIn):
     reason: str = Field("", max_length=200)
 
 
@@ -79,8 +80,9 @@ def entries(kind: Kind, p: PrincipalDep, db: DB, period: str = Query("", pattern
 
 
 @router.delete("/entries/{ident}")
-def delete_entry(ident: int, request: Request, p: PrincipalDep, db: DB, body: Removal | None = None):
-    data = service.delete_entry(db, p, ident, body.reason.strip() if body else "", client_ip(request))
+def delete_entry(ident: int, body: Removal, request: Request, p: PrincipalDep, db: DB):
+    verify_deletion(db, body)
+    data = service.delete_entry(db, p, ident, body.reason.strip(), client_ip(request))
     db.commit()
     return ok(data)
 
@@ -146,6 +148,7 @@ def revoke_preview(token: str, p: PrincipalDep, db: DB):
 
 @router.post("/imports/{token}/revoke")
 def revoke_import(token: str, body: Removal, request: Request, p: PrincipalDep, db: DB):
+    verify_deletion(db, body)
     data = service.revoke_import(db, p, token, body.reason.strip(), client_ip(request))
     db.commit()
     return ok(data)

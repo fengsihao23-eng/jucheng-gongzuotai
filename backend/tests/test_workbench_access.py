@@ -226,10 +226,8 @@ def test_non_superuser_audit_and_export_do_not_expose_other_projects(client, log
         assert records["items"] == [] and records["total"] == 0
         export = client.get("/api/v1/operation-records/export", headers=worker, params={"module": "运营项目"})
         assert own_project["name"] not in export.text
-        details = data(client.get(f"/api/v1/admin/users/{own_project['owner_id']}/effective-permissions", headers=worker))
-        assert own_project["id"] not in {row["id"] for row in details["projects"]}
-        legacy = data(client.get("/api/v1/admin/audit", headers=worker, params={"action": "operations."}))
-        assert not legacy["items"]
+        assert client.get(f"/api/v1/admin/users/{own_project['owner_id']}/effective-permissions", headers=worker).status_code == 403
+        assert client.get("/api/v1/admin/audit", headers=worker, params={"action": "operations."}).status_code == 403
     finally:
         current = data(client.get(path + "/effective-permissions", headers=admin))
         data(client.put(path + "/permissions", headers=admin, json={

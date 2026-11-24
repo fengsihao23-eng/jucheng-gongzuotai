@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     # 登录页是否展示演示账号下拉：默认仅非 prod 可见，生产演示期可显式开启
     demo_accounts_enabled: bool = False
     operations_delete_password: str = "admin123"
+    system_management_bootstrap_accounts: str = "ken,SZGLY"
 
     storage_dir: Path = BASE_DIR / "var" / "files"
     file_link_ttl_seconds: int = 3600  # PRD FR-10-04：临时链接 1h

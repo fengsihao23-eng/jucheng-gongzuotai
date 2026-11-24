@@ -769,7 +769,7 @@ def save_collection_report(db, p, *, title: str = "", scope: str = "all", owner:
     max_ver = db.scalar(select(func.max(WorkbookCollectionReport.version)).where(
         WorkbookCollectionReport.workbook_id == wb.id,
         WorkbookCollectionReport.scope == scope,
-    )) or 0
+    ).execution_options(include_removed_records=True)) or 0
     row = WorkbookCollectionReport(
         workbook_id=wb.id,
         revision=wb.revision,

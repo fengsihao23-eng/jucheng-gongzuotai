@@ -12,7 +12,7 @@ from app.core.response import BizError
 from app.models import (BizExpenseReport, BizPayment, FinCashJournal, FinLedgerEntry, FinLedgerImport, FinReceipt,
                         FinSalesInvoice, LogOperation)
 from app.services import finance_ledger_source as source
-from conftest import data
+from conftest import data, deletion_body
 
 API = "/api/v1/finance-ledgers"
 
@@ -364,7 +364,7 @@ def test_import_history_drafts_confirmations_and_removal(client, login):
     assert history("receivables", finance)["kinds"] == ["collection_receipt"]
     assert history("receivables", cashier)["can_revoke"] is False
     assert history("journal", finance)["active"] == 1
-    assert data(client.post(f"{API}/imports/{batch['id']}/revoke", headers=finance, json={}))["removed"] == 2
+    assert data(client.post(f"{API}/imports/{batch['id']}/revoke", headers=finance, json=deletion_body()))["removed"] == 2
     assert history("journal", finance)["status"] == "removed"
     assert not history("journal", finance)["can_revoke"]
 
@@ -377,12 +377,12 @@ def test_delete_single_entry_preserves_audit_and_allows_corrected_reimport(clien
     row = show(client, finance, "bank_receipt", account="单条更正测试账户")["items"][0]
     assert row["can_delete"]
     assert not show(client, director, "bank_receipt", account="单条更正测试账户")["items"][0]["can_delete"]
-    assert client.delete(f"{API}/entries/{row['id']}", headers=cashier).status_code == 403
+    assert client.request("DELETE", f"{API}/entries/{row['id']}", headers=cashier, json=deletion_body()).status_code == 403
     corrected = content.replace("149.90", "129.90")
     assert data(upload(client, finance, "bank_receipt", corrected))["counts"]["error"] == 1
-    result = client.request("DELETE", f"{API}/entries/{row['id']}", headers=finance, json={"reason": "来源金额有误"})
+    result = client.request("DELETE", f"{API}/entries/{row['id']}", headers=finance, json=deletion_body(reason="来源金额有误"))
     assert data(result) == {"removed": 1}
-    assert data(client.delete(f"{API}/entries/{row['id']}", headers=finance)) == {"removed": 0}
+    assert data(client.request("DELETE", f"{API}/entries/{row['id']}", headers=finance, json=deletion_body())) == {"removed": 0}
     removed = db.get(FinLedgerEntry, row["id"])
     assert removed.deleted_at and removed.deleted_by and removed.delete_reason == "来源金额有误"
     audit = db.scalars(select(LogOperation).where(LogOperation.action == "finance_ledger.delete",
@@ -418,11 +418,11 @@ def test_revoke_mixed_batch_does_not_remove_prior_records(client, login, db):
     assert data(confirm(client, finance, batch))["inserted"] == 2
     uri = f"{API}/imports/{batch['id']}/revoke"
     assert client.get(uri, headers=cashier).status_code == 403
-    assert client.post(uri, headers=cashier, json={}).status_code == 403
+    assert client.post(uri, headers=cashier, json=deletion_body()).status_code == 403
     preview = data(client.get(uri, headers=finance))
     assert preview == {"filename": "批次撤销.xlsx", "total": 2, "by_kind": {"bank_receipt": 1, "bank_expense": 1}}
-    assert data(client.post(uri, headers=finance, json={"reason": "传错账套"})) == {"removed": 2, "by_kind": preview["by_kind"]}
-    assert data(client.post(uri, headers=finance, json={})) == {"removed": 0, "by_kind": {}}
+    assert data(client.post(uri, headers=finance, json=deletion_body(reason="传错账套"))) == {"removed": 2, "by_kind": preview["by_kind"]}
+    assert data(client.post(uri, headers=finance, json=deletion_body())) == {"removed": 0, "by_kind": {}}
     assert data(client.get(uri, headers=finance))["total"] == 0
     ledger = show(client, finance, "bank_receipt", account="批次撤销测试账户")
     assert ledger["total"] == 1 and ledger["items"][0]["id"] == saved["id"]
@@ -431,7 +431,7 @@ def test_revoke_mixed_batch_does_not_remove_prior_records(client, login, db):
     audit = db.scalars(select(LogOperation).where(LogOperation.action == "finance_ledger.revoke",
                                                   LogOperation.after["filename"].as_string() == "批次撤销.xlsx")).one()
     assert audit.after["reason"] == "传错账套" and audit.after["removed"] == 2
-    assert data(client.delete(f"{API}/entries/{saved['id']}", headers=cashier))["removed"] == 1
+    assert data(client.request("DELETE", f"{API}/entries/{saved['id']}", headers=cashier, json=deletion_body()))["removed"] == 1
 
 
 def test_revoke_old_mixed_import_preserves_retired_qr_rows(client, login, db):
@@ -448,6 +448,6 @@ def test_revoke_old_mixed_import_preserves_retired_qr_rows(client, login, db):
     db.commit()
     uri = f"{API}/imports/{batch.token}/revoke"
     assert data(client.get(uri, headers=finance))["by_kind"] == {"bank_receipt": 1}
-    assert data(client.post(uri, headers=finance, json={}))["removed"] == 1
+    assert data(client.post(uri, headers=finance, json=deletion_body()))["removed"] == 1
     db.refresh(old)
     assert old.deleted_at is None

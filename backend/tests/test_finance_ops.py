@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import func, select
 
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 D = Decimal
 API = "/api/v1"
@@ -317,7 +317,7 @@ def test_journal_manual_cash_crud(client, cashier, db):
     assert D(c1["closing"]) == D(c0["closing"]) - D("123.40")
     data(client.put(f"{API}/journal/{r['id']}", headers=cashier, json={"journal_date": v0["start"], "direction": 2,
                                                                        "amount": "100.00", "summary": "备用金-快递费（更正）"}))
-    data(client.delete(f"{API}/journal/{r['id']}", headers=cashier))
+    data(client.request("DELETE", f"{API}/journal/{r['id']}", headers=cashier, json=deletion_body()))
     acts = set(db.scalars(select(LogOperation.action).where(LogOperation.target_type == "journal",
                                                             LogOperation.target_id == str(r["id"]))))
     assert acts == {"journal.create", "journal.update", "journal.delete"}
@@ -325,7 +325,7 @@ def test_journal_manual_cash_crud(client, cashier, db):
     auto = next(e for e in v0["entries"] if e["source_type"] == 1) if any(e["source_type"] == 1 for e in v0["entries"]) else None
     m = data(client.get(f"{API}/journal", headers=cashier, params={"mode": "month"}))
     auto = auto or next(e for e in m["entries"] if e["source_type"] == 1)
-    assert client.delete(f"{API}/journal/{auto['id']}", headers=cashier).json()["code"] == 40901
+    assert client.request("DELETE", f"{API}/journal/{auto['id']}", headers=cashier, json=deletion_body()).json()["code"] == 40901
 
 
 def test_journal_export(client, cashier):
@@ -509,7 +509,7 @@ def test_project_cost_crud(client, fin, db):
     assert lst["total"] == 1 and D(lst["amount"]) == D("58000")
     data(client.put(f"{API}/finance-data/costs/{r['id']}", headers=fin, json={
         "project_code": "JC-AF-2026-001", "cost_date": "2026-10-10", "cost_type": "分包", "amount": "60000", "summary": "测试分包"}))
-    data(client.delete(f"{API}/finance-data/costs/{r['id']}", headers=fin))
+    data(client.request("DELETE", f"{API}/finance-data/costs/{r['id']}", headers=fin, json=deletion_body()))
     assert db.scalar(select(func.count()).select_from(LogOperation).where(
         LogOperation.target_type == "project_cost", LogOperation.target_id == str(r["id"]))) == 3
     assert client.post(f"{API}/finance-data/costs", headers=fin, json={

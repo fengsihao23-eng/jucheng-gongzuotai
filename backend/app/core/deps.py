@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS
+from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
 from app.core.response import BizError, forbidden
 from app.core.security import decode_jwt, password_version
 from app.models import SysUser
@@ -40,10 +40,16 @@ class Principal:
     def is_admin(self) -> bool:
         return self.workbench_enabled and "ADMIN-01" in self.role_codes
 
+    @property
+    def is_system_manager(self) -> bool:
+        return self.workbench_enabled and SYSTEM_MANAGEMENT_ROLE in self.role_codes
+
     def can(self, button: str) -> bool:
         return self.workbench_enabled and ("*" in self.buttons or button in self.buttons)
 
     def has_menu(self, menu: str) -> bool:
+        if menu == "admin":
+            return self.is_system_manager
         return self.workbench_enabled and menu in self.menus
 
     def has_section(self, menu: str, section: str) -> bool:
@@ -78,6 +84,10 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
         sections = individual.sections
     if "ADMIN-01" in codes:
         menus.add("operation_records")
+    if SYSTEM_MANAGEMENT_ROLE in codes:
+        menus.add("admin")
+    else:
+        menus.discard("admin")
     if not inherit_only and user.workbench_enabled is False:
         menus, buttons, scope = set(), set(), "self"
     return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal, sections=sections)

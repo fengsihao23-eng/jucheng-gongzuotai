@@ -28,7 +28,7 @@
       </el-form>
       <template #footer><el-button @click="batchOpen = false">取消</el-button><el-button type="primary" :disabled="!batchIds.length" :loading="saving" @click="saveBatch">加入 {{ batchIds.length }} 人</el-button></template>
     </el-dialog>
-    <el-table :data="project.members">
+    <el-table :data="project.members" @row-contextmenu="memberMenu">
       <el-table-column prop="name" label="成员" min-width="160"><template #default="{ row }">{{ row.name }} <span v-if="row.is_owner" class="jc-muted jc-small">项目负责人</span><span v-else-if="!row.active" class="jc-down jc-small">账号已停用</span></template></el-table-column>
       <el-table-column prop="dept" label="部门" width="110" />
       <el-table-column label="项目权限" min-width="150"><template #default="{ row }">{{ ROLES[row.role] }}</template></el-table-column>
@@ -38,6 +38,7 @@
   </div>
 </template>
 <script setup>
+import { deleteRecord, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
@@ -64,26 +65,25 @@ async function save() {
   saving.value = true
   try { await api.post(`/operations/${props.project.id}/members`, { user_id: userId.value, role: memberRole.value }); userId.value = null; ElMessage.success('团队权限已保存'); emit('saved'); announceChange() } catch {} finally { saving.value = false }
 }
-async function remove(row) {
-  try { await ElMessageBox.confirm(`将${row.name}移出「${props.project.name}」？移出后将失去本项目访问权限。`, '移除成员', { type: 'warning', confirmButtonText: '移除', cancelButtonText: '取消' }) } catch { return }
-  saving.value = true
-  try {
-    await api.del(`/operations/${props.project.id}/members/${row.user_id}`)
-    done(row, false)
-  } catch (err) {
-    if (err.code !== 40901) return
+const memberRemoval = row => props.project.can_manage && !row.is_owner && {
+  title: '移除成员', name: row.name, menuLabel: '移除成员', confirmLabel: '确认移除',
+  description: `确认将「${row.name}」移出「${props.project.name}」？移出后该成员将失去项目访问权限。`,
+  perform: async password => {
+    const endpoint = `/operations/${props.project.id}/members/${row.user_id}`
+    const config = { data: { password }, silent: true }
     try {
+      return await api.del(endpoint, null, config)
+    } catch (err) {
+      if (err.code !== 40901) throw err
       await ElMessageBox.confirm(`${err.message}。转交后该成员不再负责这些任务，确认继续？`, '成员还有未完成任务',
         { type: 'warning', confirmButtonText: '转交并移除', cancelButtonText: '取消' })
-    } catch { return }
-    await api.del(`/operations/${props.project.id}/members/${row.user_id}`, { transfer: true })
-    done(row, true)
-  } finally { saving.value = false }
+      return api.del(endpoint, { transfer: true }, config)
+    }
+  },
+  onDeleted: () => emit('saved'),
 }
-function done(row, transferred) {
-  emit('saved'); announceChange()
-  ElMessage.success(transferred ? `${row.name}已移出团队，任务已转交项目负责人` : `${row.name}已移出团队`)
-}
+const memberMenu = rowDeletion(memberRemoval)
+const remove = row => deleteRecord(memberRemoval(row))
 </script>
 <style scoped>
 .team-intro { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 14px; margin-bottom: 12px; }

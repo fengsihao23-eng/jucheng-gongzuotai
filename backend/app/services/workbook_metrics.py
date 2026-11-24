@@ -67,7 +67,7 @@ def collection_periods(wb):
                     total = source.number(value)
                     if total is not None:
                         totals.append((n, total))
-            for row in sheet.items:
+            for row in sheet.source_items:
                 n = row["row"]
                 text = sheet.display(n, col) or ""
                 numeric = source.number(sheet.value(n, col))
@@ -85,11 +85,19 @@ def collection_periods(wb):
                         events.append((when.isoformat(), payment))
                 if numeric is not None:
                     events = [(None, numeric)]
+                identity = source.workbook_identity(sheet.rows.get(row["group_row"]))
+                event_counts = {}
                 for index, (when, payment) in enumerate(events):
+                    signature = (when or "", format(payment.normalize(), "f"))
+                    occurrence = event_counts.get(signature, 0) + 1
+                    event_counts[signature] = occurrence
+                    receipt_key = (source.workbook_deletion_key(wb.id, sheet.id, "\n".join(
+                        (identity, period, *signature, str(occurrence)))) if identity else None)
                     rows.append({**row, "id": f"{sheet.id}:{n}:{col}:{index}", "date": when,
                                  "date_value": when, "amount": source.decimal_text(payment),
                                  "received": source.decimal_text(payment), "outstanding": None,
                                  "progress": text, "receipt_cell": f"{source.get_column_letter(col)}{n}",
+                                 "deletion_key": receipt_key,
                                  "issues": []})
             calculated = amount(rows)
             if len(totals) != 1 or calculated != totals[0][1]:
@@ -99,7 +107,9 @@ def collection_periods(wb):
                 n, total = totals[0]
                 bucket["controls"].append({"field": "received", "cell": f"{sheet.name} · {source.get_column_letter(col)}{n}",
                     "source": str(total), "calculated": str(calculated), "difference": "0.00", "matches": True})
-            bucket["rows"].extend(rows)
+            removed = getattr(wb, "_removed_receipt_keys", frozenset())
+            bucket["rows"].extend(row for row in rows
+                                  if row["row"] not in sheet.removed_rows and row["deletion_key"] not in removed)
     return periods
 
 

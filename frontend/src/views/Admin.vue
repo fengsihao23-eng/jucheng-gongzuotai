@@ -43,7 +43,7 @@
                 <el-option v-for="dept in matrixDepartments" :key="dept.code" :label="dept.displayName" :value="dept.code" />
               </el-select>
             </div>
-            <el-table v-loading="usersLoading" :data="users.items">
+            <el-table v-loading="usersLoading" :data="users.items" @row-contextmenu="userMenu">
               <el-table-column label="姓名" width="120"><template #default="{ row }"><el-button link type="primary" @click="peopleCard.openPerson(row)">{{ row.name }}</el-button></template></el-table-column>
               <el-table-column label="账号 / UserID" width="145"><template #default="{ row }"><span class="jc-mono">{{ row.userid }}</span></template></el-table-column>
               <el-table-column label="来源" width="110" prop="source" />
@@ -69,6 +69,10 @@
         </details>
       </el-tab-pane>
 
+      <el-tab-pane v-if="canManage" label="删除密码" name="deletion" lazy>
+        <DeletionSettings :active="tab === 'deletion'" />
+      </el-tab-pane>
+
       <!-- 字典口径 -->
       <el-tab-pane label="机器人授权续期" name="robot" lazy><SourceChecks robot /></el-tab-pane>
 
@@ -81,7 +85,7 @@
           </Panel>
           <Panel :title="DICT_NAMES[curType] || curType" sub="口径变更只改配置不改代码；所有修改留痕" :padding="false">
             <template #extra><el-button size="small" @click="editDict({ dict_type: curType, dict_key: '', dict_value: '', remark: '', status: 1 })">新增</el-button></template>
-            <el-table :data="dicts.filter((d) => d.dict_type === curType)">
+            <el-table :data="dicts.filter((d) => d.dict_type === curType)" @row-contextmenu="dictMenu">
               <el-table-column label="键" width="220"><template #default="{ row }"><span class="jc-mono">{{ row.dict_key }}</span></template></el-table-column>
               <el-table-column label="值" min-width="420"><template #default="{ row }"><span class="jc-mono jc-small val">{{ preview(row.dict_value) }}</span></template></el-table-column>
               <el-table-column label="说明" min-width="180" prop="remark" />
@@ -156,7 +160,7 @@
           <span class="jc-muted jc-small">已登记 {{ apr.stats?.['1'] || 0 }} · 待人工 {{ apr.stats?.['2'] || 0 }} · 无需处理 {{ apr.stats?.['3'] || 0 }}</span>
         </div>
         <Panel :padding="false">
-          <el-table :data="apr.items" :row-class-name="({ row }) => (row.dispatch_status === 2 ? 'is-alert' : '')">
+          <el-table :data="apr.items" :row-class-name="({ row }) => (row.dispatch_status === 2 ? 'is-alert' : '')" @row-contextmenu="approvalMenu">
             <el-table-column label="审批单号" width="170"><template #default="{ row }"><span class="jc-mono">{{ row.sp_no }}</span></template></el-table-column>
             <el-table-column label="模板" width="110" prop="sp_name" />
             <el-table-column label="申请人" width="110" prop="applicant" />
@@ -270,11 +274,13 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import SourceChecks from './SourceChecks.vue'
+import DeletionSettings from './admin/DeletionSettings.vue'
 import DepartmentPermissions from './admin/DepartmentPermissions.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
@@ -290,7 +296,17 @@ const APR_OPTS = [{ label: '全部', value: -1 }, { label: '待人工', value: 2
 
 const route = useRoute()
 const auth = useAuth()
-const canManage = computed(() => auth.profile?.is_admin === true)
+const canManage = computed(() => auth.profile?.is_system_manager === true)
+const userMenu = rowDeletion(row => canManage.value && row.id !== auth.profile?.id && {
+  endpoint: '/admin/users/' + row.id, name: row.name, title: '删除工作台账号',
+  description: `确认删除「${row.name}」的工作台账号？删除后该成员将失去工作台访问权限，历史业务记录保留。`,
+  onDeleted: async () => { await loadUsers(); await loadRoles() },
+})
+const dictMenu = rowDeletion(row => canManage.value && {
+  endpoint: '/admin/dicts/' + row.id, name: row.remark || row.dict_key, title: '删除字典项', onDeleted: loadDicts,
+})
+const approvalMenu = rowDeletion(row => canManage.value && recordRemoval('approval', row.sp_no, row.sp_name || row.sp_no,
+  () => loadApprovals(), { title: '删除工作台审批记录' }))
 const tab = ref(route.query.tab || 'users')
 const users = ref({ items: [], total: 0 })
 const uf = reactive({ keyword: '', dept: '', page: 1 })

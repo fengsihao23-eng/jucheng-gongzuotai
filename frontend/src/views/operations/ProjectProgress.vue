@@ -37,7 +37,8 @@
   <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(1140px, calc(100vw - 24px))" align-center append-to-body destroy-on-close @closed="historyClosed">
     <div v-loading="loading" class="history-list">
       <div v-if="history.length" class="history-caption"><strong>{{ project.name }}</strong><span>最近填写的记录在前</span></div>
-      <ProgressHistoryTable v-if="history.length" :entries="history" @open-task="taskId => closeHistory(() => emit('open-task', { id: taskId }))" />
+      <ProgressHistoryTable v-if="history.length" :entries="history" :can-delete="project.can_manage && !readOnly"
+        @deleted="() => { loadHistory(); emit('saved') }" @open-task="taskId => closeHistory(() => emit('open-task', { id: taskId }))" />
       <el-empty v-if="!history.length && !loading" :description="failed ? '暂时无法读取记录' : '暂无进度记录'" :image-size="64" />
     </div>
     <template #footer>

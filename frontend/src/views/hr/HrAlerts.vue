@@ -8,7 +8,7 @@
         <el-button v-if="canWrite" @click="ruleOpen = true">配置提前量</el-button>
         <el-button v-if="canWrite" type="primary" :loading="scanning" @click="scan">立即扫描并通知</el-button>
       </template>
-      <el-table :data="items" :row-class-name="({ row }) => (!row.handled && row.days_left <= 7 ? 'is-alert' : '')">
+      <el-table :data="items" :row-class-name="({ row }) => (!row.handled && row.days_left <= 7 ? 'is-alert' : '')" @row-contextmenu="alertMenu">
         <el-table-column prop="employee_no" label="工号" width="90" />
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column prop="dept_name" label="部门" width="110" />
@@ -66,6 +66,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -75,6 +76,7 @@ import { useAuth } from '@/store/auth'
 const auth = useAuth()
 const router = useRouter()
 const canWrite = computed(() => auth.can('hr:write'))
+const alertMenu = rowDeletion(row => canWrite.value && recordRemoval('hr-alert', row.id, row.name, load, { title: '删除人事预警' }))
 const status = ref('pending')
 const items = ref([])
 const rule = ref({})

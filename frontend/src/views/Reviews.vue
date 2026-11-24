@@ -32,7 +32,7 @@
           </el-select>
         </template>
         <div class="list">
-          <article v-for="r in data.items" :key="r.id" class="rv" @click="open(r)">
+          <article v-for="r in data.items" :key="r.id" v-record-delete="reviewRemoval(r)" class="rv" @click="open(r)">
             <div class="jc-row between">
               <h4 class="jc-serif">{{ r.title }}</h4>
               <StatusPill :text="r.status_text" :tone="r.status === 2 ? 'up' : 'warn'" />
@@ -71,6 +71,7 @@
 </template>
 
 <script setup>
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
@@ -78,6 +79,7 @@ import { BUSINESS_LINES, PROJECT_STATUS, date } from '@/utils/format'
 
 const loading = ref(false)
 const data = reactive({ items: [], total: 0, tags: [], candidates: [], can_write: false })
+const reviewRemoval = row => data.can_write && recordRemoval('review', row.id, row.title, load, { title: '删除复盘' })
 const q = reactive({ keyword: '', tag: '', status: null, business_line: '' })
 
 async function load() {

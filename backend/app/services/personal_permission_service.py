@@ -95,7 +95,7 @@ def update(db, actor, user, body, keep_admin, ip):
                  **({"sections": sections} if sections is not None else {})}
 
     enabled = user.workbench_enabled if body.workbench_enabled is None else body.workbench_enabled
-    keep_admin(db, user, "ADMIN-01" not in codes or not enabled)
+    keep_admin(db, user, codes, enabled=enabled)
     after = {"role_codes": codes, "permissions": saved, "workbench_enabled": enabled}
     if before == after:
         return

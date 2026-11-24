@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import Counter
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 from urllib.parse import urlsplit
 
 from openpyxl.utils.cell import get_column_letter, range_boundaries
@@ -18,7 +20,7 @@ from sqlalchemy import select
 
 from app.core.response import BizError, bad_request, forbidden, not_found
 from app.core.timeutil import utcnow
-from app.models import ContractWorkbook
+from app.models import BusinessRecordDeletion, ContractWorkbook
 from app.services import contract_workbook_layout as layout, dict_service
 from app.services.contract_workbook_source import cell_value, occupied
 
@@ -49,6 +51,16 @@ FIELDS = {
     "mobile": dict(name=3, customer=8, party=7, amount=4, note=6),
 }
 METRICS = ("amount", "received", "outstanding")
+
+
+def workbook_identity(row):
+    keys = dict(((row or {}).get("record") or {}).get("keys", ()))
+    return next((f"{kind}:{keys[kind]}" for kind in ("external", "entity", "exact") if kind in keys), "")
+
+
+def workbook_deletion_key(workbook_id, sheet_id, identity):
+    digest = sha256(f"{workbook_id}\n{sheet_id}\n{identity}".encode()).hexdigest()
+    return f"{workbook_id}:{digest}"
 
 
 def number(value):
@@ -110,6 +122,8 @@ class Sheet:
                 # a separate detail row, belonging to the same project.
                 if row.get("record") or (profile == "tender" and row.get("parent")):
                     self.items.append(self.project(row))
+        self.source_items = self.items
+        self.removed_rows = frozenset()
 
     def raw(self, row, col):
         cells = self.rows.get(row, {}).get("cells", [])
@@ -194,7 +208,7 @@ class Sheet:
         """Compare explicit source total rows without adding them to details."""
         if self.profile == "mobile" or self.warning:
             return []  # Multiple unrelated sections with different column meanings.
-        result, summary = [], self.summary()
+        result, summary = [], self.summary(self.source_items)
         for n, row in self.rows.items():
             if n <= self.header or row.get("record") or row.get("parent"):
                 continue
@@ -257,7 +271,16 @@ def configured_source(db):
         raise bad_request("固定来源尚无完整数据，请管理员检查同步状态")
     if config.get("docid") and wb.config.get("docid") != config["docid"]:
         raise bad_request("固定来源标识不一致，请管理员检查；未展示其他来源")
+    _load_workbook_deletions(db, wb)
     return wb
+
+
+def _load_workbook_deletions(db, wb):
+    removals = list(db.execute(select(BusinessRecordDeletion.resource, BusinessRecordDeletion.record_key).where(
+        BusinessRecordDeletion.resource.in_(("workbook-row", "workbook-receipt")),
+        BusinessRecordDeletion.record_key.startswith(f"{wb.id}:"))))
+    wb._removed_workbook_keys = frozenset(key for resource, key in removals if resource == "workbook-row")
+    wb._removed_receipt_keys = frozenset(key for resource, key in removals if resource == "workbook-receipt")
 
 
 def can_access_view(p, config, view):
@@ -293,13 +316,28 @@ def source_info(wb, p):
             "poll_minutes": POLL_MINUTES, "can_sync": bool(p and p.id == wb.config["reader_id"] and p.can("contracts:write"))}
 
 
-def module_sheets(wb, view):
-    cache_key = (wb.revision, id(wb.sheets), tuple(sorted(wb.config.get("profiles", {}).items())))
+def projected_sheets(wb):
+    removed = getattr(wb, "_removed_workbook_keys", frozenset())
+    cache_key = (wb.revision, id(wb.sheets), tuple(sorted(wb.config.get("profiles", {}).items())), removed)
     cached = getattr(wb, "_business_projection", None)
     if not cached or cached[0] != cache_key:
-        cached = (cache_key, sheets_for(wb.sheets, wb.config))
+        sheets = sheets_for(wb.sheets, wb.config)
+        if removed:
+            for sheet in sheets:
+                identities = {number: workbook_identity(row) for number, row in sheet.rows.items() if not row.get("parent")}
+                counts = Counter(identities.values())
+                roots = {number for number, identity in identities.items() if identity and counts[identity] == 1
+                         and workbook_deletion_key(wb.id, sheet.id, identity) in removed}
+                sheet.removed_rows = frozenset(number for number, row in sheet.rows.items()
+                                               if number in roots or row.get("parent") in roots)
+                sheet.items = [row for row in sheet.source_items if row["row"] not in sheet.removed_rows]
+        cached = (cache_key, sheets)
         wb._business_projection = cached
-    sheets = [s for s in cached[1] if s.profile in VIEWS[view]]
+    return cached[1]
+
+
+def module_sheets(wb, view):
+    sheets = [s for s in projected_sheets(wb) if s.profile in VIEWS[view]]
     if view in {"contracts", "collections", "performance"}:
         sheets = [s for s in sheets if (s.profile == "sales" and re.search(r"(?:^|、|\.)2026年销售合同$", layout.norm(s.name)))
                   or (s.profile == "older" and "2026年前" in layout.norm(s.name))]
@@ -372,7 +410,7 @@ def page(db, p, view, *, sheet_id="", keyword="", year="", page=1, size=30, raw=
         from app.services.opportunity_workbook import page as opportunity_page
         return opportunity_page(wb, p, sheet_id=sheet_id, keyword=keyword, year=year, page=page, size=size, raw=raw,
                                 start=start, end=end, status=status, owner=owner, contact=contact)
-    sheets = [s for s in sheets_for(wb.sheets, wb.config) if view == "board" or s.profile in VIEWS[view]]
+    sheets = [s for s in projected_sheets(wb) if view == "board" or s.profile in VIEWS[view]]
     result = {"active": True, "source": source_info(wb, p), "sheets": [s.brief() for s in sheets]}
     if view == "board":
         return result
@@ -409,8 +447,8 @@ def page(db, p, view, *, sheet_id="", keyword="", year="", page=1, size=30, raw=
         # sections, supplementary documents, and presently unmapped fields.
         items = [{"row": n, "id": f"{selected.id}:{n}", "values": {
             str(c): selected.display(n, c, inherit=True) for c in selected.columns}}
-            for n in selected.rows if not keyword.strip() or any(
-                layout.norm(keyword) in layout.norm(selected.display(n, c, inherit=True)) for c in selected.columns)]
+            for n in selected.rows if n not in selected.removed_rows and (not keyword.strip() or any(
+                layout.norm(keyword) in layout.norm(selected.display(n, c, inherit=True)) for c in selected.columns))]
         if year:
             raise bad_request("逐格查看保留原表全部内容，请先清除年份筛选")
     total = len(items)
@@ -435,10 +473,10 @@ def detail(db, p, view, sheet_id, row_number, revision):
             raise not_found("市场商机")
         sheets = [market]
     else:
-        sheets = module_sheets(wb, view) if view in {"contracts", "collections"} else sheets_for(wb.sheets, wb.config)
+        sheets = module_sheets(wb, view) if view in {"contracts", "collections"} else projected_sheets(wb)
     sheet = next((s for s in sheets if s.id == sheet_id and
                   (view == "board" or s.profile in VIEWS[view])), None)
-    if not sheet or row_number not in sheet.rows:
+    if not sheet or row_number not in sheet.rows or row_number in sheet.removed_rows:
         raise not_found("源表行")
     children = [n for n, row in sheet.rows.items() if row.get("parent") == row_number]
     return {"sheet_name": sheet.name, "row": row_number, "revision": revision,

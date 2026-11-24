@@ -41,7 +41,7 @@
 
     <Panel :padding="false" :loading="loading">
       <div v-if="narrow" class="cards">
-        <div v-for="row in rows.items" :key="row.id" class="card">
+        <div v-for="row in rows.items" :key="row.id" v-record-delete="importRemoval(row)" class="card">
           <div class="jc-row between">
             <a class="fn jc-ellipsis" @click="openFile(row.file?.url)">{{ row.filename }}</a>
             <StatusPill :text="row.status_name" :tone="tone(row)" />
@@ -62,7 +62,7 @@
           </div>
         </div>
       </div>
-      <el-table v-else :data="rows.items" row-key="id" @selection-change="selected = $event">
+      <el-table v-else :data="rows.items" row-key="id" @selection-change="selected = $event" @row-contextmenu="importMenu">
         <el-table-column type="selection" width="42" :selectable="selectable" />
         <el-table-column label="文件" min-width="240">
           <template #default="{ row }">
@@ -171,6 +171,7 @@
 </template>
 
 <script setup>
+import { deleteRecord, recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -187,6 +188,9 @@ const tone = (row) => TONE[row.stage] || ''
 const TARGETS = [{ key: 'contract', name: '合同台账' }, { key: 'opportunity', name: '商机信息表' }, { key: 'payment', name: '回款登记' }, { key: 'project', name: '项目建档' }]
 
 const auth = useAuth()
+const importRemoval = row => (row.uploader_id === auth.profile?.id || row.actions?.includes('withdraw') || auth.can('imports:handle')) &&
+  recordRemoval('import', row.id, row.filename, load, { title: '删除导入记录' })
+const importMenu = rowDeletion(importRemoval)
 const route = useRoute()
 const router = useRouter()
 const myRoles = computed(() => (auth.profile?.roles || []).map((r) => r.code))
@@ -427,9 +431,8 @@ async function onMore(row, cmd) {
   }
   if (cmd === 'withdraw') {
     const tip = row.status === 'done' && row.clean_job ? '已经写入台账的记录会被删除；如果其中有记录已被后续业务使用，系统会拒绝撤回并说明原因。' : '撤回后这份资料不会进入台账或知识库。'
-    await ElMessageBox.confirm(tip, '撤回导入', { type: 'warning' })
-    const b = await act(row, 'withdraw')
-    return ElMessage.success(b.note)
+    deleteRecord({ name: row.filename, title: '撤回导入', description: tip, confirmLabel: '确认撤回',
+      perform: password => act(row, 'withdraw', { password }) })
   }
 }
 

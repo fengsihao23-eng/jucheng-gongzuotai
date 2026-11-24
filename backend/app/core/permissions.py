@@ -4,6 +4,8 @@ data_scope：self 本人 / dept 本部门 / all 全公司。
 portal：门户卡片方案键，见 sys_dict(portal_cards)。
 """
 
+SYSTEM_MANAGEMENT_ROLE = "SYS-MGMT"
+
 MENUS = {
     "portal": "工作台", "board": "经营看板", "reports": "报表中心",
     "contracts": "合同台账", "opportunities": "商机信息", "performance": "业绩与运营",
@@ -84,6 +86,8 @@ ROLE_DEFS: dict[str, dict] = {
     # 只给 kb:manage，不扩其他菜单，也不扩 data_scope。
     "KB-01": {"name": "知识库管理员", "dept": "*", "portal": "employee", "data_scope": "self",
               "menus": [], "buttons": ["kb:manage"]},
+    SYSTEM_MANAGEMENT_ROLE: {"name": "系统管理授权", "dept": "*", "portal": "employee", "data_scope": "self",
+                             "menus": ["admin"], "buttons": []},
 }
 
 # 首次登录按部门映射默认角色（FR-01-06）

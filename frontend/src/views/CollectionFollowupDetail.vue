@@ -10,6 +10,7 @@
     ] : []" :history-entries="nativeHistory">
     <template #actions>
       <el-button v-if="item?.contract_link" @click="router.push({ path: item.contract_link.path, query: { revision: item.contract_link.revision } })">查看合同</el-button>
+      <el-button v-if="removal" type="danger" plain @click="deleteRecord(removal)">删除跟进</el-button>
     </template>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <el-skeleton v-else-if="!item && loading" :rows="5" animated />
@@ -69,12 +70,19 @@ import api from '@/api/client'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
+import { deleteRecord, recordRemoval } from '@/composables/useRecordDeletion'
+import { useAuth } from '@/store/auth'
 
 const emit = defineEmits(['update:modelValue'])
 const route = useRoute(), router = useRouter()
+const auth = useAuth()
 const item = ref(null), error = ref(''), content = ref(''), expectedOn = ref(''), loading = ref(false), saving = ref(false)
 const nativeHistory = computed(() => (item.value?.reports || []).map(entry => ({ ...entry, key: `collection-progress-${entry.id}`,
   author: entry.author_name, action: 'progress', title: entry.stage_name, next_due_on: entry.expected_on })))
+const removal = computed(() => item.value &&
+  (item.value.author_id === auth.profile?.id || ['collections:request', 'contracts:write', 'receivables:correct'].some(button => auth.can(button))) &&
+  recordRemoval('collection-thread', route.params.id, item.value.contract_name, () => emit('update:modelValue', false),
+    { title: '删除回款跟进' }))
 const stage = ref('contact')
 const problems = ref('')
 const needsReason = computed(() => Boolean(item.value?.payment_due_on) && stage.value !== 'reported_paid')

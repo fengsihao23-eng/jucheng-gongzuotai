@@ -15,7 +15,7 @@
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="load-error">
         <el-button link type="primary" @click="load()">重试</el-button>
       </el-alert>
-      <el-table v-else :data="data?.items || []" row-key="id" empty-text="暂无零星回款项目" @row-click="openTask">
+      <el-table v-else :data="data?.items || []" row-key="id" empty-text="暂无零星回款项目" @row-click="openTask" @row-contextmenu="sporadicMenu">
         <el-table-column label="项目 / 客户" min-width="225">
           <template #default="{ row }">
             <el-button link type="primary" class="project-link" @click.stop="openTask(row)">{{ row.name }}</el-button>
@@ -89,6 +89,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -210,6 +211,8 @@ async function save() {
 load()
 useBusinessRefresh(() => load(true), { interval: 15000, enabled: () => !loading.value && !editorOpen.value })
 onBeforeUnmount(() => { version++ })
+
+const sporadicMenu = rowDeletion(row => data.value?.can_manage && recordRemoval('sporadic-collection', row.id, row.name, () => load(), { title: '删除零星回款项目' }))
 </script>
 
 <style scoped>

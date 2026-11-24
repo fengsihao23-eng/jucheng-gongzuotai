@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.security import create_jwt
 from app.core.timeutil import utcnow
 from app.models import ImportBatch, SysDepartment, SysRole, SysUser
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 from tests.test_kb_imports import _docx, _import, _upload, _xlsx
 
 
@@ -131,7 +131,7 @@ def test_handler_submission_keeps_original_owner_and_reports_review_stage(client
     data(client.post(f"/api/v1/kb/docs/{doc_id}/review", headers=login("huangqi"), json={"approve": True}))
     published = data(client.get(f"/api/v1/imports/{batch['id']}", headers=owner))
     assert published["ready"] and published["stage"] == "ready"
-    data(client.post(f"/api/v1/imports/{batch['id']}/withdraw", headers=owner))
+    data(client.post(f"/api/v1/imports/{batch['id']}/withdraw", headers=owner, json=deletion_body()))
 
 
 def test_rejected_knowledge_shows_current_reason_not_stale_submitted_note(client, login):
@@ -183,7 +183,7 @@ def test_interrupted_queue_can_retry_but_never_revives_withdrawn_batch(client, l
     record.updated_at = utcnow() - timedelta(minutes=6)
     db.commit()
     data(client.post(f"/api/v1/imports/{batch['id']}/retry", headers=headers))
-    data(client.post(f"/api/v1/imports/{batch['id']}/withdraw", headers=headers))
+    data(client.post(f"/api/v1/imports/{batch['id']}/withdraw", headers=headers, json=deletion_body()))
     worker(batch["uploader_id"], [batch["id"]])
     assert data(client.get(f"/api/v1/imports/{batch['id']}", headers=headers))["status"] == "withdrawn"
 
@@ -266,7 +266,7 @@ def test_deleted_pending_document_is_not_reported_as_ready(client, login):
     owner = login("zengli")
     batch = data(_import(client, owner, _docx("待处理知识正文" + uuid.uuid4().hex), "运维规范.docx"))
     result = data(client.post(f"/api/v1/imports/{batch['id']}/confirm-kb", headers=owner, json={"category": "客服"}))
-    data(client.delete(f"/api/v1/kb/docs/{result['kb_doc']['id']}", headers=owner))
+    data(client.request("DELETE", f"/api/v1/kb/docs/{result['kb_doc']['id']}", headers=owner, json=deletion_body()))
     result = data(client.get(f"/api/v1/imports/{batch['id']}", headers=owner))
     assert not result["ready"] and result["stage"] == "removed"
 
@@ -285,7 +285,7 @@ def test_xiaoju_can_discover_import_progress_but_writes_require_confirmation():
     ops = operations()
     assert ops["imports.batches"].effect == "query"
     assert ops["imports.confirm_kb"].effect == "confirm"
-    assert ops["imports.withdraw"].effect == "confirm"
+    assert "imports.withdraw" not in ops
 
 
 def test_keyword_fallback_prefers_specific_inspection_category():

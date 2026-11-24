@@ -17,7 +17,7 @@ from app.models import (BizContract, BizPayment, BizProject, BizProjectCost, Fin
     FinProjectReportContract, FinProjectReportEntry, FinReceipt, SysUser)
 from app.services import profit_service, project_report_service as svc
 from app.services.project_report_parser import parse_report, read_archive
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 
 def workbook(sheets):
@@ -267,7 +267,7 @@ def test_profit_drilldown_and_source_api_agree_and_cost_immutable(client, login,
     view = data(client.get(f'/api/v1/reports/project-sources/{result["id"]}', headers=login('admin')))
     assert view['verification']['posted_cost'] == '115.00'
     cost_id = next(e['cost_id'] for e in view['entries'] if e['cost_id'])
-    resp = client.delete(f'/api/v1/finance-data/costs/{cost_id}', headers=login('admin'))
+    resp = client.request("DELETE", f'/api/v1/finance-data/costs/{cost_id}', headers=login('admin'), json=deletion_body())
     assert resp.status_code == 409
     resp = client.put(f'/api/v1/finance-data/costs/{cost_id}', headers=login('admin'), json={'project_code': code, 'cost_date': '2026-01-31', 'cost_type': '采购', 'amount': '101'})
     assert resp.status_code == 409

@@ -314,7 +314,8 @@ def _docx_report(data: dict) -> bytes:
 
 def _next_version(db: Session, rtype: str, period: str) -> int:
     return (db.scalar(select(func.max(RptReport.version)).where(RptReport.report_type == rtype,
-                                                                 RptReport.period == period)) or 0) + 1
+                                                                 RptReport.period == period)
+                      .execution_options(include_removed_records=True)) or 0) + 1
 
 
 def build_market_report(db: Session, period_type: str = "weekly", period: str | None = None, user_scope=None,

@@ -78,6 +78,7 @@
             row-key="id"
             class="collection-table"
             @row-click="openExecution"
+            @row-contextmenu="planMenu"
           >
             <el-table-column label="合同名称 / 客户" min-width="260">
               <template #default="{ row }">
@@ -164,6 +165,7 @@
             empty-text="这个期间没有符合条件的记录"
             class="collection-table"
             @row-click="onRowClick"
+            @row-contextmenu="collectionMenu"
           >
             <el-table-column label="合同名称 / 客户" min-width="270">
               <template #default="{ row }">
@@ -218,6 +220,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -230,6 +233,21 @@ import { datetime } from '@/utils/format'
 
 const LegacyCollections = defineAsyncComponent(() => import('./Collections.vue'))
 const route = useRoute(), router = useRouter(), auth = useAuth()
+const planMenu = rowDeletion(row =>
+  ['contracts:write', 'collections:request', 'receivables:correct'].some(button => auth.can(button)) &&
+  recordRemoval('workbook-collections', row.row, row.name, async () => {
+    await load()
+    if (periodOpen.value) await loadPeriod()
+  }, {
+    query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台回款项目',
+    description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
+  }))
+const receiptMenu = rowDeletion(row => row.deletion_key && (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+  recordRemoval('workbook-receipt', row.id, row.name, () => load(), {
+    query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台到账记录',
+    description: `确认从工作台移除「${row.name}」的这笔到账？工作台汇总会重新计算，企微原表保留供核对。`,
+  }))
+const collectionMenu = (row, column, event) => (receipts.value ? receiptMenu : planMenu)(row, column, event)
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), list = ref(null)
 const periodSection = ref(null)
 const followupStates = { pending: '待回复', replied: '已回复', cancelled: '已撤回' }

@@ -29,7 +29,7 @@
       </template>
 
       <div v-if="view === 'card'" class="cards">
-        <div v-for="p in items" :key="p.project_code" class="pcard" :class="{ alert: p.delayed_nodes }" @click="go(p)">
+        <div v-for="p in items" :key="p.project_code" v-record-delete="projectRemoval(p)" class="pcard" :class="{ alert: p.delayed_nodes }" @click="go(p)">
           <div class="jc-row between">
             <span class="jc-mono jc-muted">{{ p.project_code }}</span>
             <span class="jc-row" style="gap: 6px">
@@ -61,7 +61,7 @@
         <el-empty v-if="!items.length && !loading" description="暂无项目" style="grid-column: 1 / -1" />
       </div>
 
-      <el-table v-else :data="items" :row-class-name="({ row }) => (row.delayed_nodes ? 'is-alert' : '')" @row-click="go">
+      <el-table v-else :data="items" :row-class-name="({ row }) => (row.delayed_nodes ? 'is-alert' : '')" @row-click="go" @row-contextmenu="projectMenu">
         <el-table-column prop="project_code" label="编码" width="150"><template #default="{ row }"><span class="jc-mono">{{ row.project_code }}</span></template></el-table-column>
         <el-table-column label="项目名称" min-width="220">
           <template #default="{ row }">{{ row.name }} <StatusPill v-if="row.is_key" text="重点" tone="brand" /></template>
@@ -130,6 +130,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -138,6 +139,13 @@ import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, PROJECT_STATUS, percent, wan } from '@/utils/format'
 
 const auth = useAuth()
+const projectRemoval = row => {
+  const admin = auth.profile?.is_admin
+  const allowed = row.is_key ? admin || auth.can('project:key')
+    : admin || auth.can('milestone:write') || row.owner_id === auth.profile?.id
+  return allowed && recordRemoval('project', row.project_code, row.name, load, { title: '删除项目' })
+}
+const projectMenu = rowDeletion(projectRemoval)
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)

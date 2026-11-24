@@ -84,7 +84,7 @@
           </div>
 
           <Panel class="mt-16" title="历史快照" sub="每月 1 日 08:30 自动生成上月业绩、每周一 09:15 生成运营看板并推送营销管控与总办" :padding="false">
-            <el-table :data="reports" size="small" empty-text="暂无快照">
+            <el-table :data="reports" size="small" empty-text="暂无快照" @row-contextmenu="performanceReportMenu">
               <el-table-column prop="title" label="报表" min-width="180" />
               <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
               <el-table-column label="触发" width="80"><template #default="{ row }">{{ row.trigger === 'schedule' ? '定时' : '手动' }}</template></el-table-column>
@@ -190,6 +190,8 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
+import { useAuth } from '@/store/auth'
 import { computed, onMounted, ref } from 'vue'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useRoute, useRouter } from 'vue-router'
@@ -280,6 +282,9 @@ const agingOption = computed(() => {
 
 useBusinessRefresh(() => tab.value === 'board' ? loadBoard() : loadPerf())
 onMounted(() => (tab.value === 'board' ? loadBoard() : loadPerf()))
+
+const deletionAuth = useAuth()
+const performanceReportMenu = rowDeletion(row => deletionAuth.can('report:generate') && recordRemoval('performance-report', row.id, row.title, loadPerf, { title: '删除业绩报告' }))
 </script>
 
 <style scoped>

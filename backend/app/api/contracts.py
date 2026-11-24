@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, forbidden, ok
 from app.core.timeutil import today
@@ -159,7 +160,8 @@ def save_sync_source(body: SyncSourceIn, request: Request, p: Principal = Menu,
 
 
 @router.delete("/sync/sources/{key}")
-def delete_sync_source(key: str, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+def delete_sync_source(key: str, body: DeletionIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
     from sqlalchemy import select
 
     from app.models import SysDict

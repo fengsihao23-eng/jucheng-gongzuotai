@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.api.kb import _list
 from app.core.audit import log_op
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, get_principal
 from app.core.response import ok
 from app.services import import_service as svc
@@ -213,7 +214,8 @@ def dismiss(batch_id: int, request: Request, note: str = Body(..., embed=True), 
 
 
 @router.post("/{batch_id}/withdraw")
-def withdraw(batch_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+def withdraw(batch_id: int, body: DeletionIn, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
     b = svc.withdraw(db, p, batch_id)
     return ok(_done(db, p, b, "withdraw", request, {"note": b.note}))
 

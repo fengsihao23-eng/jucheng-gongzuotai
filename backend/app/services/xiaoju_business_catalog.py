@@ -59,6 +59,12 @@ ROUTE_EXCLUSIONS = {
     "wecom_console.put_credential",
     # Recent-login operations and reviewed external-source workflows stay in their own UI.
     "admin.set_roles", "admin.set_status", "admin.update_role", "admin.set_personal_permissions",
+    "admin.deletion_password", "admin.save_deletion_password",
+    "admin.delete_user", "admin.delete_dict", "record_deletions.remove_record",
+    "contracts.delete_sync_source", "finance_data.cost_delete", "imports.withdraw", "journal.delete",
+    "kb.delete_category", "kb.delete_doc", "market.delete_intel", "market.delete_key_project",
+    "operations.delete_operation", "operations.remove_operation_member", "operations.delete_school",
+    "projects.del_ms", "receivables.void", "tender.delete_doc",
     "operations.delete_task", "operations.archive_operation_task", "operations.restore_operation_task",
     "operations.preview_campus_income", "operations.confirm_campus_income",
     "operations.confirm_income_feed",

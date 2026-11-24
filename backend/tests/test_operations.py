@@ -10,7 +10,7 @@ from app.core.deps import build_principal
 from app.core.response import BizError
 from app.core.timeutil import TZ
 from app.models import OpsTask, SysNotify, SysUser
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 BASE = "/api/v1/operations"
 
@@ -196,11 +196,11 @@ def test_feedback_rejects_other_members_and_foreign_nodes(client, login, db, pro
 def test_member_removal_transfer_and_revocation(client, login, db, project):
     t = task(client, login, db, project)
     path = f"{BASE}/{project['id']}/members/{uid(db, 'xiekai')}"
-    assert client.delete(path, headers=login("admin")).status_code == 409
+    assert client.request("DELETE", path, headers=login("admin"), json=deletion_body()).status_code == 409
     assert client.post(f"{BASE}/{project['id']}/members", headers=login("admin"), json={"user_id": uid(db, "xiekai"), "role": "viewer"}).status_code == 409
     member(client, login, db, project, "xuhao")
     data(client.put(f"{BASE}/tasks/{t['id']}", headers=login("admin"), json={"owner_id": uid(db, "xuhao")}))
-    assert client.delete(path, headers=login("admin")).status_code == 200
+    assert client.request("DELETE", path, headers=login("admin"), json=deletion_body()).status_code == 200
     for endpoint in (f"/{project['id']}", f"/{project['id']}/brief", f"/tasks/{t['id']}"):
         assert client.get(BASE + endpoint, headers=login("xiekai")).status_code == 404
     assert report(client, login, t).status_code == 404
@@ -399,8 +399,8 @@ def test_school_delete_cascades_equipment_income_and_tasks(client, login, db, pr
     t = data(client.post(base + "/tasks", headers=h, json={"title": "绑定学校的任务", "owner_id": uid(db, "wujun"),
                                                            "due_date": "2026-10-25", "school_id": s["id"]}))
     member(client, login, db, project, role="viewer")
-    assert client.delete(base + f"/schools/{s['id']}", headers=login("xiekai")).status_code == 403
-    result = data(client.delete(base + f"/schools/{s['id']}", headers=h))
+    assert client.request("DELETE", base + f"/schools/{s['id']}", headers=login("xiekai"), json=deletion_body()).status_code == 403
+    result = data(client.request("DELETE", base + f"/schools/{s['id']}", headers=h, json=deletion_body()))
     assert result["equipment"] == 1 and result["incomes"] == 1 and result["tasks_detached"] == 1
     detail = data(client.get(base, headers=h))
     assert detail["schools"] == []

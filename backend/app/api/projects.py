@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, conflict, forbidden, not_found, ok
 from app.core.storage import file_brief, save_bytes
@@ -232,8 +233,9 @@ def edit_ms(code: str, mid: int, body: MilestoneIn, p: Principal = Menu, db: Ses
 
 
 @router.delete("/{code}/milestones/{mid}")
-def del_ms(code: str, mid: int, p: Principal = Menu, db: Session = Depends(get_db)):
+def del_ms(code: str, mid: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
     proj = _editable(db, code, p)
+    verify_deletion(db, body)
     ps.delete_milestone(db, proj, _ms(db, proj, mid), p.id)
     db.commit()
     return ok()

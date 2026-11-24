@@ -179,7 +179,7 @@
     </Panel>
 
     <Panel class="mt-16" title="历史任务" :padding="false">
-      <el-table :data="history.items" size="small" @row-click="openJob">
+      <el-table :data="history.items" size="small" @row-click="openJob" @row-contextmenu="cleanMenu">
         <el-table-column label="文件" min-width="220" show-overflow-tooltip><template #default="{ row }"><span class="link">{{ row.filename }}</span></template></el-table-column>
         <el-table-column prop="target_name" label="目标" width="100" />
         <el-table-column label="状态" width="86">
@@ -201,6 +201,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -371,6 +372,8 @@ onMounted(async () => {
     await openJob({ id: route.query.job })
   }
 })
+
+const cleanMenu = rowDeletion(row => auth.can('clean:import') && recordRemoval('clean', row.id, row.filename, loadHistory, { title: '删除清洗记录' }))
 </script>
 
 <style scoped>

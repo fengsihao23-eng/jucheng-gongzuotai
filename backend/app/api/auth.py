@@ -91,7 +91,7 @@ def profile(p: Principal, db: Session | None = None) -> dict:
             "dept_code": u.dept_code, "dept_name": u.department.name if u.department else None,
             "roles": [{"code": r.role_code, "name": r.name} for r in u.roles] or [{"code": "EMP", "name": "普通员工"}],
             "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
-            "portal": p.portal, "is_admin": p.is_admin, "preferences": u.preferences or {},
+            "portal": p.portal, "is_admin": p.is_admin, "is_system_manager": p.is_system_manager, "preferences": u.preferences or {},
             "workbench_enabled": p.workbench_enabled, "sections": p.sections,
             "mcp_token_hint": u.access_token_hint, "permission_revision": permission_revision}
 

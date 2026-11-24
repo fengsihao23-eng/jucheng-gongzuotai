@@ -71,7 +71,7 @@
     </div>
 
     <Panel title="已生成文书" :padding="false">
-      <el-table :data="history" size="small" max-height="380">
+      <el-table :data="history" size="small" max-height="380" @row-contextmenu="documentMenu">
         <el-table-column label="时间" width="150"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
         <el-table-column prop="type_name" label="类型" width="160" />
         <el-table-column prop="title" label="标题" min-width="200" />
@@ -85,6 +85,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -93,6 +94,7 @@ import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 
 const auth = useAuth()
+const documentMenu = rowDeletion(row => auth.can('hr:write') && recordRemoval('hr-doc', row.id, row.title, loadHistory, { title: '删除人事文档' }))
 const route = useRoute()
 const LONG = ['items', 'goals', 'kpis', 'modules', 'raw_text', 'content', 'issues', 'highlights', 'improvements', 'objectives', 'termination_reason']
 const BOOL = ['non_compete', 'agreed']

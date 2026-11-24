@@ -59,7 +59,7 @@
         <span>公共 <b class="jc-num">{{ money(summary.public_amount) }}</b></span>
         <span :class="{ 'jc-warn': summary.pending_count }">待归集 <b class="jc-num">{{ summary.pending_count || 0 }}</b> 笔 / {{ money(summary.pending_amount) }}</span>
       </div>
-      <el-table :data="rows" :row-class-name="rowClass" @selection-change="(v) => (selected = v)" @row-click="openDetail">
+      <el-table :data="rows" :row-class-name="rowClass" @selection-change="(v) => (selected = v)" @row-click="openDetail" @row-contextmenu="expenseMenu">
         <el-table-column v-if="canAllocate" type="selection" width="40" :selectable="(r) => r.status === 2 || r.status === 4" />
         <el-table-column label="审批单号" width="170"><template #default="{ row }"><span class="jc-mono">{{ row.approval_no }}</span></template></el-table-column>
         <el-table-column label="申请人" width="90" prop="applicant" />
@@ -187,6 +187,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -305,6 +306,8 @@ onMounted(async () => {
   opts.value = await api.get('/expenses/options')
   load(1); loadStats()
 })
+
+const expenseMenu = rowDeletion(row => canAllocate.value && recordRemoval('expense', row.id, row.approval_no, async () => { await load(); await loadStats() }, { title: '删除报销单' }))
 </script>
 
 <style scoped>

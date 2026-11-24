@@ -156,7 +156,8 @@ def register(db: Session, file_bytes: bytes, filename: str, uploader_id: int | N
             errors.append({"sheet": p["sheet"], "field": "税种", "message": f"不支持的税种 {p['tax_type']}"})
             continue
         row = db.scalar(select(SyncTaxFiling).where(SyncTaxFiling.period == p["period"],
-                                                    SyncTaxFiling.tax_type == p["tax_type"]))
+                                                    SyncTaxFiling.tax_type == p["tax_type"])
+                        .execution_options(include_removed_records=True))
         created = row is None
         if created:
             row = SyncTaxFiling(period=p["period"], tax_type=p["tax_type"], payable_amount=p["payable_amount"])

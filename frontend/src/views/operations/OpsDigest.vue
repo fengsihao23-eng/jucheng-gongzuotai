@@ -30,7 +30,7 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="已保存报告" name="history">
-          <el-table :data="history" empty-text="暂无已保存报告"><el-table-column prop="period" label="期间" width="130" /><el-table-column prop="person" label="报告对象" min-width="120" /><el-table-column prop="version" label="版本" width="75" /><el-table-column label="生成时间" min-width="160"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column><el-table-column width="100"><template #default="{ row }"><el-button link type="primary" @click="openSaved(row.id)">查看报告</el-button></template></el-table-column></el-table>
+          <el-table :data="history" empty-text="暂无已保存报告" @row-contextmenu="reportMenu"><el-table-column prop="period" label="期间" width="130" /><el-table-column prop="person" label="报告对象" min-width="120" /><el-table-column prop="version" label="版本" width="75" /><el-table-column label="生成时间" min-width="160"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column><el-table-column width="100"><template #default="{ row }"><el-button link type="primary" @click="openSaved(row.id)">查看报告</el-button></template></el-table-column></el-table>
         </el-tab-pane>
       </el-tabs>
     </template>
@@ -38,12 +38,14 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 const props = defineProps({ projectId: Number, active: Boolean, initialMode: { type: String, default: 'week' } })
+const reportMenu = rowDeletion(row => recordRemoval('ops-digest', row.id, `${row.person || '项目'} · ${row.period}`, refresh, { title: '删除运营报告' }))
 const router = useRouter(), route = useRoute(), mode = ref(props.initialMode), period = ref(''), mine = ref(false)
 const selectedProject = ref(null), projects = ref([]), settings = ref(null), report = ref(null), savedReport = ref(null), history = ref([])
 const ownerId = ref(null), members = ref([])

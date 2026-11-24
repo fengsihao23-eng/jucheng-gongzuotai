@@ -53,7 +53,7 @@
             @change="search" @keyup.enter="search" />
           <el-checkbox v-if="showsExpense" v-model="filters.unassigned" @change="search">待归集支出</el-checkbox>
         </div>
-        <el-table :key="activeKind" :data="result.items" row-key="id" :row-class-name="rowClass" stripe>
+        <el-table :key="activeKind" :data="result.items" row-key="id" :row-class-name="rowClass" stripe @row-contextmenu="entryMenu">
           <el-table-column v-for="field in mainFields" :key="field.key" :label="field.label"
             :min-width="columnWidth(field)" :align="field.type === 'money' ? 'right' : 'left'" show-overflow-tooltip>
             <template #default="{ row }">
@@ -87,7 +87,7 @@
     </template>
 
     <el-dialog v-model="historyOpen" title="导入记录" width="min(920px, 95vw)" :close-on-click-modal="false">
-      <el-table v-loading="historyLoading" :data="history.items" row-key="id" empty-text="这里会显示本模块的导入批次和待确认预览" stripe>
+      <el-table v-loading="historyLoading" :data="history.items" row-key="id" empty-text="这里会显示本模块的导入批次和待确认预览" stripe @row-contextmenu="historyMenu">
         <el-table-column label="文件名" prop="filename" min-width="160" show-overflow-tooltip />
         <el-table-column label="台账" min-width="145">
           <template #default="{ row }">{{ row.kinds.map((kind) => schema[kind]?.label).join('、') }}</template>
@@ -158,16 +158,21 @@
         <label class="removal-reason"><span>原因（选填）</span>
           <el-input v-model="removalReason" type="textarea" :rows="2" maxlength="200" aria-label="原因（选填）" />
         </label>
+        <label class="removal-reason"><span>删除密码</span>
+          <el-input v-model="removalPassword" type="password" show-password autocomplete="off" maxlength="128"
+            aria-label="删除密码" @keyup.enter="saveRemoval" />
+        </label>
       </div>
       <template #footer>
         <el-button :disabled="removing" @click="removalOpen = false">取消</el-button>
-        <el-button type="danger" :loading="removing" @click="saveRemoval">{{ removal?.batch ? '确认撤销' : '确认删除' }}</el-button>
+        <el-button type="danger" :loading="removing" :disabled="!removalPassword" @click="saveRemoval">{{ removal?.batch ? '确认撤销' : '确认删除' }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
+import { rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Clock, Document, Memo, Money, Search, Upload, Wallet } from '@element-plus/icons-vue'
@@ -218,6 +223,9 @@ const historyOpen = ref(false), historyLoading = ref(false), historyPage = ref(1
 const history = ref({ items: [], total: 0 })
 const allocationOpen = ref(false), allocationRow = ref(null), allocationProject = ref(''), allocating = ref(false)
 const removal = ref(null), removalOpen = ref(false), removalReason = ref(''), removing = ref(false), loadingBatch = ref(false)
+const removalPassword = ref('')
+const entryMenu = rowDeletion(row => row.can_delete && { open: () => openEntryRemoval(row) })
+const historyMenu = rowDeletion(row => row.can_revoke && { menuLabel: '撤销本批', open: () => openBatchRemoval(row.id) })
 const removalValues = computed(() => removal.value?.row?.values || {})
 const removalLabel = computed(() => {
   const { payer, payee, customer, name, summary, project, account } = removalValues.value
@@ -380,6 +388,7 @@ async function saveAllocation() {
 function openEntryRemoval(row) {
   removal.value = { row }
   removalReason.value = ''
+  removalPassword.value = ''
   removalOpen.value = true
 }
 
@@ -396,20 +405,23 @@ async function openBatchRemoval(token) {
     }
     removal.value = { ...data, batch: token }
     removalReason.value = ''
+    removalPassword.value = ''
     removalOpen.value = true
   } catch { /* API client reports the error. */ }
   finally { loadingBatch.value = false }
 }
 
 async function saveRemoval() {
+  if (!removalPassword.value || removing.value) return
   const target = removal.value
-  const body = { reason: removalReason.value }
+  const body = { reason: removalReason.value, password: removalPassword.value }
   removing.value = true
   try {
     const result = target.batch
       ? await api.post(`/finance-ledgers/imports/${target.batch}/revoke`, body)
       : await api.del(`/finance-ledgers/entries/${target.row.id}`, undefined, { data: body })
     removalOpen.value = false
+    removalPassword.value = ''
     if (target.batch) selected.value = null
     if (historyOpen.value) await loadHistory()
     ElMessage.success(result.removed ? `已移除 ${result.removed} 笔台账记录` : '记录已移除')

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.core.deps import build_principal
 from app.core.response import BizError
 from app.models import OpsTask, OpsTaskReview, SysNotify, SysUser
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 from tests.test_operations import BASE, project, member, report, task, uid
 
 
@@ -90,7 +90,7 @@ def test_review_requires_distinct_authorized_people(client,login,db,project):
 def test_explicit_team_reviewer_and_revocation(client,login,db,project):
     member(client,login,db,project,"yangyue","reviewer")
     t=data(propose(client,login,db,project,department_reviewer_id=uid(db,"yangyue")))
-    assert client.delete(f"{BASE}/{project['id']}/members/{uid(db,'yangyue')}",headers=login("admin")).status_code==409
+    assert client.request("DELETE", f"{BASE}/{project['id']}/members/{uid(db,'yangyue')}", headers=login("admin"), json=deletion_body()).status_code==409
     assert client.post(f"{BASE}/{project['id']}/members",headers=login("admin"),json={"user_id":uid(db,"yangyue"),"role":"member"}).status_code==409
     assert data(review(client,login,t,"yangyue"))["approval_status"]=="company_pending"
 

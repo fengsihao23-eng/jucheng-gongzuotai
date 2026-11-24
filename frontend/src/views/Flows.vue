@@ -21,7 +21,7 @@
               <el-input v-model="wf.keyword" placeholder="对方 / 摘要" clearable style="width: 140px" @change="loadWb" />
             </div>
             <div class="flow-list">
-              <div v-for="r in wb.items" :key="r.id" class="flow-item" :class="{ on: cur?.id === r.id }" @click="showFlow(r)">
+              <div v-for="r in wb.items" :key="r.id" v-record-delete="flowRemoval(r)" class="flow-item" :class="{ on: cur?.id === r.id }" @click="showFlow(r)">
                 <div class="jc-row between">
                   <span class="jc-small jc-muted">{{ r.trade_date }} · {{ shortAcct(r.bank_account) }}</span>
                   <span class="jc-num amt" :class="r.direction === 1 ? 'jc-up' : ''">{{ r.direction === 1 ? '+' : '−' }}{{ money(r.amount) }}</span>
@@ -139,7 +139,7 @@
             <span>收入 <b class="jc-num jc-up">{{ money(list.summary?.income) }}</b></span>
             <span>支出 <b class="jc-num">{{ money(list.summary?.expense) }}</b></span>
           </div>
-          <el-table :data="list.items" @row-click="showFlow" :row-class-name="({ row }) => (row.match_status === 0 ? 'is-alert' : '')">
+          <el-table :data="list.items" @row-click="showFlow" :row-class-name="({ row }) => (row.match_status === 0 ? 'is-alert' : '')" @row-contextmenu="flowMenu">
             <el-table-column label="交易日期" width="105" prop="trade_date" />
             <el-table-column label="账户" width="190" prop="bank_account" show-overflow-tooltip />
             <el-table-column label="收入" width="130" align="right"><template #default="{ row }"><span v-if="row.direction === 1" class="jc-num jc-up">{{ money(row.amount) }}</span></template></el-table-column>
@@ -163,7 +163,7 @@
       <!-- ================= 导入记录 ================= -->
       <el-tab-pane label="导入记录" name="imports">
         <Panel :padding="false" :loading="iLoading">
-          <el-table :data="imports.items" @row-click="(r) => showReport(r)">
+          <el-table :data="imports.items" @row-click="(r) => showReport(r)" @row-contextmenu="bankImportMenu">
             <el-table-column label="导入时间" width="150"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
             <el-table-column label="文件" min-width="220"><template #default="{ row }"><FileLink :file="row.file" /></template></el-table-column>
             <el-table-column label="银行模板" width="100" prop="template_name" />
@@ -255,6 +255,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -266,6 +267,14 @@ import { FLOW_MATCH, datetime, money, time } from '@/utils/format'
 const auth = useAuth()
 const route = useRoute()
 const can = (b) => auth.can(b)
+const flowRemoval = row => (can('flows:import') || can('flows:match')) &&
+  recordRemoval('bank-flow', row.id, row.counterparty || row.summary || '银行流水', async () => {
+    if (cur.value?.id === row.id) cur.value = null
+    await Promise.all([loadWb(), loadList()])
+  }, { title: '删除银行流水' })
+const flowMenu = rowDeletion(flowRemoval)
+const bankImportMenu = rowDeletion(row => can('flows:import') && recordRemoval('bank-import', row.id, row.filename,
+  () => loadImports(), { title: '删除流水导入记录', description: `确认移除「${row.filename}」的导入记录？银行流水可在流水核对中逐笔处理。` }))
 const SOURCE = { upload: '上传', auto_dir: '目录自动', mcp: 'WorkBuddy' }
 const tab = ref('workbench')
 const accounts = ref([]); const templates = ref([]); const tplAccounts = ref([]); const projects = ref([])

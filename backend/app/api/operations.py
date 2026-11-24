@@ -151,7 +151,7 @@ def create_operation(body: ProjectIn, p: Principal = Menu, db: Session = Depends
 def delete_operation(project_id: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """删除运营项目：仅梁道灿、冯思皓、聚成数智管理员，软删除并留审计。"""
     project = ops.get_project(db, p, project_id)
-    verify_deletion(body)
+    verify_deletion(db, body)
     return ok(ops.delete_project(db, p, project))
 
 
@@ -177,7 +177,7 @@ def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: 
 
 @router.delete("/tasks/{task_id}")
 def delete_task(task_id: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    verify_deletion(body)
+    verify_deletion(db, body)
     ops.delete_task(db, p, task_id)
     db.commit()
     return ok()
@@ -333,9 +333,10 @@ def add_project_members(project_id: int, body: BatchMembersIn, p: Principal = Me
 
 
 @router.delete("/{project_id}/members/{user_id}")
-def remove_operation_member(project_id: int, user_id: int, transfer: bool = False, p: Principal = Menu,
+def remove_operation_member(project_id: int, user_id: int, body: DeletionIn, transfer: bool = False, p: Principal = Menu,
                             db: Session = Depends(get_db)):
     """移除团队成员；transfer=true 时把其未完成任务/待审任务转交给项目负责人。"""
+    verify_deletion(db, body)
     ops.remove_member(db, p, project_id, user_id, transfer=transfer)
     db.commit()
     return ok()
@@ -477,8 +478,9 @@ def edit_school(project_id: int, school_id: int, body: SchoolIn, p: Principal = 
 
 
 @router.delete("/{project_id}/schools/{school_id}")
-def delete_school(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+def delete_school(project_id: int, school_id: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
     """删除学校，连带设备清单、每日收入、跟进记录与年度目标，并解除任务关联。"""
+    verify_deletion(db, body)
     result = ops.delete_school(db, p, project_id, school_id)
     db.commit()
     return ok(result)

@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="jc-row between"><p class="jc-muted">产品资料可在有权限的运营项目之间复用，实际投入按学校设备清单中的采购单价计算。</p><div class="jc-row wrap"><CampusProposal :project="project" /><el-button v-if="project.can_manage" type="primary" @click="edit()">新增产品</el-button></div></div>
-    <el-table :data="project.products">
+    <el-table :data="project.products" @row-contextmenu="productMenu">
       <el-table-column prop="name" label="产品名称" min-width="200" />
       <el-table-column prop="brand" label="品牌" width="140" />
       <el-table-column prop="model" label="型号 / 规格" min-width="180" show-overflow-tooltip />
@@ -23,6 +23,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -36,5 +37,7 @@ async function save() {
   saving.value = true
   try { const base = `/operations/${props.project.id}/products`; if (id.value) await api.put(`${base}/${id.value}`, form); else await api.post(base, form); visible.value = false; ElMessage.success('产品已保存'); emit('saved'); announceChange() } catch {} finally { saving.value = false }
 }
+
+const productMenu = rowDeletion(row => props.project.can_manage && recordRemoval('operation-product', row.id, row.name, () => emit('saved'), { title: '删除设备产品' }))
 </script>
 <style scoped>.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media(max-width: 500px) { .two { grid-template-columns: 1fr; gap: 0; } }</style>

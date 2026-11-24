@@ -48,7 +48,7 @@
 
         <Panel v-if="searched" title="检索结果" :sub="`「${lastQ}」${scopeText} · ${results.length} 条`" :loading="loading">
           <div v-if="!results.length && !loading" class="jc-muted empty">没有找到相关内容。换个说法试试，或者把你手里的资料上传进来。</div>
-          <article v-for="r in results" :key="r.chunk_id" class="hit">
+          <article v-for="r in results" :key="r.chunk_id" v-record-delete="meta.can_manage && documentRemoval({ id: r.doc_id, title: r.title, can_delete: true })" class="hit">
             <div class="jc-row between">
               <a class="t" @click="openDoc(r.doc_id, r.seq)">{{ r.title }}</a>
               <span class="jc-num jc-small jc-muted">相关度 {{ r.score.toFixed(1) }}</span>
@@ -82,7 +82,7 @@
     <!-- 分类管理 -->
     <Panel v-else-if="tab === 'categories'" title="分类管理" sub="一级分类可设置审核人角色；内置一级分类被标书助手、客服等模块引用，不能改名或删除" :padding="false">
       <template #extra><el-button size="small" @click="editCat(null)">新增一级分类</el-button></template>
-      <el-table :data="tree.filter((c) => c.id)" row-key="id" :tree-props="{ children: 'children' }" default-expand-all>
+      <el-table :data="tree.filter((c) => c.id)" row-key="id" :tree-props="{ children: 'children' }" default-expand-all @row-contextmenu="categoryMenu">
         <el-table-column label="分类" min-width="200">
           <template #default="{ row }">{{ row.name }} <StatusPill v-if="row.builtin" text="内置" /></template>
         </el-table-column>
@@ -173,6 +173,7 @@
 </template>
 
 <script setup>
+import { deleteRecord, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineComponent, h, nextTick, onMounted, ref, resolveComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -223,7 +224,7 @@ const DocTable = defineComponent({
     const ElTable = resolveComponent('el-table')
     const Col = resolveComponent('el-table-column')
     const Pill = resolveComponent('StatusPill')
-    return () => h(ElTable, { data: props.rows, onRowClick: (row) => emit('open', row) }, () => [
+    return () => h(ElTable, { data: props.rows, onRowClick: (row) => emit('open', row), onRowContextmenu: documentMenu }, () => [
       h(Col, { label: '文档', minWidth: 260 }, { default: ({ row }) => h('div', [h('a', { class: 't2' }, row.title),
         row.summary ? h('div', { class: 'jc-small jc-muted jc-ellipsis' }, row.summary) : null]) }),
       h(Col, { label: '分类', width: 170 }, { default: ({ row }) => h(Pill, { text: row.subcategory ? `${row.category} / ${row.subcategory}` : row.category }) }),
@@ -392,13 +393,12 @@ async function doArchive(archived) {
   await refreshAfter(await api.post(`/kb/docs/${doc.value.id}/archive`, { archived }))
   ElMessage.success(archived ? '已下架' : '已恢复发布')
 }
-async function doDelete() {
-  await ElMessageBox.confirm('删除后不可恢复。确定删除这篇未发布的文档？', '删除', { type: 'warning' })
-  await api.del(`/kb/docs/${doc.value.id}`)
-  drawer.value = false
-  ElMessage.success('已删除')
-  await refreshAfter()
+const documentRemoval = row => row?.can_delete && {
+    endpoint: `/kb/docs/${row.id}`, name: row.title, title: '删除文档',
+    onDeleted: () => { drawer.value = false; return refreshAfter() },
 }
+const documentMenu = rowDeletion(documentRemoval)
+const doDelete = () => deleteRecord(documentRemoval(doc.value))
 
 // ---------------- 分类管理 ----------------
 const catDlg = ref(false)
@@ -421,12 +421,11 @@ async function saveCat() {
     await loadMeta()
   } finally { busy.value = false }
 }
-async function removeCat(row) {
-  await ElMessageBox.confirm(`确定删除分类「${row.name}」？`, '删除分类', { type: 'warning' })
-  await api.del(`/kb/categories/${row.id}`)
-  ElMessage.success('已删除')
-  await loadMeta()
+const categoryRemoval = row => !row.builtin && {
+  endpoint: `/kb/categories/${row.id}`, name: row.name, title: '删除分类', onDeleted: loadMeta,
 }
+const categoryMenu = rowDeletion(categoryRemoval)
+const removeCat = row => deleteRecord(categoryRemoval(row))
 
 onMounted(async () => {
   await loadMeta()

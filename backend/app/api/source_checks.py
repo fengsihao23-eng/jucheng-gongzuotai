@@ -184,8 +184,6 @@ def robot_state(p: Principal = Admin, db: Session = Depends(get_db)):
 
 @router.put("/robot")
 def save_robot(body: RobotRenewal, p: Principal = Admin, db: Session = Depends(get_db)):
-    if not p.is_admin:
-        raise forbidden("只有平台管理员可配置授权续期")
     ids = {x for x in (body.owner_id, body.backup_id) if x}
     if len(ids) != (2 if body.backup_id else 1) or len(list(db.scalars(select(SysUser.id).where(
         SysUser.id.in_(ids), SysUser.status == 1, SysUser.is_deleted.is_(False))))) != len(ids):

@@ -168,7 +168,8 @@ try {
   })
 
   await step('ACCESS-06', '从团队移除后项目详情、列表均失权，三位最高权限人员仍可访问', async () => {
-    await call('admin', 'DELETE', `/operations/${project.id}/members/${worker.id}`)
+    await call('admin', 'DELETE', `/operations/${project.id}/members/${worker.id}`,
+      { password: process.env.OPERATIONS_DELETE_PASSWORD || 'admin123' }, { deleteJSON: true })
     const listing = await call('xiekai', 'GET', '/operations')
     assert.ok(!listing.items.some(row => row.id === project.id))
     assert.equal((await call('xiekai', 'GET', `/operations/${project.id}`, undefined, { raw: true })).status, 404)

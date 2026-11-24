@@ -534,7 +534,8 @@ def generate_report(db: Session, start: date, end: date, period: str, trigger: s
     f = save_bytes(db, data=data, filename=f"客服问题归因报告_{period}.docx", category="report",
                    key=f"report/cs_attribution/{end:%Y-%m}/客服问题归因报告_{period}.docx", uploader_id=user_id)
     ver = (db.scalar(select(func.max(RptReport.version)).where(RptReport.report_type == "cs_attribution",
-                                                                RptReport.period == period)) or 0) + 1
+                                                                RptReport.period == period)
+                     .execution_options(include_removed_records=True)) or 0) + 1
     metrics = {"total": a["total"], "resolved": a["resolved"], "avg_resolve_hours": a["avg_resolve_hours"],
                "duplicate_rate": a["duplicate_rate"], "top10": [{"label": c["label"], "count": c["count"]} for c in a["top10"]],
                "advice": [s["text"] for s in a["advice"]], "start": str(start), "end": str(end)}

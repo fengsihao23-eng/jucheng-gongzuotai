@@ -36,7 +36,7 @@
         <span class="jc-small jc-muted">通过线</span><el-input-number v-model="sc.pass_score" :min="0" :max="100" size="small" />
         <el-button v-if="canWrite" type="primary" :disabled="!files.length || !sc.position" :loading="scBusy" @click="screen">开始初筛</el-button>
       </div>
-      <el-table v-if="scRes" :data="scRes.candidates" size="small" class="mt-16" :row-class-name="({ row }) => (row.screen_score < scRes.pass_score ? 'is-alert' : '')">
+      <el-table v-if="scRes" :data="scRes.candidates" size="small" class="mt-16" :row-class-name="({ row }) => (row.screen_score < scRes.pass_score ? 'is-alert' : '')" @row-contextmenu="candidateMenu">
         <el-table-column type="index" label="排名" width="60" />
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column label="得分" width="90"><template #default="{ row }"><b class="jc-num" :class="row.screen_score >= scRes.pass_score ? 'jc-up' : 'jc-down'">{{ row.screen_score }}</b></template></el-table-column>
@@ -57,7 +57,7 @@
       <div class="board">
         <div v-for="[s, label] in stages" :key="s" class="col">
           <div class="ch"><span>{{ label }}</span><span class="jc-num jc-muted">{{ byStage[s]?.length || 0 }}</span></div>
-          <div v-for="c in byStage[s] || []" :key="c.id" class="card" @click="openCand(c)">
+          <div v-for="c in byStage[s] || []" :key="c.id" v-record-delete="candidateRemoval(c)" class="card" @click="openCand(c)">
             <div class="jc-row between"><b>{{ c.name }}</b><span class="jc-num" :class="(c.screen_score || 0) >= 60 ? 'jc-up' : 'jc-muted'">{{ c.screen_score ?? '—' }}</span></div>
             <div class="jc-small jc-muted">{{ c.position }} · {{ c.education || '—' }} · {{ c.years ?? '—' }} 年</div>
             <div v-if="c.interview_eval" class="jc-small">面评 {{ c.interview_eval.total }} · {{ c.interview_eval.conclusion }}</div>
@@ -112,6 +112,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -120,6 +121,11 @@ import { PALETTE } from '@/utils/chart'
 
 const auth = useAuth()
 const canWrite = computed(() => auth.can('hr:write'))
+const candidateRemoval = row => canWrite.value && recordRemoval('hr-candidate', row.id, row.name, () => {
+  if (scRes.value) scRes.value.candidates = scRes.value.candidates.filter(candidate => candidate.id !== row.id)
+  return load()
+}, { title: '删除候选人' })
+const candidateMenu = rowDeletion(candidateRemoval)
 const TRANS = { resume: ['screen_pass', 'rejected'], screen_pass: ['interview', 'rejected'], interview: ['offer', 'rejected'], offer: ['hired', 'rejected'], hired: [], rejected: ['resume'] }
 const STAGE_NAME = { resume: '简历', screen_pass: '初筛通过', interview: '面试', offer: 'Offer', hired: '已入职', rejected: '淘汰' }
 const items = ref([])

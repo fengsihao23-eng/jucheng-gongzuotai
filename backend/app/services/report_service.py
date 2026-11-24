@@ -1162,7 +1162,8 @@ def generate(db: Session, report_type: str, period: str | None = None, trigger: 
     metrics = collect(db, ctx)
     files = render(db, metrics, ctx, lines)
     version = (db.scalar(select(func.max(RptReport.version)).where(
-        RptReport.report_type == report_type, RptReport.period == ctx["period"])) or 0) + 1
+        RptReport.report_type == report_type, RptReport.period == ctx["period"])
+                        .execution_options(include_removed_records=True)) or 0) + 1
     month_dir = f"{ctx['start']:%Y-%m}"
     file_ids = []
     for filename, data in files:

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 API = "/api/v1"
 T = date(2026, 10, 20)
@@ -66,7 +66,7 @@ def test_milestone_crud_reorder_and_logs(client, login, db):
     moved = data(client.post(f"{API}/projects/{code}/milestones/{ids[1]}/move", json={"direction": "up"}, headers=h))
     assert moved[0]["id"] == ids[1]
     # 删除
-    data(client.delete(f"{API}/projects/{code}/milestones/{ms[0]['id']}", headers=h))
+    data(client.request("DELETE", f"{API}/projects/{code}/milestones/{ms[0]['id']}", headers=h, json=deletion_body()))
     after3 = _detail(client, login, code)["milestones"]
     assert ms[0]["id"] not in [m["id"] for m in after3] and [m["seq"] for m in after3] == list(range(1, 6))
     # 留痕：操作人/时间/前后值/source
@@ -339,7 +339,7 @@ def test_intel_crud_search_and_brief(client, login):
     sx = next(s for s in brief["sections"] if s["group"] == "竞品X")
     assert "综合智慧安防" in sx["impact"] and sx["suggestion"]
     assert brief["kb"] is not None  # 沉淀结果（知识库接口不存在时为跳过说明）
-    data(client.delete(f"{API}/market/intel/{new['id']}", headers=h))
+    data(client.request("DELETE", f"{API}/market/intel/{new['id']}", headers=h, json=deletion_body()))
     assert client.get(f"{API}/market/intel/{new['id']}", headers=h).json()["code"] == 40401
     # 无 intel:write
     assert client.post(f"{API}/market/intel", json={"title": "x", "summary": "y"}, headers=login("limingyuan")).json()["code"] == 40301

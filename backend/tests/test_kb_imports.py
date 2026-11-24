@@ -5,7 +5,7 @@
 import io
 import uuid
 
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 EMP, HR, CP, KF, YX, ADMIN = "zengli", "dengxin", "xiekai", "huangqi", "songjia", "admin"
 
@@ -99,14 +99,14 @@ def test_category_management(client, login):
     tree = data(client.get("/api/v1/kb/tree", headers=admin))
     zd = next(c for c in tree if c["name"] == "制度")
     assert client.put(f"/api/v1/kb/categories/{zd['id']}", json={"name": "规章"}, headers=admin).json()["code"] == 40001
-    assert client.delete(f"/api/v1/kb/categories/{zd['id']}", headers=admin).json()["code"] == 40001
+    assert client.request("DELETE", f"/api/v1/kb/categories/{zd['id']}", headers=admin, json=deletion_body()).json()["code"] == 40001
     # 改名会同步到文档
     r = _upload(client, admin, _docx("新员工第一周的培训安排与考核方式说明。"), "新员工培训.docx",
                 category="培训资料", subcategory="新员工")
     doc_id = data(r)["id"]
     data(client.put(f"/api/v1/kb/categories/{sub}", json={"name": "入职培训"}, headers=admin))
     assert data(client.get(f"/api/v1/kb/docs/{doc_id}", headers=admin))["subcategory"] == "入职培训"
-    assert client.delete(f"/api/v1/kb/categories/{cid}", headers=admin).json()["code"] == 40901  # 有文档不能删
+    assert client.request("DELETE", f"/api/v1/kb/categories/{cid}", headers=admin, json=deletion_body()).json()["code"] == 40901  # 有文档不能删
 
 
 # ============================================================ 上传 / 审核 / 可见范围
@@ -177,14 +177,17 @@ def test_version_archive_restore_delete(client, login):
     assert client.post(f"/api/v1/kb/docs/{d['id']}/archive", json={"archived": True}, headers=emp).json()["code"] == 40301
     data(client.post(f"/api/v1/kb/docs/{d['id']}/archive", json={"archived": True}, headers=cp))
     assert not _found(client, cp, word, d["id"])
-    assert client.delete(f"/api/v1/kb/docs/{d['id']}", headers=cp).json()["code"] == 40901  # 下架不能删
+    assert client.request("DELETE", f"/api/v1/kb/docs/{d['id']}", headers=emp, json=deletion_body()).status_code in (403, 404)
     data(client.post(f"/api/v1/kb/docs/{d['id']}/archive", json={"archived": False}, headers=cp))
     assert _found(client, cp, word, d["id"])
     assert data(client.get(f"/api/v1/kb/docs/{d['id']}", headers=cp))["title"] == "录播方案"
+    data(client.request("DELETE", f"/api/v1/kb/docs/{d['id']}", headers=cp, json=deletion_body()))
+    assert client.get(f"/api/v1/kb/docs/{d['id']}", headers=cp).status_code == 404
+    assert not _found(client, cp, word, d["id"])
     # 待审核文档上传人可删
     p = data(_upload(client, emp, _docx(f"{word} 员工整理的售前笔记。"), "笔记.docx", category="售前"))
     assert p["status"] == "pending"
-    data(client.delete(f"/api/v1/kb/docs/{p['id']}", headers=emp))
+    data(client.request("DELETE", f"/api/v1/kb/docs/{p['id']}", headers=emp, json=deletion_body()))
 
 
 def test_extract_pdf_and_rejects(client, login):
@@ -217,7 +220,7 @@ def test_import_document_routes_to_kb(client, login):
                          headers=emp))
     assert b["status"] == "done" and b["kb_doc"]["status"] == "pending"
     # 撤回：未发布的知识库文档被删除
-    b = data(client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=emp))
+    b = data(client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=emp, json=deletion_body()))
     assert b["status"] == "withdrawn" and b["kb_doc"] is None
     # 撤回后可以重新上传同一文件
     assert _import(client, emp, content, "机房运维巡检规范.docx").json()["code"] == 0
@@ -238,7 +241,7 @@ def test_import_table_with_permission_goes_to_clean_and_rolls_back(client, login
     assert b["status"] == "done"
     rows = data(client.get("/api/v1/contracts", params={"keyword": tag}, headers=yx))
     assert rows["total"] == 2
-    b = data(client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=yx))
+    b = data(client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=yx, json=deletion_body()))
     assert b["status"] == "withdrawn" and "2 条" in b["note"]
     assert data(client.get("/api/v1/contracts", params={"keyword": tag}, headers=yx))["total"] == 0
 
@@ -261,7 +264,7 @@ def test_import_rollback_refused_when_payment_exists(client, login, db):
     c = db.scalar(select(BizContract).where(BizContract.contract_no == no))
     payment_service.register_payment(db, c, Decimal("1000"), date(2026, 9, 1))
     db.commit()
-    r = client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=yx).json()
+    r = client.post(f"/api/v1/imports/{b['id']}/withdraw", headers=yx, json=deletion_body()).json()
     assert r["code"] == 40901 and "回款" in r["message"]
 
 

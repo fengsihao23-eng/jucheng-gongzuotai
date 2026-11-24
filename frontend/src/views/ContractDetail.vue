@@ -104,7 +104,7 @@
 
       <div class="jc-grid c2 mt-16">
         <Panel title="回款记录" :padding="false" :sub="`${c.payments.length} 笔`">
-          <el-table :data="c.payments" max-height="320" empty-text="暂无回款">
+          <el-table :data="c.payments" max-height="320" empty-text="暂无回款" @row-contextmenu="paymentMenu">
             <el-table-column label="回款 ID" width="86" prop="id" />
             <el-table-column label="到账日" width="100" prop="payment_date" />
             <el-table-column label="金额" width="130" align="right"><template #default="{ row }"><span class="jc-num">{{ money(row.amount, 0) }}</span></template></el-table-column>
@@ -195,6 +195,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
@@ -208,6 +209,9 @@ import ContractForm from './contract-form.vue'
 import WecomApprovalDialog from '@/components/WecomApprovalDialog.vue'
 
 const auth = useAuth()
+const paymentMenu = rowDeletion(row => (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+  recordRemoval('contract-payment', row.id, `${row.payment_date} · ${money(row.amount)} 元`, () => load(),
+    { title: '删除合同回款', description: '确认删除这笔回款？删除后会重算合同已收金额和各期未收余额。' }))
 
 const VIA = { callback: '企微回调', reconcile: '兜底对账', mock: '模拟', manual: '人工重试' }
 const PLAN_TONE = { 1: '', 2: 'warn', 3: 'info', 4: 'up', 5: 'down' }

@@ -54,7 +54,7 @@
                 <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="label in visibleMenuLabels(role.menus, role.code === 'ADMIN-01')" :key="label" class="jc-pill">{{ label }}</span><span v-if="!role.menus.length" class="jc-muted">仅公共入口</span></dd></div>
                 <div><dt>操作权限</dt><dd class="role-tags"><span v-for="key in role.buttons" :key="key" class="jc-pill">{{ privileges[key] || key }}</span><span v-if="!role.buttons.length" class="jc-muted">仅基础操作</span></dd></div>
               </dl>
-              <el-button v-if="canManage" link type="primary" @click="emit('edit-role', role)">调整角色规则</el-button>
+              <el-button v-if="canManage && role.code !== 'SYS-MGMT'" link type="primary" @click="emit('edit-role', role)">调整角色规则</el-button>
             </article>
             <el-empty v-if="!departmentRoles.length" description="此部门尚未分配角色" :image-size="48" />
           </div>
@@ -98,7 +98,7 @@
                 <el-radio-button value="role">沿用角色</el-radio-button><el-radio-button value="personal">单独配置</el-radio-button>
               </el-radio-group>
             </div>
-            <p v-if="administrator" class="jc-muted jc-small grant-note">平台管理员保留完整管理权限。</p>
+            <p v-if="administrator" class="jc-muted jc-small grant-note">平台管理员拥有完整业务权限。系统管理入口由「系统管理授权」角色控制。</p>
             <p v-else class="jc-muted jc-small grant-note">{{ mode === 'personal' ? '以下设置仅作用于这个人，保存后生效。' : '使用所选角色的默认权限；需要单独调整时选择「单独配置」。' }}</p>
 
             <el-form v-if="mode === 'personal'" :model="permissionDraft" label-position="top" :disabled="saving || stale" class="personal-settings">

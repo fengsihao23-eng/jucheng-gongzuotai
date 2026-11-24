@@ -15,7 +15,7 @@
         <el-button type="primary" native-type="submit" :disabled="saving || !recipient || !content.trim()" :loading="saving">通知负责人</el-button>
       </el-form>
       <ul v-if="history.entries.length" class="followup-entries">
-        <li v-for="entry in history.entries" :key="entry.id">
+        <li v-for="entry in history.entries" :key="entry.id" v-record-delete="followupRemoval(entry)">
           <div class="jc-row wrap">
             <b>{{ entry.author_name || '历史成员' }} → {{ entry.recipient_name || '历史成员' }}</b>
             <span class="jc-small jc-muted">{{ datetime(entry.created_at) }}</span>
@@ -37,13 +37,19 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
+import { recordRemoval } from '@/composables/useRecordDeletion'
+import { useAuth } from '@/store/auth'
 
 const props = defineProps({ sheet: String, row: Number, revision: String })
 const emit = defineEmits(['changed'])
+const auth = useAuth()
 const states = { pending: '待回复', replied: '已回复', cancelled: '已撤回' }
 const history = ref(null), recipient = ref(null), content = ref(''), error = ref(''), loading = ref(false), saving = ref(false)
 const endpoint = computed(() => `/business-workbook/collections/items/${encodeURIComponent(props.sheet)}/${props.row}/followups`)
 let generation = 0
+const followupRemoval = row => (history.value?.can_request || row.author_id === auth.profile?.id) &&
+  recordRemoval('collection-thread', row.id, '回款跟进要求', async () => { await load(); emit('changed') },
+    { title: '删除回款跟进' })
 async function load() {
   const id = ++generation
   error.value = ''

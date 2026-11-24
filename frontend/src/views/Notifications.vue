@@ -5,7 +5,7 @@
       <el-button @click="readAll">全部标为已读</el-button>
     </PageHeader>
     <Panel :padding="false" :loading="loading">
-      <el-table :data="rows" @row-click="open">
+      <el-table :data="rows" @row-click="open" @row-contextmenu="notificationMenu">
         <el-table-column width="36"><template #default="{ row }"><i v-if="!row.read" class="jc-dot down" /></template></el-table-column>
         <el-table-column label="标题" min-width="260"><template #default="{ row }"><b :class="{ 'jc-muted': row.read }">{{ row.title }}</b></template></el-table-column>
         <el-table-column label="内容" min-width="420"><template #default="{ row }"><span class="jc-muted" style="white-space:pre-line">{{ row.content }}</span></template></el-table-column>
@@ -18,6 +18,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api/client'
@@ -40,4 +41,6 @@ async function open(row) {
   if (row.link) router.push(row.link); else load()
 }
 onMounted(load)
+
+const notificationMenu = rowDeletion(row => recordRemoval('notification', row.id, row.title, () => load(), { title: '删除消息' }))
 </script>

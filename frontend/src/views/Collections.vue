@@ -47,7 +47,7 @@
       <el-radio-button value="month">当月回款</el-radio-button><el-radio-button value="unpaid">未收跟进</el-radio-button>
     </el-radio-group>
     <Panel v-if="view === 'month'" title="当月回款清单" :sub="monthly ? `${monthly.period} · ${monthly.count} 笔，合计 ${money(monthly.amount)} 元` : ''" :padding="false">
-      <el-table :data="monthly?.items || []" empty-text="本月暂无已登记的实际到账">
+      <el-table :data="monthly?.items || []" empty-text="本月暂无已登记的实际到账" @row-contextmenu="paymentMenu">
         <el-table-column prop="date" label="到账日期" width="140" /><el-table-column prop="contract_name" label="合同名称" min-width="200" />
         <el-table-column prop="customer" label="客户" min-width="160" /><el-table-column label="实际回款金额（元）" align="right" width="170"><template #default="{row}">{{ money(row.amount) }}</template></el-table-column>
       </el-table>
@@ -102,6 +102,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import CollectionHeaderActions from '@/components/CollectionHeaderActions.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -112,6 +113,9 @@ import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 
 const auth = useAuth(), route = useRoute(), router = useRouter()
+const paymentMenu = rowDeletion(row => (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+  recordRemoval('contract-payment', row.id, row.contract_name || row.contract_no, () => loadMonth(),
+    { title: '删除合同回款', description: '确认删除这笔回款？删除后会重算合同已收金额和各期未收余额。' }))
 const view = ref(route.query.contract || route.query.basis === 'unpaid' ? 'unpaid' : 'month'), monthly = ref(null), monthPage = ref(1)
 let monthRequest = 0
 async function loadMonth() {

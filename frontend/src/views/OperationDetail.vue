@@ -23,7 +23,7 @@
               <button v-for="(label, value) in statuses" :key="value" type="button" :aria-pressed="status === value" :data-status="value" :title="value === 'ongoing' ? '包含待开始、受阻、待审核和已退回的任务' : undefined" @click="status = value"><i /><span>{{ label }}</span><b class="jc-num">{{ taskGroups[value].length }}</b></button>
             </div>
             <TaskCards v-if="filteredTasks.length && taskView === 'cards'" :rows="filteredTasks" @open-task="openTask" />
-            <el-table v-else-if="filteredTasks.length" :data="filteredTasks" @row-click="openTask" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''">
+            <el-table v-else-if="filteredTasks.length" :data="filteredTasks" @row-click="openTask" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-contextmenu="taskMenu">
               <el-table-column prop="title" label="事项" min-width="190" /><el-table-column prop="owner_name" label="负责人" width="100" /><el-table-column prop="due_date" label="截止" width="115" />
               <el-table-column prop="latest_feedback" label="最近进展" min-width="230" show-overflow-tooltip /><el-table-column prop="next_step" label="下一步 / 协调" min-width="180" show-overflow-tooltip />
               <el-table-column label="状态" width="110"><template #default="{ row }">{{ row.status === 'done' ? '已完成' : row.overdue ? '逾期未完成' : row.status === 'blocked' ? '受阻' : '进行中' }}</template></el-table-column>
@@ -80,6 +80,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -155,6 +156,7 @@ function newOutreach(school) { newTask(); schoolPreset.value = school.id }
 function newSelfTask() {schoolPreset.value = null; taskMode.value='self';editingTask.value=null;taskForm.value=true}
 function editTask(task) { schoolPreset.value = null; editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
+const taskMenu = rowDeletion(row => row.can_archive && recordRemoval('operation-task', row.id, row.title, () => load(), { title: '删除任务' }))
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
 function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }

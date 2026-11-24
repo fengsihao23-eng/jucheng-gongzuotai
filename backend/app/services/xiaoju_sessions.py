@@ -46,13 +46,20 @@ def locked(user_id, session_id):
         yield
 
 
-def load(user_id, session_id, check=True):
+def _read(user_id, session_id, *, include_archived=False):
     try:
         value = json.loads((folder(user_id, session_id) / "meta.json").read_text())
     except (OSError, ValueError):
         raise not_found("对话") from None
     if value["user_id"] != user_id:
         raise forbidden("该对话属于其他账号")
+    if value.get("archived") and not include_archived:
+        raise not_found("对话")
+    return value
+
+
+def load(user_id, session_id, check=True):
+    value = _read(user_id, session_id)
     if check and value["scope"] != scope(user_id):
         raise forbidden("账号权限或连接已变化，请新建对话；旧对话内容不会继续传给模型")
     if value.get("active_task_id"):
@@ -73,6 +80,27 @@ def load(user_id, session_id, check=True):
 def save(value):
     value["updated_at"] = time.time()
     private_write(folder(value["user_id"], value["id"]) / "meta.json", value)
+
+
+def archive(user_id, session_id):
+    from app.services.xiaoju_service import _load, task_root, TERMINAL
+
+    _read(user_id, session_id)
+    with locked(user_id, session_id):
+        value = _read(user_id, session_id)
+        task_id = value.get("active_task_id")
+        if task_id:
+            try:
+                running = _load(task_root(), task_id)["state"] not in TERMINAL
+            except BizError:
+                # A request may have reserved the session and be writing its task file.
+                running = time.time() - value["updated_at"] < 60
+            if running:
+                raise conflict("请先等待当前对话执行结束，再删除")
+        value["active_task_id"] = None
+        value["archived"] = True
+        save(value)
+        return value["title"]
 
 
 def refresh_connection_scope(user_id, session_id):
@@ -158,7 +186,7 @@ def finish(user_id, session_id, task_id, message):
     if not session_id:
         return
     with locked(user_id, session_id):
-        value = load(user_id, session_id, check=False)
+        value = _read(user_id, session_id, include_archived=True)
         if not any(m.get("task_id") == task_id and m["role"] == "assistant" for m in value["messages"]):
             value["messages"].append({"role": "assistant", "text": redact(message), "task_id": task_id})
         if value.get("active_task_id") == task_id:

@@ -45,12 +45,12 @@
             @change="load(1)" />
           <el-button v-if="canGen && curType" size="small" @click="openGen(curType.report_type)">生成{{ curType.name }}</el-button>
         </template>
-        <el-table :data="list.items" row-key="id" @row-click="openDetail" class="rows" @expand-change="loadVersions">
+        <el-table :data="list.items" row-key="id" @row-click="openDetail" class="rows" @expand-change="loadVersions" @row-contextmenu="reportMenu">
           <el-table-column type="expand" width="36">
             <template #default="{ row }">
               <div class="hist">
                 <div class="jc-small jc-muted">历史版本（{{ row.versions }}）</div>
-                <el-table :data="versions[row.id] || []" size="small" v-loading="!versions[row.id]">
+                <el-table :data="versions[row.id] || []" size="small" v-loading="!versions[row.id]" @row-contextmenu="reportMenu">
                   <el-table-column label="版本" width="70"><template #default="{ row: h }">v{{ h.version }}</template></el-table-column>
                   <el-table-column label="生成时间" width="150"><template #default="{ row: h }">{{ datetime(h.created_at) }}</template></el-table-column>
                   <el-table-column label="方式" width="90"><template #default="{ row: h }"><StatusPill :text="TRIGGER[h.trigger] || h.trigger" :tone="h.trigger === 'schedule' ? 'info' : 'brand'" /></template></el-table-column>
@@ -171,7 +171,7 @@
           <ol class="cal-list"><li v-for="(c, i) in drawer.data.caliber" :key="i">{{ c }}</li></ol>
         </Panel>
         <Panel title="历史版本" :padding="false">
-          <el-table :data="drawer.data.history" size="small">
+          <el-table :data="drawer.data.history" size="small" @row-contextmenu="reportMenu">
             <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
             <el-table-column label="生成时间" width="150"><template #default="{ row }">{{ datetime(row.created_at) }}</template></el-table-column>
             <el-table-column label="方式" width="80"><template #default="{ row }">{{ TRIGGER[row.trigger] }}</template></el-table-column>
@@ -185,6 +185,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
@@ -363,6 +364,12 @@ onMounted(async () => {
   await load(1)
   if (route.query.id) openDetail({ id: Number(route.query.id) })
 })
+
+const reportMenu = rowDeletion(row => auth.can('report:generate') && recordRemoval('report', row.id, row.title || '报表 V' + row.version, () => {
+  drawer.show = false
+  for (const id of Object.keys(versions)) delete versions[id]
+  return load()
+}, { title: '删除报表' }))
 </script>
 
 <style scoped>

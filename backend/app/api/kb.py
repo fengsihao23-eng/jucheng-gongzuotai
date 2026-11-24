@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, get_principal
 from app.core.permissions import DEPARTMENTS, ROLE_DEFS
 from app.core.response import bad_request, ok
@@ -96,7 +97,8 @@ def update_category(cat_id: int, request: Request, name: str = Body(...), descri
 
 
 @router.delete("/categories/{cat_id}")
-def delete_category(cat_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+def delete_category(cat_id: int, body: DeletionIn, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
     kb_service.delete_category(db, p, cat_id)
     log_op(db, p.id, "kb.category.delete", "kb_category", cat_id, ip=client_ip(request))
     db.commit()
@@ -197,8 +199,8 @@ def archive(doc_id: int, request: Request, archived: bool = Body(True, embed=Tru
 
 
 @router.delete("/docs/{doc_id}")
-def delete_doc(doc_id: int, request: Request, p: Principal = User, db: Session = Depends(get_db)):
-    kb_service.delete_document(db, p, doc_id)
-    log_op(db, p.id, "kb.delete", "kb_document", doc_id, ip=client_ip(request))
+def delete_doc(doc_id: int, body: DeletionIn, request: Request, p: Principal = User, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
+    kb_service.remove_document(db, p, doc_id, client_ip(request))
     db.commit()
     return ok()

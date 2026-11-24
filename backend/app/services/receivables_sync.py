@@ -32,7 +32,7 @@ def _version(payload):
 def stage(db, source, kind, records, *, snapshot=False):
     ledger.lock(db)
     old = {r.record_key: r for r in db.scalars(select(FinReceivablesSourceRow).where(
-        FinReceivablesSourceRow.source_key == source))}
+        FinReceivablesSourceRow.source_key == source).execution_options(include_removed_records=True))}
     ids = set()
     changes = 0
     for key, payload in records:

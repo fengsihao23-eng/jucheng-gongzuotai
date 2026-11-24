@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, require_menu
 from app.core.response import bad_request, forbidden, not_found, ok
 from app.core.storage import file_brief
@@ -84,8 +85,9 @@ def doc(doc_id: int, p: Principal = Depends(menu), db: Session = Depends(get_db)
 
 
 @router.delete("/docs/{doc_id}")
-def delete_doc(doc_id: int, p: Principal = Depends(menu), db: Session = Depends(get_db)):
+def delete_doc(doc_id: int, body: DeletionIn, p: Principal = Depends(menu), db: Session = Depends(get_db)):
     _writer(p)
+    verify_deletion(db, body)
     d = ts.doc_or_404(db, doc_id)
     used = db.scalar(select(ProdBidCheck.id).where((ProdBidCheck.tender_doc_id == d.id) | (ProdBidCheck.bid_doc_id == d.id)))
     used = used or db.scalar(select(ProdGeneration.id).where(ProdGeneration.tender_doc_id == d.id))

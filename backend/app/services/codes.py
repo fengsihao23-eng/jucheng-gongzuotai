@@ -6,7 +6,8 @@ from app.core.timeutil import today
 
 
 def _next(db: Session, column, prefix: str, width: int) -> str:
-    last = db.scalar(select(func.max(column)).where(column.like(f"{prefix}%")))
+    last = db.scalar(select(func.max(column)).where(column.like(f"{prefix}%"))
+                     .execution_options(include_removed_records=True))
     seq = int(last[len(prefix):]) + 1 if last and last[len(prefix):].isdigit() else 1
     return f"{prefix}{seq:0{width}d}"
 

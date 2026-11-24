@@ -53,7 +53,7 @@
     </div>
 
     <Panel class="mt-16" :padding="false" :loading="loading">
-      <el-table :data="rows" class="clickable" @row-click="(r) => $router.push(`/contracts/${r.id}`)">
+      <el-table :data="rows" class="clickable" @row-click="(r) => $router.push(`/contracts/${r.id}`)" @row-contextmenu="contractMenu">
         <el-table-column label="合同编号" width="130"><template #default="{ row }"><span class="jc-mono">{{ row.contract_no }}</span></template></el-table-column>
         <el-table-column label="合同名称 / 客户" min-width="260">
           <template #default="{ row }"><div class="jc-ellipsis"><b>{{ row.name || '—' }}</b></div><div class="jc-muted jc-small jc-ellipsis">{{ row.customer_name }}</div></template>
@@ -94,6 +94,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
@@ -188,6 +189,8 @@ onMounted(async () => {
   await load(true)
   if (route.query.new) openNew()
 })
+
+const contractMenu = rowDeletion(row => perms.value.can_write && recordRemoval('contract', row.id, row.name || row.contract_no, () => load(true), { title: '删除合同' }))
 </script>
 
 <style scoped>

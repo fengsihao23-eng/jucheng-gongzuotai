@@ -49,7 +49,7 @@
       <p v-if="tab === 'receipts'" class="jc-muted jc-small">旧合同回款仍可在合同台账查看。关联已有回款 ID 只补来源和核销信息，不再新增合同回款。</p>
 
       <h3 v-if="tab === 'invoices'">开票清单</h3>
-      <el-table v-if="tab === 'invoices'" :data="rows" row-key="id" empty-text="没有符合条件的开票记录">
+      <el-table v-if="tab === 'invoices'" :data="rows" row-key="id" empty-text="没有符合条件的开票记录" @row-contextmenu="invoiceMenu">
         <el-table-column label="客户 / 发票号码" min-width="220"><template #default="{ row }">
           <div>{{ row.customer }}</div><small class="jc-muted">{{ row.invoice_no || '待开票' }}</small>
         </template></el-table-column>
@@ -65,7 +65,7 @@
         </template></el-table-column>
       </el-table>
 
-      <el-table v-else-if="tab === 'receipts'" :data="rows" row-key="id" empty-text="没有符合条件的到账记录">
+      <el-table v-else-if="tab === 'receipts'" :data="rows" row-key="id" empty-text="没有符合条件的到账记录" @row-contextmenu="receiptMenu">
         <el-table-column label="付款方 / 到账凭证号" min-width="220"><template #default="{ row }">
           <div>{{ row.payer }}</div><small class="jc-muted">{{ row.reference }}</small>
         </template></el-table-column>
@@ -82,7 +82,7 @@
         </template></el-table-column>
       </el-table>
 
-      <el-table v-else :data="rows" row-key="id" empty-text="没有符合条件的来源记录" @selection-change="selected = $event">
+      <el-table v-else :data="rows" row-key="id" empty-text="没有符合条件的来源记录" @selection-change="selected = $event" @row-contextmenu="sourceMenu">
         <el-table-column type="selection" width="46" :selectable="isApplicable" />
         <el-table-column prop="source_key" label="来源" min-width="130" />
         <el-table-column prop="record_key" label="源记录标识" min-width="170" />
@@ -102,6 +102,9 @@
           <el-select v-if="field === 'kind'" v-model="form.kind" style="width: 100%"><el-option v-for="(label, value) in kinds" :key="value" :label="label" :value="value" /></el-select>
           <el-date-picker v-else-if="['issued_on', 'received_on'].includes(field)" v-model="form[field]" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
           <el-input v-else v-model="form[field]" :type="['note', 'reason'].includes(field) ? 'textarea' : 'text'" :placeholder="hints[field] || ''" />
+        </el-form-item>
+        <el-form-item v-if="action === 'void'" label="删除密码" required>
+          <el-input v-model="form.password" type="password" show-password autocomplete="off" maxlength="128" aria-label="删除密码" />
         </el-form-item>
       </el-form>
       <template v-else>
@@ -134,6 +137,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -145,6 +149,10 @@ import dayjs from 'dayjs'
 
 const auth = useAuth(), route = useRoute()
 const can = (key) => auth.can(`receivables:${key}`)
+const invoiceMenu = rowDeletion(row => can('correct') && recordRemoval('invoice', row.id, row.invoice_no || row.customer, refresh, { title: '删除发票记录' }))
+const sourceMenu = rowDeletion(row => can('source') && recordRemoval('receivables-source', row.id, row.record_key, refresh, { title: '删除开票回款来源记录' }))
+const receiptMenu = rowDeletion(row => can('correct') && row.state === 'confirmed' &&
+  { menuLabel: '删除到账', open: () => open('void', row) })
 const prefix = '/receivables'
 const kinds = { contract: '合同回款', unmatched: '待匹配收款', other: '其他收款' }
 const invoiceFilters = { pending: '待确认开票', issued: '已开票', outstanding: '已开票未收', void: '已作废', cancelled: '申请已关闭' }
@@ -241,6 +249,7 @@ async function save() {
   try {
     const id = target.value?.id
     const payload = Object.fromEntries(visibleFields.value.filter((key) => form.value[key] !== '' && form.value[key] != null).map((key) => [key, form.value[key]]))
+    if (action.value === 'void') payload.password = form.value.password || ''
     const paths = { invoice: '/invoices', issue: `/invoices/${id}/issue`, correct: `/invoices/${id}/correct`, receipt: '/receipts', assign: `/receipts/${id}/assign`, void: `/receipts/${id}/void` }
     if (action.value === 'allocate') await api.put(`${prefix}/receipts/${id}/allocations`, { items: allocations.value })
     else await api.post(prefix + paths[action.value], payload)

@@ -80,7 +80,7 @@
           </template>
 
           <p class="project-scroll-hint jc-small jc-muted">列表可左右滑动，点击项目名称查看详情。</p>
-          <el-table v-if="shown.length" :data="shown" row-key="group" class="project-table" @row-click="openProject">
+          <el-table v-if="shown.length" :data="shown" row-key="group" class="project-table" @row-click="openProject" @row-contextmenu="sourceMenu">
             <el-table-column label="序号" width="70" align="center">
               <template #default="{ row }"><span class="jc-num jc-muted">{{ row.sequence ?? '—' }}</span></template>
             </el-table-column>
@@ -128,6 +128,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -141,6 +142,11 @@ const endpoint = '/business-workbook/tender'
 const categories = [{ key: 'tender', label: '招标项目' }, { key: 'pending', label: '在建项目' }]
 const rowSize = 100, perPage = 24
 const route = useRoute(), router = useRouter(), auth = useAuth()
+const sourceMenu = rowDeletion(row => (auth.can('project:key') || auth.can('milestone:write')) &&
+  recordRemoval('workbook-tender', row.group, row.name, () => load(), {
+    query: { sheet: data.value?.sheet.id, revision: data.value?.source.revision }, title: '删除工作台项目',
+    description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
+  }))
 const data = ref(null), loading = ref(false), syncing = ref(false), error = ref('')
 const keyword = ref(''), progress = ref(''), year = ref(''), page = ref(1)
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null)

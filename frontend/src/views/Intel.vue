@@ -22,7 +22,7 @@
           <el-option label="重要及以上" :value="2" /><el-option label="仅紧急" :value="3" />
         </el-select>
       </template>
-      <el-table :data="items" :row-class-name="({ row }) => (row.importance >= 3 ? 'is-alert' : '')" @row-click="(r) => openView(r)">
+      <el-table :data="items" :row-class-name="({ row }) => (row.importance >= 3 ? 'is-alert' : '')" @row-click="(r) => openView(r)" @row-contextmenu="removeMenu">
         <el-table-column label="日期" width="110"><template #default="{ row }"><span class="jc-num">{{ date(row.published_on) }}</span></template></el-table-column>
         <el-table-column label="类型" width="96"><template #default="{ row }"><StatusPill :text="row.kind_text" :tone="KTONE[row.kind]" /></template></el-table-column>
         <el-table-column prop="competitor" label="竞品" width="120"><template #default="{ row }">{{ row.competitor || '—' }}</template></el-table-column>
@@ -40,9 +40,7 @@
         <el-table-column v-if="canWrite" label="" width="110" align="right">
           <template #default="{ row }">
             <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
-            <el-popconfirm title="删除该情报？" @confirm="remove(row)">
-              <template #reference><el-button link type="danger" @click.stop>删除</el-button></template>
-            </el-popconfirm>
+            <el-button link type="danger" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -133,6 +131,7 @@
 </template>
 
 <script setup>
+import { deleteRecord, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
@@ -197,11 +196,11 @@ async function save() {
     saving.value = false
   }
 }
-async function remove(r) {
-  await api.del(`/market/intel/${r.id}`)
-  ElMessage.success('已删除')
-  load()
+const removal = row => canWrite.value && {
+  endpoint: `/market/intel/${row.id}`, name: row.title, title: '删除情报', onDeleted: load,
 }
+const removeMenu = rowDeletion(removal)
+const remove = row => deleteRecord(removal(row))
 
 const briefDlg = ref(false)
 const briefShow = ref(false)

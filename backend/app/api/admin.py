@@ -3,39 +3,52 @@ from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import String, cast, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.config import settings
 from app.core.db import get_db, get_or_404
+from app.core.deletion import DeletionIn, NO_STORE, RotateDeletionPasswordIn, password_info, rotate_password, verify_deletion
 from app.core.deps import Principal, build_principal, client_ip, get_principal, require_menu, require_recent_login
-from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS
+from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
 from app.core.permission_catalog import permission_groups
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found, ok, page_data
 from app.jobs import registry
-from app.models import LogOperation, OpsMember, OpsProject, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
-from app.services import dispatch_service, user_service, personal_permission_service as personal
+from app.models import BusinessRecordDeletion, LogOperation, OpsMember, OpsProject, SyncJobLog, SyncWecomApproval, SysDepartment, SysDict, SysRole, SysUser, SysUserRole
+from app.services import dispatch_service, record_removals, user_service, personal_permission_service as personal
 
 router = APIRouter(prefix="/admin", tags=["系统管理"])
 Admin = Depends(require_menu("admin"))
 
 
 def _check_admin_write(request, p):
-    if not p.is_admin:
-        raise forbidden("只有平台管理员可变更授权")
+    if not p.is_system_manager:
+        raise forbidden("需要系统管理授权")
     require_recent_login(request)
 
 
-def _keep_admin(db, u, removing):
-    if not removing or u.status != 1 or not any(r.role_code == "ADMIN-01" for r in u.roles):
+def _keep_admin_roles(db, u, selected_roles, enabled=True):
+    if u.status != 1 or not u.workbench_enabled:
         return
-    others = db.scalar(select(SysUser.id).join(SysUserRole, SysUserRole.user_id == SysUser.id)
-                       .join(SysRole, SysRole.id == SysUserRole.role_id).where(SysRole.role_code == "ADMIN-01",
-                        SysUser.status == 1, SysUser.workbench_enabled.is_(True),
-                        SysUser.is_deleted.is_(False), SysUser.id != u.id).limit(1))
-    if not others:
-        raise conflict("必须保留至少一个有效的平台管理员")
+    prior = {role.role_code for role in u.roles}
+    for role_code in (prior & {"ADMIN-01", SYSTEM_MANAGEMENT_ROLE}) - set(selected_roles if enabled else []):
+        other = db.scalar(select(SysUser.id).join(SysUserRole, SysUserRole.user_id == SysUser.id)
+                          .join(SysRole, SysRole.id == SysUserRole.role_id).where(SysRole.role_code == role_code,
+                           SysUser.status == 1, SysUser.workbench_enabled.is_(True),
+                           SysUser.is_deleted.is_(False), SysUser.id != u.id).limit(1))
+        if not other:
+            raise conflict(f"必须保留至少一个有效的{ROLE_DEFS[role_code]['name']}账号")
+
+
+@router.get("/deletion-password")
+def deletion_password(reveal: bool = False, p: Principal = Admin, db: Session = Depends(get_db)):
+    return ok(password_info(db, p, reveal=reveal), headers=NO_STORE)
+
+
+@router.put("/deletion-password")
+def save_deletion_password(body: RotateDeletionPasswordIn, p: Principal = Admin, db: Session = Depends(get_db)):
+    return ok(rotate_password(db, p, body), headers=NO_STORE)
 
 
 AccountSource = Literal["", "directory", "local"]
@@ -111,7 +124,7 @@ def set_roles(user_id: int, request: Request, body: RoleAssignmentsIn, p: Princi
         raise conflict("这名员工的角色已被更新，请重新查看后再保存")
     if before == role_codes:
         return ok()
-    _keep_admin(db, u, "ADMIN-01" not in role_codes)
+    _keep_admin_roles(db, u, role_codes)
     if "ADMIN-01" in role_codes and u.permission_override:
         db.delete(u.permission_override)
     db.query(SysUserRole).filter(SysUserRole.user_id == u.id).delete()
@@ -129,13 +142,27 @@ def set_status(user_id: int, request: Request, status: int = Body(embed=True), p
         raise bad_request("请选择启用或停用")
     db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
     u = get_or_404(db, SysUser, user_id, "用户")
-    _keep_admin(db, u, status != 1)
+    _keep_admin_roles(db, u, [role.role_code for role in u.roles], enabled=status == 1)
     log_op(db, p.id, "user.status", "user", u.id, {"status": u.status}, {"status": status})
     u.status = status
     if status != 1:
         u.access_token = None  # 停用即吊销 MCP 令牌
     db.commit()
     return ok()
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, body: DeletionIn, request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
+    _check_admin_write(request, p)
+    verify_deletion(db, body)
+    db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
+    user = get_or_404(db, SysUser, user_id, "用户")
+    _keep_admin_roles(db, user, [], enabled=False)
+    user.status, user.workbench_enabled, user.is_deleted = 2, False, True
+    user.access_token = user.access_token_hint = None
+    log_op(db, p.id, "user.delete", "user", user.id, after={"is_deleted": True}, ip=client_ip(request))
+    db.commit()
+    return ok({"deleted": True})
 
 
 @router.get("/roles")
@@ -242,7 +269,7 @@ def set_personal_permissions(user_id: int, request: Request, body: personal.Pers
     _check_admin_write(request, p)
     db.execute(text("SELECT pg_advisory_xact_lock(190670114)"))
     user = get_or_404(db, SysUser, user_id, "用户")
-    personal.update(db, p, user, body, _keep_admin, client_ip(request))
+    personal.update(db, p, user, body, _keep_admin_roles, client_ip(request))
     db.commit()
     return effective_permissions(user_id, p, db)
 
@@ -256,10 +283,12 @@ class RolePermIn(BaseModel):
 @router.put("/roles/{code}")
 def update_role(code: str, body: RolePermIn, request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
     _check_admin_write(request, p)
+    if code == SYSTEM_MANAGEMENT_ROLE:
+        raise bad_request("系统管理通过为账号分配此角色授权")
     if body.data_scope not in {"self", "dept", "all"} or not set(body.menus) <= set(MENUS):
         raise bad_request("菜单或数据范围无效")
-    if ("*" in body.buttons and code != "ADMIN-01") or (code == "ADMIN-01" and ("admin" not in body.menus or "*" not in body.buttons)):
-        raise bad_request("平台管理员须保留系统管理入口与完整权限，其他角色不得使用全权限")
+    if ("*" in body.buttons) != (code == "ADMIN-01"):
+        raise bad_request("完整操作权限仅可由平台管理员角色使用")
     if code not in ROLE_DEFS:
         raise not_found("角色")
     role = user_service.role_by_code(db, code)
@@ -271,11 +300,25 @@ def update_role(code: str, body: RolePermIn, request: Request, p: Principal = Ad
 
 @router.get("/dicts")
 def dicts(dict_type: str = "", p: Principal = Admin, db: Session = Depends(get_db)):
-    q = select(SysDict).order_by(SysDict.dict_type, SysDict.dict_key)
+    removed = select(BusinessRecordDeletion.record_key).where(
+        BusinessRecordDeletion.resource == "sys_dict", BusinessRecordDeletion.record_key == cast(SysDict.id, String))
+    q = select(SysDict).where(~removed.exists()).order_by(SysDict.dict_type, SysDict.dict_key)
     if dict_type:
         q = q.where(SysDict.dict_type == dict_type)
     return ok([{"id": d.id, "dict_type": d.dict_type, "dict_key": d.dict_key, "dict_value": d.dict_value,
                 "remark": d.remark, "status": d.status, "updated_at": d.updated_at} for d in db.scalars(q)])
+
+
+@router.delete("/dicts/{ident}")
+def delete_dict(ident: int, body: DeletionIn, request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
+    row = db.scalar(select(SysDict).where(SysDict.id == ident).with_for_update())
+    if row is None:
+        raise not_found("字典项")
+    record_removals.mark(db, p, "sys_dict", row.id, name=f"{row.dict_type}/{row.dict_key}", ip=client_ip(request))
+    row.status = 0
+    db.commit()
+    return ok({"deleted": True})
 
 
 class DictIn(BaseModel):
@@ -294,6 +337,9 @@ def upsert_dict(body: DictIn, request: Request, p: Principal = Admin, db: Sessio
         row = SysDict(dict_type=body.dict_type, dict_key=body.dict_key)
         db.add(row)
     row.dict_value, row.remark, row.status = body.dict_value, body.remark, body.status
+    removed = db.get(BusinessRecordDeletion, ("sys_dict", str(row.id))) if row.id else None
+    if removed:
+        db.delete(removed)
     log_op(db, p.id, "dict.update", "dict", f"{body.dict_type}:{body.dict_key}", before,
            {"value": body.dict_value, "status": body.status}, client_ip(request))
     db.commit()
@@ -453,8 +499,6 @@ def wecom_menu_preview(p: Principal = Admin):
 def wecom_menu_push(request: Request, p: Principal = Admin, db: Session = Depends(get_db)):
     """把「上传资料 / 知识库 / 更多」菜单下发到企业微信自建应用。"""
     from app.services import wecom_inbox_service
-    if not p.is_admin:
-        raise BizError(40301, "仅平台管理员可下发企业微信菜单")
     try:
         menu = wecom_inbox_service.push_menu()
     except Exception as exc:  # noqa: BLE001  企微错误码只回显数字，不回显原文

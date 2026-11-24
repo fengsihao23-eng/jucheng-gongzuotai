@@ -75,7 +75,7 @@
               <el-option v-for="x in d.by_dept" :key="x.dept_code" :label="x.dept_name" :value="x.dept_code" />
             </el-select>
           </template>
-          <el-table :data="people" max-height="480">
+          <el-table :data="people" max-height="480" @row-contextmenu="submissionMenu">
             <el-table-column label="姓名" width="100" prop="name" />
             <el-table-column label="部门" width="110" prop="dept_name" />
             <el-table-column label="岗位" min-width="140" prop="position" />
@@ -95,6 +95,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -182,6 +183,8 @@ const trendOption = computed(() => {
 })
 
 onMounted(load)
+const submissionMenu = rowDeletion(row => d.value?.can_remind && recordRemoval('submission', row.submission_id, row.name,
+  load, { title: '删除工作台汇报记录' }))
 </script>
 
 <style scoped>

@@ -6,7 +6,7 @@ from sqlalchemy import func, select, text
 from app.core.audit import log_op
 from app.core.response import bad_request, conflict, not_found
 from app.core.timeutil import today
-from app.models import (BizContract, BizPayment, BizPaymentPlan, FinReceipt,
+from app.models import (BizContract, BizPayment, BizPaymentPlan, FinProjectReportEntry, FinReceipt,
                         FinReceiptAllocation, FinSalesInvoice, SyncWecomApproval)
 from app.services import payment_service
 
@@ -118,7 +118,8 @@ def record_invoice(db, *, customer, invoice_no, issued_on, amount, contract_no=N
             return existing
         raise conflict("该发票号码已使用，内容不一致；请核对原记录")
     if approval_no:
-        row = db.scalar(select(FinSalesInvoice).where(FinSalesInvoice.approval_no == approval_no))
+        row = db.scalar(select(FinSalesInvoice).where(FinSalesInvoice.approval_no == approval_no)
+                        .execution_options(include_removed_records=True))
         if not row or (row.customer, row.contract_id) != (customer, cid):
             raise conflict("开票申请不存在或与客户、合同不一致")
     else:
@@ -247,6 +248,8 @@ def void_receipt(db, row, reason, actor):
     lock(db)
     if row.state == "void":
         return row
+    if db.scalar(select(FinProjectReportEntry.id).where(FinProjectReportEntry.receipt_id == row.id).limit(1)):
+        raise conflict("该到账记录由历史项目报表引用，请先处理关联财务凭证")
     before = receipt_row(row)
     if row.payment_id is not None:
         pay = get(db, BizPayment, row.payment_id, "合同回款")
@@ -256,12 +259,7 @@ def void_receipt(db, row, reason, actor):
             c = db.scalar(select(BizContract).where(BizContract.id == pay.contract_id).with_for_update())
             db.delete(pay)
             db.flush()
-            db.expire(c, ["payments", "plans"])
-            for plan in c.plans:
-                plan.received_amount = ZERO
-            for remaining in sorted(c.payments, key=lambda p: (p.payment_date, p.id)):
-                remaining.plan_id = payment_service.apply_to_plans(c, remaining.amount)
-            payment_service.refresh_plan_status(c)
+            payment_service.rebuild_plan_receipts(db, c)
     row.state = "void"
     db.flush()
     log_op(db, actor, "receivables.receipt.void", "receipt", row.id,

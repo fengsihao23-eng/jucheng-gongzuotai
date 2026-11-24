@@ -84,8 +84,7 @@ def test_receipt_workflow_discovery_and_confirmed_real_write(db, client, login):
     row = db.get(FinReceipt, receipt["data"]["id"])
     assert row.reference == receipt_ref and str(row.amount) == "375.50"
     assert business.confirm(pending["action"]["id"], runner.user_id)["reused"]
-    pending = executor(db).execute("receivables.void", {"path": {"ident": row.id}, "body": {"reason": "验收更正"}})
-    assert pending["action"]["before"]["data"]["reference"] == receipt_ref
+    assert "receivables.void" not in catalog.operations()
 
 
 def test_wecom_console_model_cannot_confirm_or_leak_credentials(db, monkeypatch):

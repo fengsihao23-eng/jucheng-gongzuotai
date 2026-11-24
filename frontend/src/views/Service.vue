@@ -52,7 +52,7 @@
             </el-select>
             <el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="登记起" end-placeholder="登记止" style="width: 240px" @change="search" />
           </div>
-          <el-table :data="list.items" v-loading="loading" :row-class-name="rowClass" @row-click="(r) => openDetail(r.id)">
+          <el-table :data="list.items" v-loading="loading" :row-class-name="rowClass" @row-click="(r) => openDetail(r.id)" @row-contextmenu="ticketMenu">
             <el-table-column prop="ticket_no" label="工单号" width="140" />
             <el-table-column prop="customer_name" label="客户" min-width="170" show-overflow-tooltip />
             <el-table-column prop="problem_desc" label="问题描述" min-width="240" show-overflow-tooltip />
@@ -102,7 +102,7 @@
           </Panel>
         </div>
         <Panel class="mt-16" title="历史报告" :padding="false">
-          <el-table :data="reports">
+          <el-table :data="reports" @row-contextmenu="serviceReportMenu">
             <el-table-column prop="title" label="报告" min-width="240" />
             <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
             <el-table-column label="来源" width="80"><template #default="{ row }">{{ row.trigger === 'schedule' ? '定时' : '手动' }}</template></el-table-column>
@@ -178,6 +178,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -341,6 +342,9 @@ onMounted(async () => {
   loadKpi(); load()
   if (tab.value === 'analysis') loadAttr()
 })
+
+const ticketMenu = rowDeletion(row => meta.value.can_write && recordRemoval('ticket', row.id, row.ticket_no || row.customer_name, async () => { await load(); await loadKpi() }, { title: '删除工单' }))
+const serviceReportMenu = rowDeletion(row => meta.value.can_write && recordRemoval('service-report', row.id, row.title, loadAttr, { title: '删除归因报告' }))
 </script>
 
 <style scoped>

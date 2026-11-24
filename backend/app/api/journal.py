@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
 from app.core.db import get_db, get_or_404
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, conflict, forbidden, ok
 from app.core.timeutil import month_range, today
@@ -100,8 +101,9 @@ def update(entry_id: int, body: EntryBody, request: Request, p: Principal = Menu
 
 
 @router.delete("/{entry_id}")
-def delete(entry_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+def delete(entry_id: int, body: DeletionIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _need(p)
+    verify_deletion(db, body)
     j = _editable(db, entry_id)
     log_op(db, p.id, "journal.delete", "journal", j.id, snapshot(j, FIELDS), None, client_ip(request))
     db.delete(j)

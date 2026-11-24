@@ -9,7 +9,7 @@ from app.core.timeutil import now
 from app.integration.wecom.base import ApprovalDto
 from app.models import OpsAssetMovement, OpsMaintenanceUpdate, SysUser
 from app.services import dict_service, dispatch_service
-from tests.conftest import data
+from tests.conftest import data, deletion_body
 
 BASE = "/api/v1/operations"
 
@@ -66,7 +66,7 @@ def test_prevent_overdraw_procurement_reduction_and_source_deletion(client, logi
     data(client.post(path + "/warehouse/movements", headers=head, json=movement(product, "scrap_operating", 1)))
     row = data(client.get(path + "/warehouse", headers=head))["items"][0]
     assert [row[k] for k in ("total", "warehouse", "operating", "scrapped")] == [5, 1, 3, 1]
-    assert client.delete(path + f"/schools/{school}", headers=head).status_code == 409
+    assert client.request("DELETE", path + f"/schools/{school}", headers=head, json=deletion_body()).status_code == 409
     assert client.post(path + "/warehouse/movements", headers=head, json=movement(product, "inbound", 1, occurred_on="2026-11-19")).status_code == 400
 
 

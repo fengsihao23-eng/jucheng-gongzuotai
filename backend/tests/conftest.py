@@ -62,6 +62,12 @@ def login(client):
     return _login
 
 
+def deletion_body(**fields):
+    from app.core.config import settings
+
+    return {"password": settings.operations_delete_password, **fields}
+
+
 def data(resp, code: int = 0):
     """断言统一响应包并返回 data。"""
     body = resp.json()

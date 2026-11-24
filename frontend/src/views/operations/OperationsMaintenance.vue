@@ -2,7 +2,7 @@
   <div v-loading="loading">
     <div class="tools"><h3>{{ labels[kind] }}</h3><el-input v-model="keyword" clearable placeholder="搜索事项 / 客户 / 负责人" aria-label="维护记录搜索" /><el-select v-model="status" clearable placeholder="全部状态" aria-label="维护记录状态"><el-option v-for="(v,k) in statuses" :key="k" :value="k" :label="v" /></el-select><span class="jc-spacer" /><el-button v-if="data?.can_manage" type="primary" @click="edit()">新增{{ labels[kind] }}</el-button></div>
     <p v-if="['arrears', 'collection_maintenance'].includes(kind)" class="jc-small jc-muted">按项目维护欠费与回款跟进记录。登记金额用于运营跟踪，财务到账及合同统计仍以原财务来源为准。</p>
-    <el-table :data="filtered" empty-text="暂无维护记录" :row-class-name="({row}) => row.status !== 'done' && row.due_on && row.due_on < project.today ? 'is-alert' : ''">
+    <el-table :data="filtered" empty-text="暂无维护记录" :row-class-name="({row}) => row.status !== 'done' && row.due_on && row.due_on < project.today ? 'is-alert' : ''" @row-contextmenu="maintenanceMenu">
       <el-table-column prop="title" label="事项 / 客户资料" min-width="180" /><el-table-column prop="customer_name" label="客户" min-width="130" />
       <el-table-column v-if="kind === 'device_maintenance'" prop="device_name" label="设备" min-width="130" />
       <el-table-column v-if="kind === 'customers'" prop="contact_name" label="联系人" min-width="105" /><el-table-column v-if="kind === 'customers'" prop="phone" label="联系电话" min-width="135" />
@@ -29,6 +29,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -49,6 +50,8 @@ async function edit(row){
 async function save(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;try{const {id,...body}=form;if(id)await api.put(`/operations/${props.project.id}/maintenance/${id}`,body);else await api.post(`/operations/${props.project.id}/maintenance`,body);opened.value=false;ElMessage.success('维护记录已保存');await load();announceChange()}catch{}finally{saving.value=false}}
 watch(()=>[props.project.id,props.active,props.kind],()=>load(),{immediate:true})
 useBusinessRefresh(()=>load(true),{interval:12000,enabled:()=>props.active&&!opened.value})
+
+const maintenanceMenu = rowDeletion(row => (row.can_edit || data.value?.can_manage) && recordRemoval('maintenance', row.id, row.title, () => load(), { title: '删除维护记录' }))
 </script>
 <style scoped>
 .tools { display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px; }.tools h3 { margin:0; }.tools .el-input { width:240px; }.tools .el-select { width:130px; }.two { display:grid;grid-template-columns:1fr 1fr;gap:14px; }.el-form .el-select,.el-form .el-date-editor { width:100%; }.history article { border-top:1px solid var(--jc-line);padding:12px 0;white-space:pre-wrap;overflow-wrap:anywhere; }.history p { margin:5px 0; }:global(.ops-maintenance-dialog > .el-dialog__body) { max-height:70dvh;overflow:auto; }@media(max-width:560px) { .two { grid-template-columns:1fr;gap:0; }.tools .el-input { width:100%; } }

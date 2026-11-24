@@ -24,7 +24,7 @@
                   @keyup.enter="search" @clear="search" />
         <el-button @click="search">查询</el-button>
       </template>
-      <el-table :data="res?.items || []" @row-click="open">
+      <el-table :data="res?.items || []" @row-click="open" @row-contextmenu="approvalMenu">
         <el-table-column label="审批单号" width="220"><template #default="{ row }"><span class="jc-mono">{{ row.sp_no }}</span></template></el-table-column>
         <el-table-column label="审批名称" min-width="200" prop="sp_name" />
         <el-table-column label="模板" width="100"><template #default="{ row }">{{ TEMPLATES[row.template_key] || row.template_key }}</template></el-table-column>
@@ -65,6 +65,8 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
+import { useAuth } from '@/store/auth'
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/api/client'
@@ -119,6 +121,9 @@ async function open(row) {
   try { detail.value = await api.get(`/wecom-approval/records/${row.sp_no}`) } finally { detailLoading.value = false }
 }
 onMounted(load)
+
+const deletionAuth = useAuth()
+const approvalMenu = rowDeletion(row => deletionAuth.can('contracts:write') && recordRemoval('approval', row.sp_no, row.sp_name || row.sp_no, load, { title: '删除审批记录' }))
 </script>
 
 <style scoped>

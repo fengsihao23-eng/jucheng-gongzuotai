@@ -158,7 +158,8 @@ def import_file(db: Session, file_bytes: bytes, filename: str, *, uploader_id: i
         fps.append(fingerprint(acct, r.trade_date, r.direction, r.amount, r.summary, r.counterparty, tail))
     existing = set()
     for i in range(0, len(fps), 500):
-        existing |= set(db.scalars(select(FinBankFlow.fingerprint).where(FinBankFlow.fingerprint.in_(fps[i:i + 500]))))
+        existing |= set(db.scalars(select(FinBankFlow.fingerprint).where(FinBankFlow.fingerprint.in_(fps[i:i + 500]))
+                                   .execution_options(include_removed_records=True)))
     imp.balance_check = encode(_balance_check(db, resolved)) if resolved else None
     db.flush()
     inserted, dup, seen = 0, 0, set()

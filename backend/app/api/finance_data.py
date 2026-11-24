@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op, snapshot
 from app.core.db import get_db, get_or_404
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, conflict, forbidden, ok, page_data
 from app.core.storage import file_brief
@@ -268,8 +269,9 @@ def cost_update(cost_id: int, body: CostBody, request: Request, p: Principal = M
 
 
 @router.delete("/costs/{cost_id}")
-def cost_delete(cost_id: int, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+def cost_delete(cost_id: int, body: DeletionIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
     _need(p, "cost:write")
+    verify_deletion(db, body)
     c = get_or_404(db, BizProjectCost, cost_id, "项目成本")
     _historical_cost_guard(db, c.id)
     if c.bank_flow_id:

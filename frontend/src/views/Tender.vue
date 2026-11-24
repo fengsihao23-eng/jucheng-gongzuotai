@@ -19,7 +19,7 @@
             </el-form>
           </Panel>
           <Panel :class="meta.can_write ? 'jc-span-2' : 'jc-span-3'" title="已上传" :padding="false">
-            <el-table :data="docs" highlight-current-row @row-click="(r) => openDoc(r.id)">
+            <el-table :data="docs" highlight-current-row @row-click="(r) => openDoc(r.id)" @row-contextmenu="tenderDocMenu">
               <el-table-column label="类型" width="110"><template #default="{ row }"><StatusPill :text="row.doc_type_text" :tone="typeTone(row.doc_type)" /></template></el-table-column>
               <el-table-column prop="title" label="标题" min-width="260" show-overflow-tooltip />
               <el-table-column label="条款" width="80" align="right"><template #default="{ row }"><span class="jc-num">{{ row.clause_count }}</span></template></el-table-column>
@@ -59,7 +59,7 @@
           </div>
           <div v-if="checks.length" class="mt-16">
             <div class="jc-small jc-muted mb-8">历史检查</div>
-            <el-table :data="checks" size="small" @row-click="(r) => loadCheck(r.id)">
+            <el-table :data="checks" size="small" @row-click="(r) => loadCheck(r.id)" @row-contextmenu="tenderCheckMenu">
               <el-table-column prop="tender_title" label="需求书" min-width="220" show-overflow-tooltip />
               <el-table-column prop="bid_title" label="投标文件" min-width="220" show-overflow-tooltip />
               <el-table-column label="状态" width="90"><template #default="{ row }"><StatusPill :text="row.status === 'done' ? '已完成' : `第 ${row.rounds} 轮`" :tone="row.status === 'done' ? 'up' : 'info'" /></template></el-table-column>
@@ -163,7 +163,7 @@
           </el-form>
           <div v-if="gens.length" class="mt-16">
             <div class="jc-small jc-muted mb-8">已生成</div>
-            <el-table :data="gens" size="small" @row-click="(r) => loadGen(r.id)">
+            <el-table :data="gens" size="small" @row-click="(r) => loadGen(r.id)" @row-contextmenu="tenderGenerationMenu">
               <el-table-column prop="title" label="方案" min-width="300" />
               <el-table-column prop="gen_type_text" label="类型" width="120" />
               <el-table-column label="引擎" width="100"><template #default="{ row }">{{ ENGINE[row.engine] || row.engine }}</template></el-table-column>
@@ -241,6 +241,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -369,6 +370,10 @@ onMounted(async () => {
   if (tab.value === 'gen') loadGens()
   if (tab.value === 'lib') lib.value = await api.get('/tender/library')
 })
+
+const tenderDocMenu = rowDeletion(row => meta.value.can_write && { endpoint: '/tender/docs/' + row.id, name: row.title, title: '删除标书资料', onDeleted: loadDocs })
+const tenderCheckMenu = rowDeletion(row => meta.value.can_write && recordRemoval('tender-check', row.id, row.title || '合规检查', loadChecks, { title: '删除合规检查' }))
+const tenderGenerationMenu = rowDeletion(row => meta.value.can_write && recordRemoval('tender-generation', row.id, row.title || '生成方案', loadGens, { title: '删除方案' }))
 </script>
 
 <style scoped>

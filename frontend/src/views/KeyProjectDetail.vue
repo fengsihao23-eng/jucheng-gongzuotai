@@ -14,7 +14,7 @@
         <el-tabs v-model="tab">
           <el-tab-pane label="任务情况" name="tasks">
             <div class="task-filters"><el-input v-model="search" clearable placeholder="搜索任务 / 负责人" aria-label="重点任务搜索" /><el-radio-group v-model="filter" size="small"><el-radio-button value="ongoing">进行中</el-radio-button><el-radio-button value="done">已完成</el-radio-button></el-radio-group><el-checkbox v-model="attention">需要关注</el-checkbox></div>
-            <div class="tasks"><button v-for="t in tasks" :key="t.id" type="button" class="task-card" :class="{alert:t.alert&&t.status!==3}" @click="openTask(t.id)"><div class="task-top"><b>{{ t.title }}</b><StatusPill :text="t.is_delayed?'逾期未完成':t.status_text" :tone="t.is_delayed?'down':t.status===3?'up':'brand'" /></div><p class="jc-small jc-muted">{{ t.owner_name || '未分配' }} · 完成节点 {{ t.plan_date || '未登记' }}</p><p class="task-progress">{{ t.progress_note || '尚未填写进展' }}</p><p v-if="t.problems" class="jc-small jc-down">{{ t.problems }}</p><div class="task-bottom jc-small jc-muted"><span v-if="t.nodes.length">阶段 {{ t.nodes.filter(n=>n.completed_on).length }}/{{ t.nodes.length }}</span><span v-if="t.needs_feedback" class="jc-warn">待填写进展</span><span v-else>{{ t.cadence==='daily'?'每日反馈':t.cadence==='weekly'?'每周反馈':'按节点反馈' }}</span></div></button></div>
+            <div class="tasks"><button v-for="t in tasks" :key="t.id" v-record-delete="taskRemoval(t)" type="button" class="task-card" :class="{alert:t.alert&&t.status!==3}" @click="openTask(t.id)"><div class="task-top"><b>{{ t.title }}</b><StatusPill :text="t.is_delayed?'逾期未完成':t.status_text" :tone="t.is_delayed?'down':t.status===3?'up':'brand'" /></div><p class="jc-small jc-muted">{{ t.owner_name || '未分配' }} · 完成节点 {{ t.plan_date || '未登记' }}</p><p class="task-progress">{{ t.progress_note || '尚未填写进展' }}</p><p v-if="t.problems" class="jc-small jc-down">{{ t.problems }}</p><div class="task-bottom jc-small jc-muted"><span v-if="t.nodes.length">阶段 {{ t.nodes.filter(n=>n.completed_on).length }}/{{ t.nodes.length }}</span><span v-if="t.needs_feedback" class="jc-warn">待填写进展</span><span v-else>{{ t.cadence==='daily'?'每日反馈':t.cadence==='weekly'?'每周反馈':'按节点反馈' }}</span></div></button></div>
             <el-empty v-if="!tasks.length" :description="project.tasks.length?'没有符合条件的任务':'还没有安排任务'"><el-button v-if="editable&&!project.tasks.length" type="primary" @click="editTask(null)">安排第一项任务</el-button></el-empty>
           </el-tab-pane>
           <el-tab-pane label="开票回款" name="financials">
@@ -31,6 +31,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -50,6 +51,7 @@ const taskOpen=computed({get:()=>Boolean(taskId.value)&&!taskForm.value,set:v=>{
 const tasks=computed(()=>(project.value?.tasks||[]).filter(t=>(filter.value==='done'?t.status===3:t.status!==3)&&(!attention.value||t.alert)&&`${t.title} ${t.owner_name}`.includes(search.value.trim())))
 let version=0
 async function load(quiet=false){const v=++version;if(!quiet&&!project.value)loading.value=true;try{const r=await api.get(`/market/projects/${route.params.code}`,{period:period.value},{silent:quiet});if(v===version)project.value=r}catch(e){if(v===version&&(!quiet||[40301,40401].includes(e.code)))project.value=null}finally{if(v===version)loading.value=false}}
+const taskRemoval = row => project.value?.can_manage && recordRemoval('key-task', row.id, row.title, () => load(), { title: '删除重点项目任务' })
 function openTask(id){router.replace({query:{...route.query,task:id}})}
 function editTask(t){editingTask.value=t;taskForm.value=true}
 async function savedTask(t){await load();openTask(t.id)}

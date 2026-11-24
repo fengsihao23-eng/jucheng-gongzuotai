@@ -7,7 +7,7 @@
       <el-button link type="primary" @click="load()">重试</el-button>
     </el-alert>
     <div v-else-if="data?.items.length" class="competitors">
-      <article v-for="row in data.items" :key="row.id" class="competitor">
+      <article v-for="row in data.items" :key="row.id" v-record-delete="competitorRemoval(row)" class="competitor">
         <div class="competitor-heading">
           <h3>{{ row.name }}</h3>
           <el-button v-if="data.can_edit" type="primary" link :aria-label="`编辑对手 ${row.name}`" @click="openEditor(row)">编辑</el-button>
@@ -49,6 +49,7 @@
 </template>
 
 <script setup>
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -56,6 +57,7 @@ import { announceBusinessChange, useBusinessRefresh } from '@/composables/useBus
 import { datetime } from '@/utils/format'
 
 const props = defineProps({ projectId: { type: Number, required: true }, active: Boolean })
+const competitorRemoval = row => data.value?.can_edit && recordRemoval('operation-competitor', row.id, row.name, () => load(), { title: '删除对手信息' })
 const endpoint = computed(() => `/operations/${props.projectId}/competitors`)
 const data = ref(null)
 const loading = ref(false)

@@ -28,3 +28,4 @@ from app.models.ext_record_followups import RecordFollowup  # noqa: F401
 from app.models.ext_finance_ledgers import FinLedgerEntry, FinLedgerImport  # noqa: F401
 from app.models.ext_sporadic_collections import SporadicCollectionProject  # noqa: F401
 from app.models.ext_operations_competitors import OpsCompetitor  # noqa: F401
+from app.models.ext_deletion import BusinessRecordDeletion, SystemDeletePassword  # noqa: F401

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
 from app.core.db import get_db
+from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, get_principal
 from app.core.response import BizError, forbidden, ok
 from app.services import assistant_service as service
@@ -95,6 +96,19 @@ def read_session(session_id: str, p: Principal = Depends(get_principal)):
 def configure_session(session_id: str, body: SessionBody, p: Principal = Depends(get_principal)):
     from app.services import xiaoju_sessions as sessions
     return ok(sessions.configure(p.id, session_id, body.model, body.thinking))
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: str, body: DeletionIn, request: Request, p: Principal = Depends(get_principal),
+                   db: Session = Depends(get_db)):
+    from app.services import xiaoju_sessions as sessions
+
+    verify_deletion(db, body)
+    title = sessions.archive(p.id, session_id)
+    log_op(db, p.id, "xiaoju.session.delete", "assistant_session", session_id,
+           before={"title": title}, after={"archived": True}, ip=client_ip(request))
+    db.commit()
+    return ok({"deleted": True})
 
 
 @router.post("/sessions/{session_id}/fork")

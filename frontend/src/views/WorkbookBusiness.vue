@@ -153,7 +153,7 @@
               </el-table-column>
               <el-table-column label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openRow(row)">逐格核对</el-button></template></el-table-column>
             </el-table>
-            <el-table v-else-if="view === 'contracts'" :data="data.items" row-key="id" class="clickable performance-contracts" @row-click="openRow">
+            <el-table v-else-if="view === 'contracts'" :data="data.items" row-key="id" class="clickable performance-contracts" @row-click="openRow" @row-contextmenu="sourceMenu">
               <el-table-column label="合同编号" width="130"><template #default="{ row }"><span class="jc-mono">{{ row.contract_no || '—' }}</span></template></el-table-column>
               <el-table-column label="合同名称 / 客户" min-width="260">
                 <template #default="{ row }"><el-button link type="primary" class="contract-name" :title="row.name" @click.stop="openRow(row)">{{ row.name }}</el-button><div class="jc-muted jc-small jc-ellipsis">{{ row.customer || '—' }}</div></template>
@@ -226,6 +226,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -236,6 +237,10 @@ import { datetime, percent } from '@/utils/format'
 
 const route = useRoute(), router = useRouter()
 const auth = useAuth()
+const sourceMenu = rowDeletion(row => auth.can('contracts:write') && recordRemoval('workbook-contracts', row.row, row.name, () => load(), {
+  query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台合同记录',
+  description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
+}))
 const view = computed(() => route.meta.workbookView || 'board')
 const titles = { contracts: '经营业绩', tender: '招标与在建', board: '经营看板' }
 const oldPages = {

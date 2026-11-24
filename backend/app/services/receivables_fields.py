@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator
 
 from app.core.response import bad_request
+from app.core.deletion import DeletionIn
 
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2, allow_inf_nan=False)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2, allow_inf_nan=False)]
@@ -66,11 +67,12 @@ class Assign(Strict):
     contract_no: ContractNo
 
 
-class Void(Strict):
+class Void(DeletionIn):
     reason: Reason
 
 
-class Correction(Void):
+class Correction(Strict):
+    reason: Reason
     reduced_total: NonNegativeMoney
 
 

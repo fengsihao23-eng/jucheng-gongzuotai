@@ -83,7 +83,7 @@
               <el-option label="市场周报" value="market_weekly" /><el-option label="市场月报" value="market_monthly" /><el-option label="竞品简报" value="intel_brief" />
             </el-select>
           </template>
-          <el-table :data="reports" size="default">
+          <el-table :data="reports" size="default" @row-contextmenu="marketReportMenu">
             <el-table-column prop="title" label="报告" min-width="220" />
             <el-table-column prop="period" label="周期" width="160" />
             <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
@@ -130,6 +130,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -241,6 +242,8 @@ onMounted(() => {
   if (tab.value === 'reports') loadReports()
 })
 useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value && !menu.open && !deleteOpen.value })
+
+const marketReportMenu = rowDeletion(row => auth.can('report:generate') && recordRemoval('market-report', row.id, row.title, loadReports, { title: '删除市场报告' }))
 </script>
 
 <style scoped>

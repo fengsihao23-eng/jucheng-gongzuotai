@@ -19,7 +19,7 @@ from app.core.response import BizError
 from app.core.timeutil import TZ, now, today, utcnow
 from app.integration.wecom import get_wecom
 from app.integration.wecom.base import ApprovalDto
-from app.models import (BizContract, BizExpenseItem, BizExpenseReport, BizOpportunity, BizProject,
+from app.models import (BizContract, BizExpenseItem, BizExpenseReport, BizOpportunity, BizProject, BusinessRecordDeletion,
                         SyncWecomApproval, SysUser)
 from app.services import codes, dict_service, notify_service, receivables_fields, receivables_service
 
@@ -205,7 +205,9 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
     key = tpl.get("key", "unknown")
     if key in {"invoice", "receipt"}:
         receivables_service.lock(db)
-    rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update())
+    identity = (select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update()
+                .execution_options(include_removed_records=True))
+    rec = db.scalar(identity)
     if not rec:
         rec = SyncWecomApproval(sp_no=sp_no, template_key=key, received_via=via, status=a.sp_status)
         db.add(rec)
@@ -215,7 +217,9 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
             db.rollback()
             if key in {"invoice", "receipt"}:
                 receivables_service.lock(db)
-            rec = db.scalar(select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update())
+            rec = db.scalar(identity)
+    if db.get(BusinessRecordDeletion, (SyncWecomApproval.__tablename__, str(rec.id))):
+        return rec
     old_fields = (rec.detail or {}).get("fields") or {}
     changed = rec.dispatched_at and key in LEDGER_KEYS and (
         rec.status != a.sp_status or _map_fields(tpl, old_fields) != _map_fields(tpl, a.fields))

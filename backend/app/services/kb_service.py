@@ -218,6 +218,14 @@ def can_view(db: Session, viewer, d: KbDocument) -> bool:
     return _in_scope(d.visibility, d.visible_depts, d.visible_roles, viewer, d.uploader_id)
 
 
+def can_remove_document(db, viewer, document):
+    if viewer is None:
+        return False
+    if document.status in ("pending", "rejected"):
+        return document.uploader_id == viewer.id or _is_manager(viewer)
+    return can_review(db, viewer, document.category)
+
+
 def default_visibility(viewer) -> dict:
     """默认仅本部门；无部门时仅本人。扩大到全员必须明确选择。"""
     dept = viewer.dept_code if viewer else None
@@ -631,7 +639,10 @@ def list_documents(db: Session, category: str | list[str] | None = None, keyword
         ok_cats = {c for c in {d.category for d in rows} if can_review(db, viewer, c)}
         rows = [d for d in rows if d.category in ok_cats]
     names = _names(db, (d.uploader_id for d in rows))
-    return [_doc_brief(d, names) for d in rows]
+    reviewers = {category for category in {d.category for d in rows} if can_review(db, viewer, category)}
+    return [{**_doc_brief(d, names), "can_delete": (d.uploader_id == viewer.id or _is_manager(viewer))
+             if viewer is not None and d.status in ("pending", "rejected") else d.category in reviewers}
+            for d in rows]
 
 
 def _get(db: Session, doc_id: int | str) -> KbDocument:
@@ -666,7 +677,7 @@ def get_doc(db: Session, doc_id: int | str, viewer=None) -> dict:
             "can_review": reviewer and d.status == "pending",
             "can_archive": d.status == "published" and (reviewer or mine),
             "can_restore": reviewer and d.status == "archived",
-            "can_delete": d.status in ("pending", "rejected") and (mine or _is_manager(viewer)),
+            "can_delete": can_remove_document(db, viewer, d),
             "can_new_version": d.source == "upload" and d.status != "archived" and (reviewer or mine)}
 
 
@@ -920,11 +931,23 @@ def delete_document(db: Session, viewer, doc_id: int) -> None:
     invalidate_index()
 
 
+def remove_document(db, viewer, doc_id, ip=None):
+    from app.services import record_removals
+
+    document = db.scalar(select(KbDocument).where(KbDocument.id == doc_id).with_for_update())
+    if not document or not can_view(db, viewer, document):
+        raise not_found("知识库文档")
+    if not can_remove_document(db, viewer, document):
+        raise forbidden("只有文档审核人可删除已发布或下架的文档")
+    record_removals.mark(db, viewer, KbDocument.__tablename__, doc_id, name=document.title, ip=ip)
+    invalidate_index()
+
+
 def add_local_document(db: Session, title: str, category: str, content: str, url: str | None = None,
                        source_doc_id: str | None = None) -> KbDocument:
     """其他模块沉淀知识（source=local，如客服已解决工单经验、生成的方案）。同 source_doc_id 覆盖更新；全员可见、直接发布。"""
     sid = source_doc_id or f"local-{uuid.uuid4().hex[:12]}"
-    d = db.scalar(select(KbDocument).where(KbDocument.source_doc_id == sid))
+    d = db.scalar(select(KbDocument).where(KbDocument.source_doc_id == sid).execution_options(include_removed_records=True))
     if d is None:
         d = KbDocument(source="local", source_doc_id=sid, url="", status="published", visibility="all",
                        visible_depts=[], visible_roles=[], tags=[])

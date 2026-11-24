@@ -55,7 +55,7 @@ def bucket(wb, period):
         progress_col = next((c for c in sheet.columns if source.layout.norm(sheet.label(c)) in (
             f"{int(period[-2:])}月回款进度", f"{period[:4]}年{int(period[-2:])}月回款进度")), None)
         numerics = []
-        for row in sheet.items:
+        for row in sheet.source_items:
             n = row["row"]
             raw_amount = source.number(sheet.value(n, col))
             combined = sheet.anchors.get((n, col))
@@ -67,6 +67,8 @@ def bucket(wb, period):
                 continue
             if raw_amount is not None:
                 numerics.append(raw_amount)
+            if n in sheet.removed_rows:
+                continue
             address = f"{source.get_column_letter(col)}{anchor[0]}"
             items.append({**{k: v for k, v in row.items() if k != "_search"},
                 "plan_amount": source.decimal_text(raw_amount),

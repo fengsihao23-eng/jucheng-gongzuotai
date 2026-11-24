@@ -101,9 +101,10 @@ def generate(db, p, project_id, mode, period="", mine=False, new_version=False, 
     audience = "personal" if mine else "project"
     owner_id = subject.id if mine else project.owner_id
     facts = digest.period_summary(db, subject, mode, period, project_id, mine)
-    previous = db.scalar(select(OpsDigestSnapshot).where(OpsDigestSnapshot.project_id == project_id,
+    history = select(OpsDigestSnapshot).where(OpsDigestSnapshot.project_id == project_id,
         OpsDigestSnapshot.owner_id == owner_id, OpsDigestSnapshot.audience == audience, OpsDigestSnapshot.mode == mode,
-        OpsDigestSnapshot.period == facts["period"]).order_by(OpsDigestSnapshot.version.desc()).limit(1))
+        OpsDigestSnapshot.period == facts["period"]).order_by(OpsDigestSnapshot.version.desc()).limit(1)
+    previous = db.scalar(history)
     if previous and not new_version:
         if not can_read(db, p, previous):
             raise forbidden("旧报告包含目前无权查看的事项；可按当前权限另存新版本")
@@ -111,8 +112,9 @@ def generate(db, p, project_id, mode, period="", mine=False, new_version=False, 
     facts["note"] = "已保存的期间报告；任务归属及名称按生成时记录，后来补录或更正请另存新版本。未反馈不推测进展。"
     facts["project_name"] = project.name
     facts["text"] = digest.render_text(facts)
+    version = db.scalar(history.with_only_columns(OpsDigestSnapshot.version).execution_options(include_removed_records=True)) or 0
     row = OpsDigestSnapshot(project_id=project_id, owner_id=owner_id, audience=audience, mode=mode,
-        period=facts["period"], version=previous.version + 1 if previous else 1, generated_by=actor_id,
+        period=facts["period"], version=version + 1, generated_by=actor_id,
         automatic=automatic, facts=encode(facts), text=facts["text"], created_at=now())
     db.add(row)
     db.flush()

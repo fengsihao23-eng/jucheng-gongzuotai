@@ -45,7 +45,7 @@
     <el-alert v-if="mode === 'procurement' && (project.financials.unpriced_count || project.financials.review_count)" :title="`${project.financials.unpriced_count || 0} 条未标价，${project.financials.review_count || 0} 条需核对金额或设备去向，请打开学校清单查看说明。`" type="warning" :closable="false" />
     <el-collapse v-if="mode === 'directory' && project.import_batches?.length" class="mt-16"><el-collapse-item title="已导入资料与核对说明" name="sources"><div v-for="b in project.import_batches" :key="b.id"><b>{{ b.source_name }}</b><p class="jc-small">{{ b.result.rows }} 条记录 · 已登记金额 {{ money(b.result.amount) }}</p><p v-for="(n, i) in b.result.notes" :key="i" class="jc-muted jc-small">{{ n }}</p></div></el-collapse-item></el-collapse>
     <Panel v-if="mode === 'income' && project.financials.daily.length" title="每日收入" class="mt-16"><Chart :option="incomeChart" height="240px" /></Panel>
-    <Panel v-if="mode === 'income' && project.unassigned_incomes?.length" title="项目公共收入（未分摊学校）" :sub="`合计 ${money(project.financials.unassigned_income)}，已计入累计登记收入`" class="mt-16"><el-table :data="project.unassigned_incomes" max-height="300"><el-table-column prop="income_date" label="收款日期" width="130" /><el-table-column label="金额（元）" width="130"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="note" label="来源与说明" min-width="300" show-overflow-tooltip /></el-table></Panel>
+    <Panel v-if="mode === 'income' && project.unassigned_incomes?.length" title="项目公共收入（未分摊学校）" :sub="`合计 ${money(project.financials.unassigned_income)}，已计入累计登记收入`" class="mt-16"><el-table :data="project.unassigned_incomes" max-height="300" @row-contextmenu="projectIncomeMenu"><el-table-column prop="income_date" label="收款日期" width="130" /><el-table-column label="金额（元）" width="130"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="note" label="来源与说明" min-width="300" show-overflow-tooltip /></el-table></Panel>
 
     <el-drawer :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
       <template v-if="selected">
@@ -75,7 +75,7 @@
           </el-tab-pane>
           <el-tab-pane v-if="can('procurement')" label="设备建设清单" name="equipment">
             <div class="jc-row between section-head"><span class="jc-muted jc-small">设备 {{ money(selected.equipment_cost) }} 元 · 人工 {{ money(selected.labor_cost) }} 元 · 其他 {{ money(selected.other_cost) }} 元</span><el-button v-if="project.can_manage" type="primary" @click="editEquipment()">添加设备</el-button></div>
-            <el-table :data="selected.equipment">
+            <el-table :data="selected.equipment" @row-contextmenu="equipmentMenu">
               <el-table-column label="设备 / 品牌型号" min-width="210"><template #default="{ row }">{{ row.product_name }}<div class="jc-small jc-muted">{{ row.brand }} {{ row.model }}</div></template></el-table-column>
               <el-table-column prop="quantity" label="数量" width="80" />
               <el-table-column label="单价" width="130"><template #default="{ row }">{{ unitPrice(row.unit_price) }}</template></el-table-column>
@@ -86,7 +86,7 @@
           </el-tab-pane>
           <el-tab-pane v-if="can('income')" label="每日收入" name="income">
             <div class="jc-row between section-head"><span class="jc-muted jc-small">每个学校每日一条合计；更正金额请编辑原记录。</span><el-button v-if="project.can_manage" type="primary" @click="editIncome()">登记收入</el-button></div>
-            <el-table :data="selected.incomes"><el-table-column prop="income_date" label="收入日期" width="140" /><el-table-column label="金额（元）" width="160"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="source" label="数据来源" min-width="140" /><el-table-column prop="note" label="备注" min-width="140" /><el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editIncome(row)">编辑</el-button></template></el-table-column></el-table>
+            <el-table :data="selected.incomes" @row-contextmenu="incomeMenu"><el-table-column prop="income_date" label="收入日期" width="140" /><el-table-column label="金额（元）" width="160"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="source" label="数据来源" min-width="140" /><el-table-column prop="note" label="备注" min-width="140" /><el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editIncome(row)">编辑</el-button></template></el-table-column></el-table>
           </el-tab-pane>
         </el-tabs>
       </template>
@@ -120,15 +120,10 @@
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
     </el-dialog>
 
-    <div v-if="menu.open" class="ctx-mask" @click="menu.open = false" @contextmenu.prevent="menu.open = false">
-      <div class="ctx-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @click.stop>
-        <div class="ctx-title">{{ menu.row?.name }}</div>
-        <button type="button" class="ctx-item danger" @click="removeSchool">删除学校</button>
-      </div>
-    </div>
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
@@ -141,33 +136,22 @@ import { STAGES, POTENTIAL, TASK_STATUS, unitPrice, announceChange } from './sha
 const props = defineProps({ project: Object, mode: { type: String, default: 'directory' } }), emit = defineEmits(['saved', 'open-task', 'assign-school'])
 const labels = { directory: '查看档案', procurement: '查看采购', income: '查看收入', outreach: '查看跟进' }
 const can = section => (props.project.visible_sections || []).includes(section)
+const localMenu = (kind, title, name) => rowDeletion(row => props.project.can_manage &&
+  recordRemoval(kind, row.id, name(row), () => emit('saved'), { title }))
+const equipmentMenu = localMenu('operation-equipment', '删除设备登记', row => row.product_name)
+const incomeMenu = localMenu('operation-income', '删除学校收入', row => row.income_date)
+const projectIncomeMenu = localMenu('operation-project-income', '删除项目收入', row => row.income_date)
 const REGIONS = ['市直','江城','阳春','阳东','阳西','海陵湾','其他','待定']
 async function saveRegion(region) { try { await api.put(`/operations/${props.project.id}/schools/${selectedId.value}/region`, { region }); emit('saved'); announceChange(); ElMessage.success('学校区域已保存') } catch {} }
-const menu = reactive({ open: false, x: 0, y: 0, row: null })
-function openMenu(row, column, event) {
-  if (!props.project.can_manage || !['procurement', 'outreach'].includes(props.mode)) return
-  menu.row = row
-  menu.x = Math.min(event.clientX, window.innerWidth - 190)
-  menu.y = Math.min(event.clientY, window.innerHeight - 80)
-  menu.open = true
-}
-async function removeSchool() {
-  const row = menu.row
-  menu.open = false
-  if (!row) return
-  const equipment = row.equipment?.length || 0, incomes = row.incomes?.length || 0
-  try {
-    await ElMessageBox.confirm(
-      `「${row.name}」将从项目中删除，并连带删除设备清单 ${equipment} 条、每日收入 ${incomes} 条，相关任务会解除学校绑定。学校资料各页签共用，删除后采购、开拓、收入里都不再显示。`,
-      '删除学校', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' })
-  } catch { return }
-  try {
-    await api.del(`/operations/${props.project.id}/schools/${row.id}`)
+const openMenu = rowDeletion(row => props.project.can_manage && ['procurement', 'outreach', 'income'].some(can) && {
+  name: row.name, title: '删除学校', menuLabel: '删除学校',
+  endpoint: `/operations/${props.project.id}/schools/${row.id}`,
+  description: `确认删除「${row.name}」及其设备、收入和跟进记录？相关任务将解除学校绑定，操作留痕。`,
+  onDeleted: () => {
     if (selectedId.value === row.id) selectedId.value = null
-    ElMessage.success('学校已删除')
-    emit('saved'); announceChange()
-  } catch {}
-}
+    emit('saved')
+  },
+})
 const search = ref(''), stage = ref(''), highOnly = ref(false), selectedId = ref(null)
 const lifecycle = ref('prospect')
 const initialTab = () => ({ procurement: 'equipment', income: 'income', outreach: 'outreach', directory: 'outreach' })[props.mode]

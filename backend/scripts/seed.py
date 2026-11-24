@@ -10,7 +10,10 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.db import Base, SessionLocal, engine
+from app.core.permissions import SYSTEM_MANAGEMENT_ROLE
 import app.models  # noqa: F401
+from app.models import SysUserRole
+from app.services.user_service import role_by_code
 from scripts import seed_core
 
 DOMAINS = ["finance_ops", "reports", "exec", "market", "hr", "knowledge", "marketing", "mcp"]
@@ -27,6 +30,9 @@ def main(reset_files: bool = True) -> None:
     db = SessionLocal()
     try:
         ctx = seed_core.seed(db)
+        if settings.environment != "prod":
+            role = role_by_code(db, SYSTEM_MANAGEMENT_ROLE)
+            db.add(SysUserRole(user_id=ctx.users["admin"].id, role_id=role.id))
         db.commit()
         for d in DOMAINS:
             try:

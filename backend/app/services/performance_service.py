@@ -474,7 +474,8 @@ def generate_report(db: Session, kind: str, period: str, *, trigger: str = "manu
     f = save_bytes(db, data=data, filename=filename, category="report",
                    key=f"report/{kind}/{month}/{filename}", uploader_id=user_id)
     ver = (db.scalar(select(func.max(RptReport.version)).where(RptReport.report_type == kind,
-                                                               RptReport.period == period)) or 0) + 1
+                                                               RptReport.period == period)
+                     .execution_options(include_removed_records=True)) or 0) + 1
     rpt = RptReport(report_type=kind, period=period, title=title, version=ver, metrics=encode(metrics),
                     file_ids=[f.id], trigger=trigger, created_by=user_id,
                     cost_ms=int((time.perf_counter() - t0) * 1000))

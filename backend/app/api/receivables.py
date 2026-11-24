@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.deletion import verify_deletion
 from app.core.deps import Principal, require_menu
 from app.core.response import bad_request, forbidden, ok, page_data
 from app.core.timeutil import month_of, month_range, today
@@ -178,6 +179,7 @@ def allocate(ident: int, body: f.Allocations, p: Principal = ReceiptWrite, db: S
 
 @router.post("/receipts/{ident}/void")
 def void(ident: int, body: f.Void, p: Principal = Correct, db: Session = DB):
+    verify_deletion(db, body)
     svc.lock(db)
     row = svc.get(db, FinReceipt, ident, "到账记录")
     svc.void_receipt(db, row, body.reason, p.id)

@@ -392,8 +392,14 @@ def scan_alerts(db: Session, notify: bool = True) -> dict:
                 continue
             row = db.scalar(select(HrContractAlert).where(HrContractAlert.user_id == e.user_id,
                                                           HrContractAlert.alert_type == kind,
-                                                          HrContractAlert.due_date == due))
-            if not row:
+                                                          HrContractAlert.due_date == due)
+                            .execution_options(include_removed_records=True))
+            if row:
+                from app.services.record_removals import is_removed
+
+                if is_removed(db, row):
+                    continue
+            else:
                 row = HrContractAlert(user_id=e.user_id, alert_type=kind, due_date=due, days_left=(due - t).days)
                 db.add(row)
                 created.append(row)

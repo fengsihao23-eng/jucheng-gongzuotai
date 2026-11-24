@@ -89,6 +89,15 @@ def contract_received(contract: BizContract) -> Decimal:
     return sum((p.amount for p in contract.payments), Decimal("0"))
 
 
+def rebuild_plan_receipts(db: Session, contract: BizContract) -> None:
+    db.expire(contract, ["payments", "plans"])
+    for plan in contract.plans:
+        plan.received_amount = Decimal("0")
+    for payment in sorted(contract.payments, key=lambda row: (row.payment_date, row.id)):
+        payment.plan_id = apply_to_plans(contract, payment.amount)
+    refresh_plan_status(contract)
+
+
 def plan_rows(contract: BizContract) -> list[dict]:
     names = {1: "未到期", 2: "待回款", 3: "部分回款", 4: "已回款", 5: "逾期"}
     return [{"id": p.id, "seq": p.seq, "stage_name": p.stage_name, "ratio": p.ratio, "amount": p.amount,

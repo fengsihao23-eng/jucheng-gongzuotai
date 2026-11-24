@@ -55,7 +55,7 @@
           end-placeholder="登记止" style="width: 240px" @change="search" />
         <el-button link @click="reset">重置</el-button>
       </div>
-      <el-table :data="list.items" v-loading="loading" :row-class-name="rowClass" @row-click="openDetail">
+      <el-table :data="list.items" v-loading="loading" :row-class-name="rowClass" @row-click="openDetail" @row-contextmenu="opportunityMenu">
         <el-table-column prop="opp_no" label="编号" width="124" />
         <el-table-column label="商机名称" min-width="200" show-overflow-tooltip>
           <template #default="{ row }"><span class="link">{{ row.name }}</span></template>
@@ -257,6 +257,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import dayjs from 'dayjs'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -482,6 +483,8 @@ onMounted(async () => {
   loadFunnel()
   if (/^\d+$/.test(String(route.query.detail || ''))) openDetail({ id: Number(route.query.detail) }).catch(() => {})
 })
+
+const opportunityMenu = rowDeletion(row => auth.can('opp:write') && recordRemoval('opportunity', row.id, row.name, load, { title: '删除商机' }))
 </script>
 
 <style scoped>

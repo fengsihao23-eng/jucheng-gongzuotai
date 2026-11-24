@@ -12,7 +12,7 @@
     </el-table>
     <p v-if="!scrapOnly" class="jc-small jc-muted mt-16">{{ data?.approval_note }}。运营项目编号：{{ project.id }}；产品编号见上表。</p>
     <h3 class="mt-16">{{ scrapOnly ? '报废记录' : '出入库及报废记录' }}<span class="jc-small jc-muted"> · 共 {{ data?.movement_count || 0 }} 条{{ data?.movement_count > 200 ? '，显示最近 200 条' : '' }}</span></h3>
-    <el-table :data="data?.movements || []" empty-text="暂无相关记录">
+    <el-table :data="data?.movements || []" empty-text="暂无相关记录" @row-contextmenu="movementMenu">
       <el-table-column prop="occurred_on" label="业务日期" width="115" /><el-table-column prop="product_name" label="设备" min-width="150" />
       <el-table-column prop="action_name" label="操作" width="145" /><el-table-column prop="quantity" label="数量" width="85" align="right" />
       <el-table-column prop="school" label="学校 / 使用地点" min-width="150" /><el-table-column prop="note" label="说明" min-width="220" show-overflow-tooltip />
@@ -32,6 +32,7 @@
   </div>
 </template>
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -63,6 +64,8 @@ async function save() {
 }
 watch(() => [props.project.id, props.active, props.scrapOnly], () => load(), { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => props.active && !formOpen.value })
+
+const movementMenu = rowDeletion(row => props.project.can_manage && recordRemoval('asset-movement', row.id, row.product_name, () => load(), { title: '删除设备流转记录' }))
 </script>
 <style scoped>
 .tools { gap:12px; flex-wrap:wrap; }.tools h3 { margin:0; }.tools p { margin:6px 0; line-height:1.6; }.warehouse .el-select { width:100%; }.two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }.two .el-date-editor { width:100%; }.stock-stats { margin-top:14px; }@media(max-width:600px) { .stock-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.two { grid-template-columns:1fr; gap:0; } }

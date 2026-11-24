@@ -95,7 +95,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="`已留档报告（${history.length}）`" name="history">
-          <el-table :data="history" size="small" empty-text="暂无已保存的阶段性总结留档">
+          <el-table :data="history" size="small" empty-text="暂无已保存的阶段性总结留档" @row-contextmenu="reportMenu">
             <el-table-column prop="title" label="报告标题" min-width="220" show-overflow-tooltip />
             <el-table-column prop="scope_label" label="汇总范围" min-width="150" />
             <el-table-column label="版本" width="80">
@@ -118,6 +118,8 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
+import { useAuth } from '@/store/auth'
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -129,6 +131,7 @@ defineProps({
 })
 const emit = defineEmits(['open-execution'])
 const assistant = useAssistant()
+const auth = useAuth()
 
 const scope = ref('all')
 const owner = ref('')
@@ -144,6 +147,15 @@ const report = ref(null)
 const savedMeta = ref(null)
 const history = ref([])
 let seq = 0
+const reportMenu = rowDeletion(row => (row.author_id === auth.profile?.id ||
+  ['collections:request', 'contracts:write', 'receivables:correct'].some(button => auth.can(button))) &&
+  recordRemoval('collection-report', row.id, row.title, () => {
+    if (savedMeta.value?.id === row.id) {
+      savedMeta.value = null
+      report.value = null
+    }
+    return loadHistory()
+  }, { title: '删除回款报告' }))
 
 const moneyText = v => (v == null || v === '' ? '—' : Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 }))
 

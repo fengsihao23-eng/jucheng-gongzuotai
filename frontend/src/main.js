@@ -8,10 +8,12 @@ import App from './App.vue'
 import router from './router'
 import components from './components'
 import { installOperationAudit } from './utils/operationAudit'
+import { recordDeleteDirective } from './composables/useRecordDeletion'
 
 const app = createApp(App)
 installOperationAudit(router)
 app.use(createPinia()).use(router).use(ElementPlus, { locale: zhCn }).use(components)
+app.directive('record-delete', recordDeleteDirective)
 app.config.errorHandler = (err, vm, info) => {
   console.error('[vue]', info, err)
 }

@@ -40,7 +40,7 @@
           <el-option label="全部来源" value="" /><el-option label="流水核对" :value="1" /><el-option label="手工" :value="2" />
         </el-select>
       </template>
-      <el-table :data="filtered" @row-click="row => followupRow = row" :row-class-name="({ row }) => (row.source_type === 2 ? 'manual' : '')" max-height="620">
+      <el-table :data="filtered" @row-click="row => followupRow = row" :row-class-name="({ row }) => (row.source_type === 2 ? 'manual' : '')" max-height="620" @row-contextmenu="removeMenu">
         <el-table-column label="日期" width="105" prop="journal_date" />
         <el-table-column v-if="!account" label="账户" width="180" prop="account_name" show-overflow-tooltip />
         <el-table-column label="摘要" min-width="240" prop="summary" show-overflow-tooltip />
@@ -91,6 +91,7 @@
 </template>
 
 <script setup>
+import { deleteRecord, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordRowDetails from '@/components/records/RecordRowDetails.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -155,11 +156,11 @@ async function save() {
     ElMessage.success('已保存'); form.open = false; load()
   } finally { form.saving = false }
 }
-async function remove(row) {
-  await ElMessageBox.confirm(`删除「${row.summary}」${money(row.amount)}？删除记录将保留在操作审计中。`, '删除日记账', { type: 'warning' })
-  await api.del(`/journal/${row.id}`)
-  ElMessage.success('已删除'); load()
+const removal = row => row.source_type === 2 && {
+  endpoint: `/journal/${row.id}`, name: row.summary, title: '删除日记账', onDeleted: load,
 }
+const removeMenu = rowDeletion(removal)
+const remove = row => deleteRecord(removal(row))
 function exportXlsx() {
   const p = { month: { period: period.value }, year: { start: `${year.value}-01-01`, end: `${year.value}-12-31` } }[mode.value]
     || { start: day.value, end: day.value }

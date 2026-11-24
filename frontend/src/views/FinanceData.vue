@@ -32,7 +32,7 @@
         </div>
 
         <Panel class="mt-16" title="同步批次" :padding="false" :loading="bLoading">
-          <el-table :data="batches" highlight-current-row @row-click="openBatch">
+          <el-table :data="batches" highlight-current-row @row-click="openBatch" @row-contextmenu="lemonMenu">
             <el-table-column label="批次号" width="190"><template #default="{ row }"><span class="jc-mono">{{ row.batch_no }}</span></template></el-table-column>
             <el-table-column label="通道" width="80"><template #default="{ row }">{{ row.channel === 'api' ? 'API' : '文件' }}</template></el-table-column>
             <el-table-column label="期间" width="90" prop="period" />
@@ -100,7 +100,7 @@
               <el-option v-for="t in tax.tax_types" :key="t" :value="t" />
             </el-select>
           </template>
-          <el-table :data="tax.items || []">
+          <el-table :data="tax.items || []" @row-contextmenu="taxMenu">
             <el-table-column label="所属期" width="100" prop="period" />
             <el-table-column label="税种" width="120" prop="tax_type" />
             <el-table-column label="计税依据" width="160" align="right"><template #default="{ row }">{{ money(row.taxable_amount) }}</template></el-table-column>
@@ -129,7 +129,7 @@
             <span class="jc-small jc-muted">合计 <b class="jc-num">{{ money(costs.amount) }}</b></span>
             <el-button v-if="costs.can_write" type="primary" @click="openCost()">登记成本</el-button>
           </div>
-          <el-table :data="costs.items || []">
+          <el-table :data="costs.items || []" @row-contextmenu="costMenu">
             <el-table-column label="日期" width="105" prop="cost_date" />
             <el-table-column label="项目" min-width="240"><template #default="{ row }"><span class="jc-mono">{{ row.project_code }}</span> <span class="jc-muted">{{ row.project_name }}</span></template></el-table-column>
             <el-table-column label="类型" width="80" prop="cost_type" />
@@ -216,6 +216,7 @@
 </template>
 
 <script setup>
+import { deleteRecord, recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -228,6 +229,8 @@ import { baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
 
 const auth = useAuth()
 const canSync = computed(() => auth.can('finance:sync'))
+const lemonMenu = rowDeletion(row => canSync.value && recordRemoval('finance-batch', row.id, row.batch_no, loadBatches, { title: '删除财务同步记录' }))
+const taxMenu = rowDeletion(row => auth.can('tax:upload') && recordRemoval('tax', row.id, row.tax_type, loadTax, { title: '删除税务资料' }))
 const REC = { pass: '通过', diff: '有差异', pending: '待对账', error: '解析失败' }
 const REC_TONE = { pass: 'up', diff: 'warn', error: 'down' }
 const CONS = { pass: '一致', diff: '不一致', no_file: '无文件批次' }
@@ -332,10 +335,11 @@ async function saveCost() {
     ElMessage.success('已保存'); cost.open = false; loadCosts()
   } finally { cost.saving = false }
 }
-async function delCost(row) {
-  await ElMessageBox.confirm(`删除 ${row.project_code} ${money(row.amount)} 的成本登记？`, '删除', { type: 'warning' })
-  await api.del(`/finance-data/costs/${row.id}`); ElMessage.success('已删除'); loadCosts()
+const costRemoval = row => costs.value.can_write && !row.bank_flow_id && {
+  endpoint: `/finance-data/costs/${row.id}`, name: row.summary || row.project_code, title: '删除成本登记', onDeleted: () => loadCosts(),
 }
+const costMenu = rowDeletion(costRemoval)
+const delCost = row => deleteRecord(costRemoval(row))
 
 function reloadTab() {
   if (tab.value === 'lemon') { loadBatches(); loadCons() }

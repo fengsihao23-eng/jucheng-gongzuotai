@@ -13,7 +13,7 @@
       </thead>
       <tbody>
         <template v-for="(row, index) in rows" :key="row.id">
-          <tr :class="{ shaded: index % 2 }">
+          <tr :class="{ shaded: index % 2 }" v-record-delete="canDelete && removal(row)">
             <th scope="row">
               <time :datetime="row.created_at">{{ datetime(row.created_at) }}</time>
               <span class="mobile author">{{ row.author_name }}</span>
@@ -41,11 +41,14 @@
 </template>
 
 <script setup>
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, ref } from 'vue'
 import { datetime } from '@/utils/format'
 
-const props = defineProps({ entries: { type: Array, required: true } })
-const emit = defineEmits(['open-task'])
+const props = defineProps({ entries: { type: Array, required: true }, canDelete: Boolean })
+const emit = defineEmits(['open-task', 'deleted'])
+const removal = row => recordRemoval('operation-progress', row.id, `${row.author_name}的进度记录`,
+  () => emit('deleted'), { title: '删除进度记录' })
 const expanded = ref(new Set())
 const textFields = ['progress', 'problems', 'next_plan']
 const rows = computed(() => props.entries.map(entry => {

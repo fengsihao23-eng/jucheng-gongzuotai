@@ -160,7 +160,8 @@ def stats(db: Session, report_type: str, period: str | None = None, with_trend: 
                             "dept_name": depts.get(dc, dc), "position": u.position,
                             "consecutive": u.id not in sub.get(prev, {})})
         people.append({"user_id": u.id, "name": u.name, "dept_code": dc, "dept_name": depts.get(dc, dc),
-                       "position": u.position, "submitted": bool(s), "submit_time": s.submit_time if s else None,
+                       "position": u.position, "submitted": bool(s), "submission_id": s.id if s else None,
+                       "submit_time": s.submit_time if s else None,
                        "late": bool(s and s.stat_status == 2), "prev_submitted": u.id in sub.get(prev, {})})
     for row in by_dept.values():
         row["rate"] = _q(Decimal(row["submitted"]) / row["required"]) if row["required"] else None
@@ -291,7 +292,7 @@ def _upsert_journal(db: Session, j, users: dict) -> str:
     period = period_of(t, j.report_time)
     late = 2 if j.report_time > deadline_of(t, period) else 1
     row = db.scalar(select(OaSubmission).where(OaSubmission.user_id == u.id, OaSubmission.report_type == t,
-                                               OaSubmission.period == period))
+                                               OaSubmission.period == period).execution_options(include_removed_records=True))
     if row:
         if row.wecom_report_id != j.report_id or row.submit_time is None:
             if row.submit_time is None or j.report_time < row.submit_time:

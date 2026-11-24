@@ -92,7 +92,7 @@
           <el-button link @click="applyQuery({})">重置</el-button>
         </div>
         <el-table :data="data.items" row-key="id" v-loading="loading" empty-text="暂无符合条件的商机"
-          class="opportunity-table" @row-click="openDetail">
+          class="opportunity-table" @row-click="openDetail" @row-contextmenu="opportunityMenu">
           <el-table-column prop="sequence" label="工单编号" min-width="142" show-overflow-tooltip />
           <el-table-column label="工单主题" min-width="260">
             <template #default="{ row }">
@@ -128,6 +128,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -140,6 +141,10 @@ import { datetime } from '@/utils/format'
 const ENDPOINT = '/business-workbook/opportunities'
 const queryKeys = ['keyword', 'status', 'owner', 'contact', 'start', 'end', 'sheet', 'year']
 const route = useRoute(), router = useRouter(), auth = useAuth()
+const opportunityMenu = rowDeletion(row => auth.can('opp:write') && recordRemoval('workbook-opportunities', row.row, row.name, () => load(), {
+  query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台商机',
+  description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
+}))
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), exporting = ref(false)
 const page = ref(1), size = ref(30), range = ref(null)
 const detail = computed(() => {

@@ -99,7 +99,7 @@ def project_weekly_progress(db, params: dict) -> dict:
     f = save_bytes(db, data=content, filename=fname, category="report",
                    key=f"report/project_weekly/{data['end']:%Y-%m}/{fname}")
     ver = (db.scalar(select(RptReport.version).where(RptReport.report_type == "project_weekly", RptReport.period == week)
-                     .order_by(RptReport.version.desc())) or 0) + 1
+                     .order_by(RptReport.version.desc()).limit(1).execution_options(include_removed_records=True)) or 0) + 1
     delayed = sum(len(r["delayed"]) for r in data["projects"])
     db.add(RptReport(report_type="project_weekly", period=week, title=f"项目周进度汇总 {week}", version=ver,
                      metrics={"projects": len(projects), "delayed_nodes": delayed,

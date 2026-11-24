@@ -8,7 +8,7 @@
       <el-form-item label="下次跟进日期（可选）"><el-date-picker v-model="form.next_contact_date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
       <el-button type="primary" :loading="saving" :disabled="!form.occurred_on || !form.content.trim()" @click="save">保存跟进</el-button>
     </el-form>
-    <el-timeline v-if="items.length"><el-timeline-item v-for="v in items" :key="v.id" :timestamp="`${v.occurred_on} · ${v.author}`" placement="top"><p class="plain">{{ v.content }}</p><p v-if="v.next_action" class="plain">下一步：{{ v.next_action }} {{ v.next_contact_date || '' }}</p><small class="jc-muted">录入时间 {{ datetime(v.created_at) }}</small></el-timeline-item></el-timeline>
+    <el-timeline v-if="items.length"><el-timeline-item v-for="v in items" :key="v.id" v-record-delete="visitRemoval(v)" :timestamp="`${v.occurred_on} · ${v.author}`" placement="top"><p class="plain">{{ v.content }}</p><p v-if="v.next_action" class="plain">下一步：{{ v.next_action }} {{ v.next_contact_date || '' }}</p><small class="jc-muted">录入时间 {{ datetime(v.created_at) }}</small></el-timeline-item></el-timeline>
     <p v-else class="jc-small jc-muted">暂无实际跟进记录。更新学校档案不会自动算作已拜访。</p>
     <div v-if="project.can_manage && project.status === 'active' && !['won', 'operating'].includes(school.stage)" class="conversion">
       <h4>确认学校落地</h4><p class="jc-muted jc-small">确认后进入存量学校，保留同一学校档案与全部跟进记录。</p>
@@ -19,6 +19,7 @@
   </section>
 </template>
 <script setup>
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
@@ -29,6 +30,7 @@ const items = ref([]), open = ref(false), saving = ref(false), target = ref('ope
 const form = reactive({ occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null })
 const base = () => `/operations/${props.project.id}/schools/${props.school.id}`
 let request = 0
+const visitRemoval = row => props.project.can_manage && recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') }, { title: '删除学校跟进记录' })
 async function load() { const version = ++request; try { const data = await api.get(base() + '/visits'); if (version === request) items.value = data.items } catch {} }
 watch(() => props.school.id, () => { open.value = false; reason.value = ''; Object.assign(form, { occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null }); load() }, { immediate: true })
 async function save() { saving.value = true; try { await api.post(base() + '/visits', form); open.value = false; form.content = ''; form.next_action = ''; form.next_contact_date = null; await load(); emit('saved'); announceChange(); ElMessage.success('跟进已保存') } catch {} finally { saving.value = false } }
