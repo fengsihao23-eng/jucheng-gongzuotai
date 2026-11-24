@@ -49,6 +49,83 @@ def test_create_from_market_has_required_schedule_and_no_invented_construction_n
     assert client.post(BASE + "/projects", headers=login("admin"), json={**body, "owner_id": ident(db, "yangyue")}).status_code == 400
 
 
+def test_new_key_project_sends_assignment_to_selected_owner(client, login, db, key_project):
+    from app.integration.wecom.mock import read_outbox
+
+    path, project, body = key_project
+    notices = db.scalars(select(SysNotify).where(SysNotify.msg_type == keys.ASSIGNMENT_NOTICE,
+        SysNotify.ref_type == "biz_project", SysNotify.ref_id == str(project["id"]))).all()
+    assert {row.channel for row in notices} == {"inapp", "wecom_app"}
+    link = path.removeprefix("/api/v1")
+    assert all(row.user_id == body["owner_id"] and row.link == link and row.send_status == 1 for row in notices)
+    assert any(msg["to"] == ["wujun"] and msg["type"] == "textcard" and (msg["url"] or "").endswith(link)
+               for msg in read_outbox())
+
+    regular = data(client.post("/api/v1/projects", headers=login("admin"), json={
+        "name": "项目台账新建重点项目", "customer_name": "测试学校", "business_line": "XY",
+        "owner_id": body["owner_id"], "is_key": True, "milestone_template": "none"}))
+    assert db.scalar(select(SysNotify.id).where(SysNotify.msg_type == keys.ASSIGNMENT_NOTICE,
+        SysNotify.ref_id == str(regular["id"]), SysNotify.send_status == 1, SysNotify.channel == "wecom_app"))
+
+
+def test_pending_assignment_stops_after_owner_changes(db, key_project, monkeypatch):
+    from app.services import notify_service
+
+    _, project, _ = key_project
+    row = db.get(BizProject, project["id"])
+    ids = keys.queue_assignment(db, row)
+    db.commit()
+    row.owner_id = ident(db, "xuhao")
+    db.commit()
+    sent = []
+    monkeypatch.setattr(notify_service, "get_wecom", lambda: sent.append("send attempted"))
+    notify_service.deliver_pending(db, ids)
+    stopped = db.get(SysNotify, ids[0])
+    assert stopped.send_status == 2 and stopped.retry_count == notify_service.MAX_RETRY
+    assert sent == []
+
+
+def test_only_named_enterprise_accounts_can_change_follow_pause(client, login, db, key_project):
+    from app.core.security import create_jwt
+
+    path, project, _ = key_project
+    for account in ("wujun", "admin"):
+        headers = login(account)
+        assert not data(client.get(path, headers=headers))["can_pause"]
+        assert client.put(path + "/pause", headers=headers, json={"paused": True}).status_code == 403
+
+    for account, name in [("ken", "梁道灿"), ("SZGLY", "聚成数智管理员"), ("FengSiHao", "冯思皓"),
+                          ("pause-namesake-" + uuid4().hex[:8], "梁道灿")]:
+        actor = db.scalar(select(SysUser).where(SysUser.wecom_userid == account))
+        actor = actor or SysUser(wecom_userid=account, name=name, status=1, workbench_enabled=True)
+        db.add(actor)
+        db.flush()
+        permission = db.get(SysUserPermission, actor.id)
+        previous = (permission.menus, permission.buttons, permission.data_scope) if permission else None
+        permission = permission or SysUserPermission(user_id=actor.id)
+        permission.menus, permission.buttons, permission.data_scope = ["market", "projects"], [], "all"
+        db.add(permission)
+        db.commit()
+        headers = {"Authorization": "Bearer " + create_jwt(actor.id)[0]}
+        try:
+            allowed = account in {"ken", "SZGLY"}
+            card = next(p for p in data(client.get(BASE + "/board", headers=headers))["projects"]
+                        if p["project_code"] == project["project_code"])
+            assert card["can_pause"] is allowed
+            if allowed:
+                assert data(client.put(path + "/pause", headers=headers, json={"paused": True}))["paused"]
+                assert data(client.get(path, headers=headers))["paused"]
+                assert not data(client.put(path + "/pause", headers=headers, json={"paused": False}))["paused"]
+            else:
+                assert client.put(path + "/pause", headers=headers, json={"paused": True}).status_code == 403
+        finally:
+            if previous is None:
+                db.delete(permission)
+            else:
+                permission.menus, permission.buttons, permission.data_scope = previous
+            db.commit()
+
+
 def deletion_password():
     from app.core.config import settings
     return {"password": settings.operations_delete_password}

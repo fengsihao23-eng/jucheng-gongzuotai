@@ -9,11 +9,12 @@ ALARM_FEATURES = {"device_maintenance", "arrears", "collection_maintenance", "cu
 SECTIONS = {"tasks": "任务", "progress": "项目进度", "outreach": "学校与市场开拓", "procurement": "学校采购",
             "income": "每日营收", "products": "设备产品", "team": "项目团队", "reports": "周报月报", "funds": "经费与审批",
             "warehouse": "仓库物料", "device_maintenance": "设备运维", "arrears": "欠费维护",
-            "collection_maintenance": "回款维护", "customers": "客户资料维护", "scrap": "设备报废"}
-BASE_FEATURES = {"tasks", "team"}
+            "collection_maintenance": "回款维护", "customers": "客户资料维护", "scrap": "设备报废",
+            "competitors": "对手信息"}
+BASE_FEATURES = {"tasks", "team", "competitors"}
 FEATURE_LABELS = {**SECTIONS, "tasks": "任务情况", "outreach": "市场开拓", "income": "收入情况", "products": "设备产品库",
                   "reports": "周报 / 月报"}
-FEATURE_ORDER = ("tasks", "team", "progress", "reports", "outreach", "procurement", "income", "products", "funds",
+FEATURE_ORDER = ("tasks", "team", "competitors", "progress", "reports", "outreach", "procurement", "income", "products", "funds",
                  "warehouse", "device_maintenance", "arrears", "collection_maintenance", "customers", "scrap")
 SCHOOL_FEATURES = {"outreach", "procurement", "income"}
 
@@ -21,14 +22,16 @@ SCHOOL_FEATURES = {"outreach", "procurement", "income"}
 def feature_options():
     return {"features": [{"value": key, "label": FEATURE_LABELS[key], "required": key in BASE_FEATURES,
                            "depends_on": ["products"] if key in {"procurement", "warehouse", "scrap"} else []} for key in FEATURE_ORDER],
-            "feature_presets": {"campus": [key for key in FEATURE_ORDER if key in LEGACY_SECTIONS | {"warehouse"}],
+            "feature_presets": {"campus": [key for key in FEATURE_ORDER if key in LEGACY_SECTIONS | BASE_FEATURES | {"warehouse"}],
                                 "alarm": [key for key in FEATURE_ORDER if key in BASE_FEATURES | ALARM_FEATURES | {"products", "reports", "progress"}],
-                                "general": ["tasks", "team", "progress", "reports"]}}
+                                "general": [key for key in FEATURE_ORDER if key in BASE_FEATURES | {"progress", "reports"}]}}
 
 
 def enabled_features(db, project):
     row = db.get(OpsProjectFeatures, project.id)
-    return set(row.sections) if row else LEGACY_SECTIONS | {"warehouse"} | (ALARM_FEATURES if project.name.strip() == "一键报警" else set())
+    if row:
+        return set(row.sections) | BASE_FEATURES
+    return LEGACY_SECTIONS | BASE_FEATURES | {"warehouse"} | (ALARM_FEATURES if project.name.strip() == "一键报警" else set())
 
 
 def feature_settings(db, project):

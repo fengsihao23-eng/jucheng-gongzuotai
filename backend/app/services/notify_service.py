@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.db import SessionLocal
 from app.core.timeutil import utcnow
 from app.integration.wecom import get_wecom
 from app.integration.wecom.base import MessageDto
@@ -67,10 +68,12 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     from app.services.operations_notifications import TYPES as OPS_TYPES, eligible as ops_eligible
     from app.services.collection_followups import NOTICE_TYPES as COLLECTION_TYPES, eligible_notice as collection_eligible
     from app.services.collection_reminders import NOTICE as REMINDER_TYPE, PAYMENT_NOTICE, eligible as reminder_eligible
-    from app.services.key_projects import NOTICE as KEY_TYPE, eligible_notice as key_eligible
+    from app.services import key_projects
+    key_checks = {key_projects.NOTICE: key_projects.eligible_notice,
+                  key_projects.ASSIGNMENT_NOTICE: key_projects.eligible_assignment}
     pending_rows = []
     for r in rows:
-        if r.msg_type == KEY_TYPE and not key_eligible(db, r):
+        if r.msg_type in key_checks and not key_checks[r.msg_type](db, r):
             r.send_status, r.error_msg, r.retry_count = 2, "重点项目、负责人或节点状态已变化", MAX_RETRY
             continue
         if r.msg_type in (REMINDER_TYPE, PAYMENT_NOTICE) and not reminder_eligible(db, r):
@@ -110,9 +113,10 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
             return
     # 同一内容批量发送（企微 touser 支持 | 分隔，最多 1000 人）
     groups: dict[tuple, list[SysNotify]] = {}
+    card_types = OPS_TYPES | COLLECTION_TYPES | set(key_checks) | {REMINDER_TYPE}
     for r in rows:
         # 运营通知统一发为带入口的文本卡片，定时投递和重试使用同一格式。
-        delivery_type = "textcard" if r.msg_type in (OPS_TYPES | COLLECTION_TYPES | {REMINDER_TYPE, KEY_TYPE}) and r.link else msg_type
+        delivery_type = "textcard" if r.msg_type in card_types and r.link else msg_type
         groups.setdefault((delivery_type, r.title, r.content, r.link), []).append(r)
     try:
         provider = get_wecom()
@@ -150,6 +154,16 @@ def _deliver_queue(db: Session, *conditions) -> int:
 def deliver_pending(db: Session, ids: list[int]) -> int:
     """Try newly committed notifications without racing the periodic retry worker."""
     return _deliver_queue(db, SysNotify.id.in_(ids), SysNotify.send_status == 0) if ids else 0
+
+
+def deliver_committed(ids: list[int]) -> None:
+    """Give newly committed messages an immediate attempt; the retry worker handles failures."""
+    try:
+        with SessionLocal() as db:
+            deliver_pending(db, ids)
+            db.commit()
+    except Exception:
+        log.exception("Could not deliver committed notifications")
 
 
 def retry_failed(db: Session) -> int:

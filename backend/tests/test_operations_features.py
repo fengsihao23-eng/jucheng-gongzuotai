@@ -21,13 +21,13 @@ def project_body(db, **extra):
 def test_new_projects_have_separate_features_and_disabled_endpoints(client, login, db):
     head = login("admin")
     catalog = data(client.get(BASE + "/options", headers=head))
-    assert {r["value"] for r in catalog["features"] if r["required"]} == {"tasks", "team"}
+    assert {r["value"] for r in catalog["features"] if r["required"]} == {"tasks", "team", "competitors"}
     simple = data(client.post(BASE, headers=head, json=project_body(db, enabled_sections=["progress", "reports"])))
     purchase = data(client.post(BASE, headers=head, json=project_body(db, enabled_sections=["procurement"])))
     assert simple["feature_settings"]["configured"]
     assert simple["feature_settings"]["revision"] == 1
-    assert set(simple["feature_settings"]["sections"]) == {"tasks", "team", "progress", "reports"}
-    assert set(purchase["feature_settings"]["sections"]) == {"tasks", "team", "procurement", "products"}
+    assert set(simple["feature_settings"]["sections"]) == {"tasks", "team", "competitors", "progress", "reports"}
+    assert set(purchase["feature_settings"]["sections"]) == {"tasks", "team", "competitors", "procurement", "products"}
     for row, key, progress_status in ((simple, "income", 200), (purchase, "income", 403)):
         path = f"{BASE}/{row['id']}"
         info = data(client.get(path, headers=head))
@@ -77,8 +77,40 @@ def test_legacy_and_ordinary_edits_do_not_overwrite_features(client, login, db):
     assert db.get(OpsProjectFeatures, legacy["id"]) is None
     selected = data(client.put(path, headers=head, json={**legacy_body, "enabled_sections": ["income"], "expected_features_revision": 0}))
     assert selected["feature_settings"]["legacy_campus_income"]
-    assert set(selected["visible_sections"]) == {"tasks", "team", "income"}
+    assert set(selected["visible_sections"]) == {"tasks", "team", "competitors", "income"}
     assert data(client.put(path, headers=head, json=legacy_body))["feature_settings"] == selected["feature_settings"]
     new = data(client.post(BASE, headers=head, json={**legacy_body, "enabled_sections": ["income"]}))
     assert new["feature_settings"]["configured"] and not new["feature_settings"]["legacy_campus_income"]
     assert client.post(BASE, headers=head, json={**legacy_body, "enabled_sections": ["unknown"]}).status_code == 400
+
+
+def test_competitors_are_project_local_and_writable_by_execution_members(client, login, db):
+    admin, member, viewer, outsider = (login(account) for account in ("admin", "xiekai", "yangyue", "wujun"))
+    project = data(client.post(BASE, headers=admin, json=project_body(db, enabled_sections=["progress"])))
+    path = f"{BASE}/{project['id']}"
+    features = db.get(OpsProjectFeatures, project["id"])
+    features.sections = [section for section in features.sections if section != "competitors"]
+    db.commit()
+    member_id = user(db, "xiekai")
+    for ident, role in [(member_id, "member"), (user(db, "yangyue"), "viewer")]:
+        data(client.post(path + "/members", headers=admin, json={"user_id": ident, "role": role}))
+    assert "competitors" in data(client.get(path, headers=member))["visible_sections"]
+    url = path + "/competitors"
+    payload = {"name": "验收对手", "details": "对方计划提交实施方案", "response": "跟进业主的评审安排"}
+    row = data(client.post(url, headers=member, json=payload))
+    assert row["revision"] == 1 and row["updated_by"] == member_id
+    assert data(client.get(url, headers=viewer)) == {"items": [row], "can_edit": False}
+    assert client.post(url, headers=viewer, json=payload).status_code == 403
+    assert client.get(url, headers=outsider).status_code == 404
+    result = data(client.put(f"{url}/{row['id']}", headers=admin, json={
+        **payload, "response": "本周准备对比材料", "expected_revision": 1}))
+    assert result["revision"] == 2 and result["response"] == "本周准备对比材料"
+    assert client.put(f"{url}/{row['id']}", headers=member, json={**payload, "expected_revision": 1}).status_code == 409
+
+    second = data(client.post(BASE, headers=admin, json=project_body(db)))
+    second_url = f"{BASE}/{second['id']}/competitors"
+    assert data(client.get(second_url, headers=admin))["items"] == []
+    assert client.put(f"{second_url}/{row['id']}", headers=admin, json={**payload, "expected_revision": 2}).status_code == 404
+    data(client.put(path + f"/member-visibility/{member_id}", headers=admin,
+                    json={"sections": ["tasks"], "expected_revision": 0}))
+    assert client.get(url, headers=member).status_code == 403

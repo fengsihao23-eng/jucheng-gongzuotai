@@ -11,7 +11,7 @@ from app.core.db import get_or_404
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.services import (business_workbook, collection_followups, collection_service, contract_service,
                           import_service, kb_service, key_projects, operations_scope, operations_service,
-                          project_service, report_service)
+                          project_service, report_service, sporadic_collections)
 
 
 @dataclass(frozen=True)
@@ -96,7 +96,7 @@ class Record:
     @property
     def key(self):
         value = f"{self.workbook}\n{self.sheet}\n{self.identity}" if self.workbook else self.ident
-        return sha256(value.encode()).hexdigest()
+        return record_key(value)
 
     @property
     def reference(self):
@@ -109,6 +109,10 @@ class Record:
 def menu(p, *values):
     if not any(p.has_menu(value) for value in values):
         raise forbidden()
+
+
+def record_key(value: str) -> str:
+    return sha256(value.encode()).hexdigest()
 
 
 def number(value):
@@ -188,7 +192,7 @@ def workbook_record(db, p, kind, ref):
                   workbook=wb.id, identity=identity, legacy=legacy)
 
 
-def resolve(db, p, kind, ref):
+def resolve(db, p, kind, ref, *, lock=False):
     if not p.workbench_enabled:
         raise forbidden()
     ident = ref["id"]
@@ -325,6 +329,13 @@ def resolve(db, p, kind, ref):
         row = collection_followups._get(db, p, number(ident))
         return Record(kind, str(row.id), "回款跟进详情", row.contract_name, "回款情况", owners(row.author_id, row.recipient_id),
                       collection_service.can_request(p), path=f"/collections/followups/{row.id}")
+    if kind == sporadic_collections.KIND:
+        menu(p, "contracts", "receivables")
+        row = sporadic_collections.get_project(db, p, number(ident), lock=lock)
+        fields = facts(row, (("截止日期", "due_on"), ("预计回款（元）", "expected_amount"), ("客户", "customer")))
+        return Record(kind, str(row.id), "零星回款任务详情", row.name, "零星回款", owners(row.owner_id),
+                      writer=row.owner_id == p.id, manager=collection_service.can_request(p), facts=fields,
+                      context=row.requirements, path=f"/collections/sporadic?project={row.id}")
     if kind == "legacy-collection":
         menu(p, "contracts", "receivables")
         contract_id, sep, plan = ident.partition(":")

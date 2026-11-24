@@ -2,6 +2,7 @@
   <LegacyCollections v-if="data?.active === false" />
   <div v-else class="jc-page collection-page">
     <PageHeader eyebrow="经营数据 · 回款" title="回款情况" desc="按到账月份核对实际回款，查看合同未收余额、预计回款和跟进情况。">
+      <CollectionHeaderActions />
       <el-button v-if="canManageSource && data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canManageSource" :loading="syncing" @click="syncNow">检查表格更新</el-button>
       <el-button :loading="loading" @click="load()">刷新页面</el-button>
@@ -222,6 +223,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import CollectionReportSection from '@/components/CollectionReportSection.vue'
+import CollectionHeaderActions from '@/components/CollectionHeaderActions.vue'
 import CollectionOverduePanel from '@/components/CollectionOverduePanel.vue'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'

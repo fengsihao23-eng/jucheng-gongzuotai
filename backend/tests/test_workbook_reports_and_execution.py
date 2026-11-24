@@ -1,5 +1,7 @@
-"""Tests for natural-language performance report builder, collection execution dialog API, and stage report archiving."""
+"""Tests for natural-language performance reports, collection execution, and summary archiving."""
+import json
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete, func, select
@@ -9,6 +11,7 @@ from app.models import (
     BizPayment,
     SysNotify,
     SysUser,
+    SysUserPermission,
     WorkbookCollectionProgress,
     WorkbookCollectionReport,
     WorkbookCollectionRequest,
@@ -20,6 +23,8 @@ from tests.test_contract_workbook import older, sales
 
 CONTRACTS_REPORT_API = "/api/v1/business-workbook/contracts/report-query"
 COLLECTIONS_BASE = "/api/v1/business-workbook/collections"
+SPORADIC = "/api/v1/collections/sporadic"
+FIXED_SUMMARY = "/api/v1/collections/summary"
 
 
 @pytest.fixture
@@ -226,3 +231,83 @@ def test_collection_summary_report_generation_and_archiving(client, login, rich_
     assert [a["version"] for a in archives] == [2, 1]
     loaded_v1 = data(client.get(f"{COLLECTIONS_BASE}/saved-reports/{v1['id']}", headers=admin))
     assert "主管审阅签字留档" in loaded_v1["text"]
+
+
+def test_sporadic_collections_use_scoped_list_and_shared_feedback(client, login, db):
+    from app.core.security import create_jwt
+
+    admin = login("admin")
+
+    def local_member(name):
+        user = SysUser(wecom_userid="sporadic-" + uuid4().hex[:10], name=name, status=1, workbench_enabled=True)
+        db.add(user)
+        db.flush()
+        db.add(SysUserPermission(user_id=user.id, menus=["receivables"], buttons=[], data_scope="self"))
+        db.commit()
+        return user.id, {"Authorization": "Bearer " + create_jwt(user.id)[0]}
+
+    owner_id, owner = local_member("零星回款负责人")
+    _, outsider = local_member("其他回款人员")
+    body = {"name": "零星验收-校园维护", "customer": "验收学校", "owner_id": owner_id,
+            "expected_amount": "1234.56", "due_on": "2026-11-30", "requirements": "确认验收单与付款节点"}
+    assert client.post(SPORADIC, headers=owner, json=body).status_code == 403
+    assert any(u["id"] == owner_id for u in data(client.get(SPORADIC + "/options", headers=admin))["owners"])
+    created = data(client.post(SPORADIC, headers=admin, json=body))
+    path = f"/api/v1/record-followups/sporadic-collection/{created['id']}"
+    assert data(client.get(SPORADIC, headers=outsider))["total"] == 0
+    assert client.get(path, headers=outsider).status_code == 404
+    detail = data(client.get(path, headers=owner))
+    assert detail["can_feedback"] and detail["record"]["context"] == body["requirements"]
+    progress = {"action": "progress", "client_id": str(uuid4()), "content": "已联系客户财务，等待审批",
+                "status": "blocked", "problems": "付款审批尚未完成", "next_step": "与客户核对审批日期",
+                "expected_progress": detail["progress_revision"]}
+    first = data(client.post(path, headers=owner, json=progress))
+    retried = data(client.post(path, headers=owner, json=progress))
+    assert first["items"] == retried["items"] and len(retried["items"]) == 1
+    assert client.post(path, headers=owner, json={**progress, "client_id": str(uuid4())}).status_code == 409
+    only = data(client.get(SPORADIC, headers=owner, params={"keyword": "验收学校"}))
+    assert only["total"] == 1 and only["items"][0]["id"] == created["id"]
+    assert only["items"][0]["expected_amount"] == "1234.56"
+    assert only["items"][0]["latest_feedback"]["status"] == "blocked"
+    assert only["items"][0]["latest_feedback"]["next_step"] == progress["next_step"]
+
+    edit = {**body, "name": "零星验收-校园维护二期", "expected_revision": created["revision"]}
+    assert data(client.put(f"{SPORADIC}/{created['id']}", headers=admin, json=edit))["revision"] == 2
+    assert client.put(f"{SPORADIC}/{created['id']}", headers=admin, json=edit).status_code == 409
+    assert data(client.get(path, headers=owner))["latest"]["content"] == progress["content"]
+    legacy_report = data(client.post(FIXED_SUMMARY, headers=owner))
+    assert "零星验收-校园维护二期" in legacy_report["text"] and "受阻 1 项" in legacy_report["text"]
+    assert not legacy_report["assisted"]
+    assert "零星验收-校园维护二期" not in data(client.post(FIXED_SUMMARY, headers=outsider))["text"]
+
+
+def test_fixed_summary_uses_workbook_figures_and_ai_feedback(client, login, db, rich_workbook, monkeypatch):
+    from app.integration import llm
+
+    admin = login("admin")
+    owner_id = db.scalar(select(SysUser.id).where(SysUser.wecom_userid == "admin"))
+    item = data(client.post(SPORADIC, headers=admin, json={"name": "零星验收-财务回访", "owner_id": owner_id}))
+    path = f"/api/v1/record-followups/sporadic-collection/{item['id']}"
+    revision = data(client.get(path, headers=admin))["progress_revision"]
+    data(client.post(path, headers=admin, json={"action": "progress", "client_id": str(uuid4()),
+        "content": "已向客户提交付款资料", "status": "blocked", "problems": "客户财务审批尚未完成",
+        "next_step": "与客户核对审批日期", "expected_progress": revision}))
+
+    def summarize(**request):
+        sources = json.loads(request["user"])
+        assert any("客户财务审批尚未完成" in row for row in sources["risk"])
+        assert request["json_mode"] is True
+        return json.dumps({"progress": "零星验收-财务回访已提交付款资料。",
+                           "risk": "客户财务审批尚未完成。", "step": "与客户核对审批日期。"})
+
+    monkeypatch.setattr(llm, "complete", summarize)
+    summary = data(client.post(FIXED_SUMMARY, headers=admin))
+    assert summary["assisted"] and "330,000.00 元" in summary["text"]
+    assert "零星验收-财务回访已提交付款资料。" in summary["text"]
+    assert all(label in summary["text"] for label in ("一、回款概况", "二、项目跟进进展",
+                                                     "三、风险与待协调事项", "四、下一步安排"))
+    monkeypatch.setattr(llm, "complete", lambda **_: "无法解析的响应")
+    fallback = data(client.post(FIXED_SUMMARY, headers=admin))
+    assert not fallback["assisted"] and "330,000.00 元" in fallback["text"]
+    assert "客户财务审批尚未完成" in fallback["text"]
+    assert client.post(FIXED_SUMMARY, headers=login("yangyue")).status_code == 403

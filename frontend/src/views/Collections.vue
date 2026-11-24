@@ -40,6 +40,7 @@
   </div>
   <div v-else class="jc-page">
     <PageHeader eyebrow="经营 · 回款" title="回款情况" desc="从应收余额查到合同分期，记录预计回款、催办和负责人回复。">
+      <CollectionHeaderActions />
       <el-button v-if="auth.hasMenu('receivables')" @click="router.push('/receivables')">开票与到账</el-button>
     </PageHeader>
     <el-radio-group v-model="view" class="mb-16" aria-label="回款视图">
@@ -102,6 +103,7 @@
 
 <script setup>
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import CollectionHeaderActions from '@/components/CollectionHeaderActions.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

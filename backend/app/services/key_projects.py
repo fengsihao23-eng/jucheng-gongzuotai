@@ -17,7 +17,9 @@ from app.services import codes, market_service as market, notify_service, projec
 
 PROJECT_FIELDS = ["name", "remark", "customer_name", "business_line", "owner_id", "start_date", "plan_end_date", "status", "is_key"]
 NOTICE = "key_project_feedback_due"
+ASSIGNMENT_NOTICE = "key_project_assignment"
 REF = "key_project_task"
+PAUSE_USERIDS = {"ken", "SZGLY"}
 ZERO = Decimal(0)
 
 
@@ -27,6 +29,10 @@ def can_create(p):
 
 def can_manage(p, project):
     return can_create(p) or ps.can_edit(p, project)
+
+
+def can_pause(p):
+    return p.user.wecom_userid in PAUSE_USERIDS and any(p.has_menu(m) for m in ("market", "projects"))
 
 
 def user(db, user_id):
@@ -109,6 +115,49 @@ def delete_project(db, p, code):
     log_op(db, p.id, "market.key_project.delete", "biz_project", row.project_code,
            before=before, after=snapshot(row, fields))
     return {"deleted": True, "project_code": row.project_code, "name": row.name}
+
+
+def set_paused(db, p, code, paused):
+    if not can_pause(p):
+        raise forbidden("只有梁道灿和聚成数智管理员可以暂停或恢复重点项目跟进")
+    row = project(db, p, code, lock=True)
+    setting = db.get(BizProjectFollowSetting, row.id)
+    before = bool(setting and setting.paused)
+    if before != paused:
+        setting = setting or BizProjectFollowSetting(project_id=row.id)
+        setting.paused = paused
+        db.add(setting)
+        log_op(db, p.id, "market.follow_pause", "biz_project", row.project_code,
+               before={"paused": before}, after={"paused": paused})
+    return {"paused": paused}
+
+
+def assignment_recipient(db, row, user_id):
+    if not row or row.is_deleted or not row.is_key or row.status == 5 or row.owner_id != user_id:
+        return None
+    paused = db.get(BizProjectFollowSetting, row.id)
+    owner = db.get(SysUser, user_id)
+    if (paused and paused.paused) or not owner or owner.is_deleted or owner.status != 1:
+        return None
+    p = build_principal(owner)
+    return owner if any(p.has_menu(m) for m in ("market", "projects")) else None
+
+
+def queue_assignment(db, row):
+    owner = assignment_recipient(db, row, row.owner_id) if row.owner_id else None
+    if not owner:
+        return []
+    notices = notify_service.send(db, [owner], ASSIGNMENT_NOTICE, "你有新的重点项目",
+        f"你是「{row.name}」的项目负责人。", link=f"/market/projects/{row.project_code}",
+        ref_type="biz_project", ref_id=str(row.id), defer=True,
+        wecom_content="你已被指定为一个新建重点项目的负责人，请打开工作台查看项目安排。")
+    return [notice.id for notice in notices if notice.channel == "wecom_app"]
+
+
+def eligible_assignment(db, notice):
+    if notice.ref_type != "biz_project" or not (notice.ref_id or "").isdigit():
+        return False
+    return assignment_recipient(db, db.get(BizProject, int(notice.ref_id)), notice.user_id) is not None
 
 
 def task(db, row, ident):
@@ -258,7 +307,7 @@ def detail(db, p, code, period=""):
     tasks = [task_data(db, p, row, m) for m in row.milestones]
     fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id).order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50))
     return {**ps.project_brief(db, row), "content": row.remark or "", "revision": project_revision(row), "today": today(),
-            "paused": bool(paused and paused.paused), "can_manage": can_manage(p, row), "tasks": tasks,
+            "paused": bool(paused and paused.paused), "can_manage": can_manage(p, row), "can_pause": can_pause(p), "tasks": tasks,
             "feedbacks": [ps.feedback_dict(f) for f in fbs], "money": ps.contract_detail(db, row.project_code),
             "financials": financials(db, row, period)}
 

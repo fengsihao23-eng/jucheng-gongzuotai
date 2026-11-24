@@ -6,7 +6,7 @@ OPERATION_SECTIONS = {
     "procurement": "学校采购", "income": "收入情况", "device_maintenance": "设备运维",
     "arrears": "欠费维护", "collection_maintenance": "回款维护", "customers": "客户资料维护",
     "warehouse": "仓库物料", "scrap": "设备报废", "reports": "周报 / 月报",
-    "funds": "经费与审批", "settings": "工作设置",
+    "funds": "经费与审批", "competitors": "对手信息", "settings": "工作设置",
 }
 
 MENU_SECTIONS = {"operations": OPERATION_SECTIONS}

@@ -4,6 +4,7 @@
     <template v-if="project">
       <PageHeader eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="editTask(null)">安排任务</el-button>
+        <KeyProjectPauseButton :project="project" @changed="load()" />
         <RecordFeedbackButton :target="{ kind: 'key-project', id: project.project_code }" :heading="project.name"
           progress-hint="说明关键事项、节点进展或需要协调的问题。" />
       </PageHeader>
@@ -39,6 +40,7 @@ import { useAuth } from '@/store/auth'
 import { money, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
+import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import KeyTaskForm from './market/KeyTaskForm.vue'
 import KeyTaskDialog from './market/KeyTaskDialog.vue'
 const route=useRoute(),router=useRouter(),auth=useAuth(),project=ref(null),loading=ref(false),projectForm=ref(false),taskForm=ref(false),editingTask=ref(null),tab=ref('tasks'),search=ref(''),filter=ref('ongoing'),attention=ref(false)

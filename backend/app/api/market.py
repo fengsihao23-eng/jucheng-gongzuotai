@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
@@ -19,10 +19,11 @@ from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, forbidden, not_found, ok, page_data
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today
-from app.models import BizProject, BizProjectFollowSetting, BizProjectReview, MktIntel, RptReport, SysFile, SysUser
+from app.models import BizProject, BizProjectReview, MktIntel, RptReport, SysFile, SysUser
 from app.services import market_service as ms
 from app.services import project_service as ps
 from app.services import key_projects as keys
+from app.services import notify_service
 from app.schemas.key_projects import KeyProjectIn, KeyProjectEditIn, KeyTaskIn, KeyTaskFeedbackIn
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -52,9 +53,12 @@ def key_project_options(p: Principal = MarketOrProject, db: Session = Depends(ge
 
 
 @router.post("/projects")
-def create_key_project(body: KeyProjectIn, p: Principal = Market, db: Session = Depends(get_db)):
+def create_key_project(body: KeyProjectIn, background: BackgroundTasks, p: Principal = Market, db: Session = Depends(get_db)):
     row = keys.save_project(db, p, body)
+    notices = keys.queue_assignment(db, row)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok({"project_code": row.project_code, "id": row.id})
 
 
@@ -110,18 +114,10 @@ class PauseIn(BaseModel):
 
 
 @router.put("/projects/{project_code}/pause")
-def pause_follow(project_code: str, body: PauseIn, p: Principal = Market, db: Session = Depends(get_db)):
-    if not p.can("project:key"):
-        raise forbidden("无管理重点项目权限")
-    project = ps.get_project(db, project_code, p)
-    db.execute(select(BizProject.id).where(BizProject.id == project.id).with_for_update())
-    row = db.get(BizProjectFollowSetting, project.id) or BizProjectFollowSetting(project_id=project.id)
-    before = bool(row.paused)
-    row.paused = body.paused
-    db.add(row)
-    log_op(db, p.id, "market.follow_pause", "biz_project", project_code, before={"paused": before}, after={"paused": body.paused})
+def pause_follow(project_code: str, body: PauseIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    result = keys.set_paused(db, p, project_code, body.paused)
     db.commit()
-    return ok({"paused": body.paused})
+    return ok(result)
 
 
 @router.get("/events")

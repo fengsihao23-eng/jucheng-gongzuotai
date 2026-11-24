@@ -26,3 +26,5 @@ from app.models.ext_key_projects import KeyProjectTaskPlan, KeyProjectTaskNode, 
 from app.models.ext_workbook_project_feedback import WorkbookProjectFeedback  # noqa: F401
 from app.models.ext_record_followups import RecordFollowup  # noqa: F401
 from app.models.ext_finance_ledgers import FinLedgerEntry, FinLedgerImport  # noqa: F401
+from app.models.ext_sporadic_collections import SporadicCollectionProject  # noqa: F401
+from app.models.ext_operations_competitors import OpsCompetitor  # noqa: F401

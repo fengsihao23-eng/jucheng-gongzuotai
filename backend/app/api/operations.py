@@ -10,7 +10,7 @@ from app.core.deps import Principal, require_menu, require_recent_login
 from app.core.deletion import DeletionIn, verify_deletion
 from app.core.response import forbidden, ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
-from app.schemas.operations import (ArchiveIn, BatchMembersIn, DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
+from app.schemas.operations import (ArchiveIn, BatchMembersIn, CompetitorEditIn, CompetitorIn, DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
                                     ProjectIn, ProjectProgressEntriesIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch, TaskSource)
 from app.services import operations_deadlines as deadlines
 from app.services import operations_service as ops
@@ -24,6 +24,7 @@ from app.schemas.operations_workspace import MemberViewIn, ProjectControlIn, Out
 from app.schemas.operations import DiscussionIn, SchoolVisitIn, SchoolTransitionIn, DigestGenerateIn, DigestPreferenceIn
 from app.schemas.operations_assets import AssetMovementIn, MaintenanceIn, MaintenanceKind
 from app.services import operations_assets as assets
+from app.services import operations_competitors as competitors
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
@@ -268,6 +269,26 @@ def edit_operation(project_id: int, body: ProjectIn, p: Principal = Menu, db: Se
 def operation_brief(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     """生成基于已录入事实的进展摘要，包含任务、节点、投入与收入来源。"""
     return ok(ops.brief(db, p, project_id))
+
+
+@router.get("/{project_id}/competitors")
+def list_competitors(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(competitors.listing(db, p, project_id), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{project_id}/competitors")
+def add_competitor(project_id: int, body: CompetitorIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = competitors.save(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.put("/{project_id}/competitors/{competitor_id}")
+def edit_competitor(project_id: int, competitor_id: int, body: CompetitorEditIn, p: Principal = Menu,
+                    db: Session = Depends(get_db)):
+    result = competitors.save(db, p, project_id, body, competitor_id)
+    db.commit()
+    return ok(result)
 
 
 @router.get("/{project_id}/progress")

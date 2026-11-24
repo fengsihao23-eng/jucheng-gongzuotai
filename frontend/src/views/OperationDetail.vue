@@ -42,6 +42,9 @@
             </template>
             <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
             <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
+            <el-tab-pane v-if="canSection('competitors')" label="对手信息" name="competitors" lazy>
+              <CompetitorInfo :key="project.id" :project-id="project.id" :active="tab === 'competitors'" />
+            </el-tab-pane>
           </template>
           <el-tab-pane v-for="section in maintenanceSections.filter(s => canSection(s.key))" :key="section.key" :label="section.label" :name="section.key" lazy><OperationsMaintenance :project="project" :kind="section.key" :active="tab === section.key" /></el-tab-pane>
           <el-tab-pane v-if="canSection('warehouse')" label="仓库物料" name="warehouse" lazy><OperationsWarehouse :project="project" :active="tab === 'warehouse'" /></el-tab-pane>
@@ -86,6 +89,7 @@ import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import ProjectForm from './operations/ProjectForm.vue'
 import ProjectProgress from './operations/ProjectProgress.vue'
+import CompetitorInfo from './operations/CompetitorInfo.vue'
 import TaskForm from './operations/TaskForm.vue'
 import TaskDialog from './operations/TaskDialog.vue'
 import TaskCards from './operations/TaskCards.vue'

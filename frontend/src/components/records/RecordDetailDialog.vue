@@ -32,7 +32,7 @@
           <div class="record-stack">
             <section v-if="($slots.default && !fullWidthContent) || data?.record.context || (data?.record.path && linked)" class="record-section">
               <slot v-if="!fullWidthContent && $slots.default" />
-              <template v-else-if="data?.record.context"><h3>业务内容</h3><p class="record-text">{{ data.record.context }}</p></template>
+              <template v-else-if="data?.record.context"><h3>{{ contextTitle || '业务内容' }}</h3><p class="record-text">{{ data.record.context }}</p></template>
               <el-button v-if="linked && data?.record.path" link type="primary" @click="router.push(data.record.path)">打开业务页面</el-button>
             </section>
             <section v-if="data" class="record-section" aria-label="要求与留言">
@@ -73,7 +73,7 @@
           <div class="record-stack">
             <section v-if="$slots.progress" class="record-section"><slot name="progress" /></section>
             <section v-else-if="data" class="record-section" aria-label="进展反馈">
-              <h3>进展反馈</h3>
+              <h3>{{ feedbackTitle || '进展反馈' }}</h3>
               <el-form v-if="data.can_feedback" id="record-progress-form" label-position="top" @submit.prevent="sendProgress">
                 <el-form-item label="完成情况" class="record-outcome">
                   <el-radio-group v-model="outcome" aria-label="完成情况">
@@ -149,7 +149,8 @@ import { datetime } from '@/utils/format'
 
 const props = defineProps({ modelValue: Boolean, title: String, dialogTitle: String, heading: String, subtitle: String,
   status: String, statusTone: { type: String, default: 'brand' }, facts: Array, historyEntries: Array,
-  target: Object, initial: Object, linked: Boolean, progressHint: String, closeLocked: Boolean, fullWidthContent: Boolean })
+  target: Object, initial: Object, linked: Boolean, progressHint: String, feedbackTitle: String, contextTitle: String,
+  closeLocked: Boolean, fullWidthContent: Boolean })
 const emit = defineEmits(['update:modelValue', 'close', 'closed', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const router = useRouter()

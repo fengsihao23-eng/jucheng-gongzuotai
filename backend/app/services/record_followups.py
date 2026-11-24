@@ -206,7 +206,7 @@ def write(db, p, record, body):
                        .with_for_update().execution_options(populate_existing=True))
         if wb is None or wb.revision != record.revision:
             raise conflict("原表已更新，请重新打开详情")
-    record = targets.resolve(db, p, record.kind, record.reference)
+    record = targets.resolve(db, p, record.kind, record.reference, lock=True)
     duplicate = db.scalar(select(Entry).where(Entry.author_id == p.id, Entry.client_id == client_id))
     if duplicate is not None:
         if duplicate.target_kind != record.kind or duplicate.target_key != record.key:

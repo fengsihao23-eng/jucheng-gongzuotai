@@ -53,7 +53,7 @@
                   <b class="jc-num" :class="{ 'jc-warn': p.payment_rate != null && p.payment_rate < 0.5 }">{{ percent(p.payment_rate) }}</b>
                 </div>
                 <div class="jc-small jc-muted mt-8">市场 {{ p.market_owner_name || '—' }} · 项目经理 {{ p.owner_name || '—' }}</div>
-                <el-button v-if="p.is_key && auth.can('project:key')" size="small" link @click.stop="togglePause(p)">{{ p.paused ? '恢复跟进' : '暂停跟进' }}</el-button>
+                <KeyProjectPauseButton :project="p" compact @changed="load" />
               </div>
             </div>
             <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="auth.can('project:key')&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
@@ -139,6 +139,7 @@ import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
+import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
 const auth = useAuth()
@@ -169,13 +170,6 @@ function closeMenu() {
   menu.open = false
   menuTrigger?.focus()
 }
-async function togglePause(project) {
-  try {
-    await api.put('/market/projects/' + project.project_code + '/pause', { paused: !project.paused })
-    ElMessage.success(project.paused ? '已恢复跟进' : '已暂停跟进'); load()
-  } catch {}
-}
-
 async function load() {
   loading.value = true
   try {

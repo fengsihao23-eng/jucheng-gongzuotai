@@ -3,7 +3,7 @@ from datetime import date
 from urllib.parse import quote
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, conflict, forbidden, not_found, ok
 from app.core.storage import file_brief, save_bytes
 from app.models import PROJECT_STATUS, BizOpportunity, BizProject, BizProjectMilestone, SysUser
+from app.services import key_projects, notify_service
 from app.services import project_service as ps
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -65,7 +66,8 @@ class ProjectIn(BaseModel):
 
 
 @router.post("")
-def create_project(body: ProjectIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
+def create_project(body: ProjectIn, request: Request, background: BackgroundTasks,
+                   p: Principal = Menu, db: Session = Depends(get_db)):
     if not (p.is_admin or p.can("milestone:write") or p.can("project:key")):
         raise forbidden("无新建项目权限")
     data = body.model_dump()
@@ -94,7 +96,10 @@ def create_project(body: ProjectIn, request: Request, p: Principal = Menu, db: S
         log_op(db, p.id, "project.link_opportunity", "biz_project", proj.project_code,
                after={"opportunity_id": source.id}, ip=client_ip(request))
     log_op(db, p.id, "project.create", "project", proj.project_code, after={"name": proj.name}, ip=client_ip(request))
+    notices = key_projects.queue_assignment(db, proj) if proj.is_key else []
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok({"project_code": proj.project_code, "id": proj.id})
 
 

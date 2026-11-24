@@ -10,10 +10,13 @@ from app.core.db import get_db
 from app.core.deps import Principal, require_menu
 from app.core.response import ok
 from app.core.timeutil import today
+from app.schemas.operations import Id, Input, Money, Name, Note
 from app.services import collection_service as service
+from app.services import sporadic_collections as sporadic
 
 router = APIRouter(prefix="/collections", tags=["回款台账"])
 Menu = Depends(require_menu("contracts", "receivables"))
+HEADERS = {"Cache-Control": "no-store"}
 
 
 @router.get("/monthly-receipts")
@@ -65,6 +68,52 @@ def collection_board(year: int | None = Query(None, ge=2000, le=2099), basis: Li
         })
     return ok(service.board(db, p, year=year or today().year, basis=basis, bucket=bucket, keyword=keyword,
                             owner_id=owner_id, state=state, page=page, size=size))
+
+
+class SporadicProjectIn(Input):
+    name: Name
+    customer: str = Field(default="", max_length=128)
+    owner_id: Id
+    expected_amount: Money | None = None
+    due_on: date | None = None
+    requirements: Note = ""
+
+
+class SporadicProjectEditIn(SporadicProjectIn):
+    expected_revision: int = Field(ge=1)
+
+
+@router.get("/sporadic")
+def sporadic_projects(keyword: str = Query("", max_length=100), page: int = Query(1, ge=1),
+                     size: int = Query(30, ge=1, le=100), p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(sporadic.listing(db, p, keyword=keyword, page=page, size=size), headers=HEADERS)
+
+
+@router.post("/summary")
+def collection_summary(p: Principal = Menu, db: Session = Depends(get_db)):
+    from app.services import collection_summary as summary
+
+    return ok(summary.build(db, p), headers=HEADERS)
+
+
+@router.get("/sporadic/options")
+def sporadic_options(p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok({"owners": sporadic.options(db, p)}, headers=HEADERS)
+
+
+@router.post("/sporadic")
+def create_sporadic_project(body: SporadicProjectIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = sporadic.save(db, p, body)
+    db.commit()
+    return ok(result, headers=HEADERS)
+
+
+@router.put("/sporadic/{project_id}")
+def edit_sporadic_project(project_id: Id, body: SporadicProjectEditIn,
+                          p: Principal = Menu, db: Session = Depends(get_db)):
+    result = sporadic.save(db, p, body, project_id)
+    db.commit()
+    return ok(result, headers=HEADERS)
 
 
 class FollowupIn(BaseModel):

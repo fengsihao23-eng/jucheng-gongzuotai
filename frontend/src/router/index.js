@@ -12,6 +12,7 @@ const pages = [
   { path: 'contracts/items/:sheet/:row', name: 'performance-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { menu: 'contracts', workbookView: 'contracts', title: '项目详情' } },
   { path: 'contracts/:id', name: 'contract-detail', component: () => import('@/views/ContractDetail.vue'), meta: { menu: 'contracts', title: '合同详情' } },
   { path: 'collections', name: 'collections', component: () => import('@/views/CollectionWorkbook.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '回款情况' } },
+  { path: 'collections/sporadic', name: 'sporadic-collections', component: () => import('@/views/SporadicCollections.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '零星回款' } },
   { path: 'collections/items/:sheet/:row', name: 'collection-contract-detail', component: () => import('@/views/PerformanceContractDetail.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目详情' } },
   { path: 'collections/items/:sheet/:row/report', name: 'collection-project-report', component: () => import('@/views/CollectionProjectReport.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '项目回款报告' } },
   { path: 'collections/items/:sheet/:row/execution', name: 'collection-execution', component: () => import('@/views/CollectionExecution.vue'), meta: { anyMenu: ['contracts', 'receivables'], workbookView: 'collections', title: '回款执行情况' } },
