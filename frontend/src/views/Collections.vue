@@ -113,7 +113,7 @@ import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 
 const auth = useAuth(), route = useRoute(), router = useRouter()
-const paymentMenu = rowDeletion(row => (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+const paymentMenu = rowDeletion(row => auth.canDelete('contracts:write', 'receivables:correct') &&
   recordRemoval('contract-payment', row.id, row.contract_name || row.contract_no, () => loadMonth(),
     { title: '删除合同回款', description: '确认删除这笔回款？删除后会重算合同已收金额和各期未收余额。' }))
 const view = ref(route.query.contract || route.query.basis === 'unpaid' ? 'unpaid' : 'month'), monthly = ref(null), monthPage = ref(1)

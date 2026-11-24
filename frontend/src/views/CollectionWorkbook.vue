@@ -234,7 +234,7 @@ import { datetime } from '@/utils/format'
 const LegacyCollections = defineAsyncComponent(() => import('./Collections.vue'))
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const planMenu = rowDeletion(row =>
-  ['contracts:write', 'collections:request', 'receivables:correct'].some(button => auth.can(button)) &&
+  auth.canDelete('contracts:write', 'collections:request', 'receivables:correct') &&
   recordRemoval('workbook-collections', row.row, row.name, async () => {
     await load()
     if (periodOpen.value) await loadPeriod()
@@ -242,7 +242,7 @@ const planMenu = rowDeletion(row =>
     query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台回款项目',
     description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
   }))
-const receiptMenu = rowDeletion(row => row.deletion_key && (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+const receiptMenu = rowDeletion(row => row.deletion_key && auth.canDelete('contracts:write', 'receivables:correct') &&
   recordRemoval('workbook-receipt', row.id, row.name, () => load(), {
     query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台到账记录',
     description: `确认从工作台移除「${row.name}」的这笔到账？工作台汇总会重新计算，企微原表保留供核对。`,

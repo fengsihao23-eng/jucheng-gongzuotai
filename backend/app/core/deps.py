@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.permissions import MENUS, PUBLIC_MENUS, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
+from app.core.permissions import MENUS, PUBLIC_MENUS, RECORD_DELETE_BUTTON, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
 from app.core.response import BizError, forbidden
 from app.core.security import decode_jwt, password_version
 from app.models import SysUser
@@ -46,6 +46,13 @@ class Principal:
 
     def can(self, button: str) -> bool:
         return self.workbench_enabled and ("*" in self.buttons or button in self.buttons)
+
+    @property
+    def has_delete_grant(self) -> bool:
+        return self.workbench_enabled and RECORD_DELETE_BUTTON in self.buttons
+
+    def can_delete(self, *buttons: str) -> bool:
+        return self.has_delete_grant or any(self.can(button) for button in buttons)
 
     def has_menu(self, menu: str) -> bool:
         if menu == "admin":

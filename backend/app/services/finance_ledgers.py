@@ -329,7 +329,7 @@ def can_remove(principal, kind, owner_id):
         return False
     if principal.id == owner_id and f.can_import(principal, kind):
         return True
-    if principal.is_admin:
+    if principal.is_admin or principal.has_delete_grant:
         return True
     if f.LEDGERS[kind].menu == "receivables":
         return principal.can("receivables:correct")

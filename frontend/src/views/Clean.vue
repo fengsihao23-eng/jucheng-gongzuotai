@@ -373,7 +373,7 @@ onMounted(async () => {
   }
 })
 
-const cleanMenu = rowDeletion(row => auth.can('clean:import') && recordRemoval('clean', row.id, row.filename, loadHistory, { title: '删除清洗记录' }))
+const cleanMenu = rowDeletion(row => auth.canDelete('clean:import') && recordRemoval('clean', row.id, row.filename, loadHistory, { title: '删除清洗记录' }))
 </script>
 
 <style scoped>

@@ -86,7 +86,8 @@ def doc(doc_id: int, p: Principal = Depends(menu), db: Session = Depends(get_db)
 
 @router.delete("/docs/{doc_id}")
 def delete_doc(doc_id: int, body: DeletionIn, p: Principal = Depends(menu), db: Session = Depends(get_db)):
-    _writer(p)
+    if not p.can_delete("tender:write"):
+        raise forbidden("无权删除标书资料")
     verify_deletion(db, body)
     d = ts.doc_or_404(db, doc_id)
     used = db.scalar(select(ProdBidCheck.id).where((ProdBidCheck.tender_doc_id == d.id) | (ProdBidCheck.bid_doc_id == d.id)))

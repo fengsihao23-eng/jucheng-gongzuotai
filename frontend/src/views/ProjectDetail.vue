@@ -247,7 +247,7 @@ async function move(m, direction) {
   d.value.milestones = await api.post(`/projects/${code}/milestones/${m.id}/move`, { direction })
   load()
 }
-const nodeRemoval = row => d.value?.can_edit && {
+const nodeRemoval = row => (d.value?.can_edit || auth.hasDeleteGrant) && {
   endpoint: `/projects/${code}/milestones/${row.id}`, name: row.node_name, title: '删除节点', onDeleted: load,
 }
 const remove = row => deleteRecord(nodeRemoval(row))

@@ -178,6 +178,7 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -186,6 +187,8 @@ import dayjs from 'dayjs'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { baseGrid, PALETTE } from '@/utils/chart'
+
+const removalAuth = useAuth()
 
 const route = useRoute()
 const tab = ref(route.query.tab === 'analysis' ? 'analysis' : 'tickets')
@@ -343,8 +346,8 @@ onMounted(async () => {
   if (tab.value === 'analysis') loadAttr()
 })
 
-const ticketMenu = rowDeletion(row => meta.value.can_write && recordRemoval('ticket', row.id, row.ticket_no || row.customer_name, async () => { await load(); await loadKpi() }, { title: '删除工单' }))
-const serviceReportMenu = rowDeletion(row => meta.value.can_write && recordRemoval('service-report', row.id, row.title, loadAttr, { title: '删除归因报告' }))
+const ticketMenu = rowDeletion(row => removalAuth.canDelete('ticket:write') && recordRemoval('ticket', row.id, row.ticket_no || row.customer_name, async () => { await load(); await loadKpi() }, { title: '删除工单' }))
+const serviceReportMenu = rowDeletion(row => removalAuth.canDelete('ticket:write') && recordRemoval('service-report', row.id, row.title, loadAttr, { title: '删除归因报告' }))
 </script>
 
 <style scoped>

@@ -142,7 +142,7 @@ const endpoint = '/business-workbook/tender'
 const categories = [{ key: 'tender', label: '招标项目' }, { key: 'pending', label: '在建项目' }]
 const rowSize = 100, perPage = 24
 const route = useRoute(), router = useRouter(), auth = useAuth()
-const sourceMenu = rowDeletion(row => (auth.can('project:key') || auth.can('milestone:write')) &&
+const sourceMenu = rowDeletion(row => auth.canDelete('project:key', 'milestone:write') &&
   recordRemoval('workbook-tender', row.group, row.name, () => load(), {
     query: { sheet: data.value?.sheet.id, revision: data.value?.source.revision }, title: '删除工作台项目',
     description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,

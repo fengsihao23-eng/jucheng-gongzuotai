@@ -237,7 +237,7 @@ import { datetime, percent } from '@/utils/format'
 
 const route = useRoute(), router = useRouter()
 const auth = useAuth()
-const sourceMenu = rowDeletion(row => auth.can('contracts:write') && recordRemoval('workbook-contracts', row.row, row.name, () => load(), {
+const sourceMenu = rowDeletion(row => auth.canDelete('contracts:write') && recordRemoval('workbook-contracts', row.row, row.name, () => load(), {
   query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台合同记录',
   description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
 }))

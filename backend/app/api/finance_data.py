@@ -270,7 +270,8 @@ def cost_update(cost_id: int, body: CostBody, request: Request, p: Principal = M
 
 @router.delete("/costs/{cost_id}")
 def cost_delete(cost_id: int, body: DeletionIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
-    _need(p, "cost:write")
+    if not p.can_delete("cost:write"):
+        raise forbidden("无权删除成本登记")
     verify_deletion(db, body)
     c = get_or_404(db, BizProjectCost, cost_id, "项目成本")
     _historical_cost_guard(db, c.id)

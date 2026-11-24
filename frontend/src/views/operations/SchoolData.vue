@@ -123,6 +123,7 @@
   </div>
 </template>
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -133,10 +134,12 @@ import OutreachGoals from './OutreachGoals.vue'
 import IncomeOverview from './IncomeOverview.vue'
 import { money, datetime } from '@/utils/format'
 import { STAGES, POTENTIAL, TASK_STATUS, unitPrice, announceChange } from './shared'
+const removalAuth = useAuth()
+
 const props = defineProps({ project: Object, mode: { type: String, default: 'directory' } }), emit = defineEmits(['saved', 'open-task', 'assign-school'])
 const labels = { directory: '查看档案', procurement: '查看采购', income: '查看收入', outreach: '查看跟进' }
 const can = section => (props.project.visible_sections || []).includes(section)
-const localMenu = (kind, title, name) => rowDeletion(row => props.project.can_manage &&
+const localMenu = (kind, title, name) => rowDeletion(row => (props.project.can_manage || removalAuth.hasDeleteGrant) &&
   recordRemoval(kind, row.id, name(row), () => emit('saved'), { title }))
 const equipmentMenu = localMenu('operation-equipment', '删除设备登记', row => row.product_name)
 const incomeMenu = localMenu('operation-income', '删除学校收入', row => row.income_date)

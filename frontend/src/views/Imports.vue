@@ -188,7 +188,7 @@ const tone = (row) => TONE[row.stage] || ''
 const TARGETS = [{ key: 'contract', name: '合同台账' }, { key: 'opportunity', name: '商机信息表' }, { key: 'payment', name: '回款登记' }, { key: 'project', name: '项目建档' }]
 
 const auth = useAuth()
-const importRemoval = row => (row.uploader_id === auth.profile?.id || row.actions?.includes('withdraw') || auth.can('imports:handle')) &&
+const importRemoval = row => (auth.hasDeleteGrant || row.uploader_id === auth.profile?.id || row.actions?.includes('withdraw') || auth.can('imports:handle')) &&
   recordRemoval('import', row.id, row.filename, load, { title: '删除导入记录' })
 const importMenu = rowDeletion(importRemoval)
 const route = useRoute()

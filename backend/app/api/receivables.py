@@ -178,7 +178,9 @@ def allocate(ident: int, body: f.Allocations, p: Principal = ReceiptWrite, db: S
 
 
 @router.post("/receipts/{ident}/void")
-def void(ident: int, body: f.Void, p: Principal = Correct, db: Session = DB):
+def void(ident: int, body: f.Void, p: Principal = Viewer, db: Session = DB):
+    if not p.can_delete("receivables:correct"):
+        raise forbidden()
     verify_deletion(db, body)
     svc.lock(db)
     row = svc.get(db, FinReceipt, ident, "到账记录")

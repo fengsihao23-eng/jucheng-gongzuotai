@@ -267,13 +267,13 @@ import { FLOW_MATCH, datetime, money, time } from '@/utils/format'
 const auth = useAuth()
 const route = useRoute()
 const can = (b) => auth.can(b)
-const flowRemoval = row => (can('flows:import') || can('flows:match')) &&
+const flowRemoval = row => auth.canDelete('flows:import', 'flows:match') &&
   recordRemoval('bank-flow', row.id, row.counterparty || row.summary || '银行流水', async () => {
     if (cur.value?.id === row.id) cur.value = null
     await Promise.all([loadWb(), loadList()])
   }, { title: '删除银行流水' })
 const flowMenu = rowDeletion(flowRemoval)
-const bankImportMenu = rowDeletion(row => can('flows:import') && recordRemoval('bank-import', row.id, row.filename,
+const bankImportMenu = rowDeletion(row => auth.canDelete('flows:import') && recordRemoval('bank-import', row.id, row.filename,
   () => loadImports(), { title: '删除流水导入记录', description: `确认移除「${row.filename}」的导入记录？银行流水可在流水核对中逐笔处理。` }))
 const SOURCE = { upload: '上传', auto_dir: '目录自动', mcp: 'WorkBuddy' }
 const tab = ref('workbench')

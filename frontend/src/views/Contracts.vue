@@ -94,6 +94,7 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -102,6 +103,8 @@ import ContractWorkbook from '@/components/ContractWorkbook.vue'
 import ContractReconciliation from '@/components/ContractReconciliation.vue'
 import { BUSINESS_LINES, CONTRACT_STATUS, money, percent, wan } from '@/utils/format'
 import ContractForm from './contract-form.vue'
+
+const removalAuth = useAuth()
 
 const SOURCES = { 1: '企微审批', 2: '人工录入', 3: 'Excel 导入', 4: '企微表格同步' }
 const REGIONS = ['市直', '江城', '阳春', '阳东', '阳西', '海陵湾', '待定']
@@ -190,7 +193,7 @@ onMounted(async () => {
   if (route.query.new) openNew()
 })
 
-const contractMenu = rowDeletion(row => perms.value.can_write && recordRemoval('contract', row.id, row.name || row.contract_no, () => load(true), { title: '删除合同' }))
+const contractMenu = rowDeletion(row => removalAuth.canDelete('contracts:write') && recordRemoval('contract', row.id, row.name || row.contract_no, () => load(true), { title: '删除合同' }))
 </script>
 
 <style scoped>

@@ -148,7 +148,7 @@ const savedMeta = ref(null)
 const history = ref([])
 let seq = 0
 const reportMenu = rowDeletion(row => (row.author_id === auth.profile?.id ||
-  ['collections:request', 'contracts:write', 'receivables:correct'].some(button => auth.can(button))) &&
+  auth.canDelete('collections:request', 'contracts:write', 'receivables:correct')) &&
   recordRemoval('collection-report', row.id, row.title, () => {
     if (savedMeta.value?.id === row.id) {
       savedMeta.value = null

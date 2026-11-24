@@ -221,6 +221,8 @@ def can_view(db: Session, viewer, d: KbDocument) -> bool:
 def can_remove_document(db, viewer, document):
     if viewer is None:
         return False
+    if viewer.has_delete_grant:
+        return can_view(db, viewer, document)
     if document.status in ("pending", "rejected"):
         return document.uploader_id == viewer.id or _is_manager(viewer)
     return can_review(db, viewer, document.category)
@@ -640,8 +642,9 @@ def list_documents(db: Session, category: str | list[str] | None = None, keyword
         rows = [d for d in rows if d.category in ok_cats]
     names = _names(db, (d.uploader_id for d in rows))
     reviewers = {category for category in {d.category for d in rows} if can_review(db, viewer, category)}
-    return [{**_doc_brief(d, names), "can_delete": (d.uploader_id == viewer.id or _is_manager(viewer))
-             if viewer is not None and d.status in ("pending", "rejected") else d.category in reviewers}
+    return [{**_doc_brief(d, names), "can_delete": (bool(viewer and viewer.has_delete_grant) or
+             ((d.uploader_id == viewer.id or _is_manager(viewer)) if viewer is not None and
+              d.status in ("pending", "rejected") else d.category in reviewers))}
             for d in rows]
 
 

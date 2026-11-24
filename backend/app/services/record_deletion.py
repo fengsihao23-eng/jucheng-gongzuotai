@@ -70,7 +70,7 @@ WORKBOOK_PERMISSIONS = {
 
 
 def _need(p, *permissions):
-    if not any(p.can(permission) for permission in permissions):
+    if not p.can_delete(*permissions):
         raise forbidden("无权删除此记录")
 
 
@@ -135,13 +135,14 @@ def _project_record(db, p, kind, ident, ip):
     elif kind == "operation-import":
         section = "income" if row.kind == "income" else "procurement"
     operations_scope.require(db, p, project, section)
-    if kind == "operation-competitor":
-        if not operations_competitors._can_edit(db, p, project):
-            raise forbidden("仅本项目有编辑权限的团队成员可删除对手信息")
-    elif kind == "maintenance" and row.owner_id == p.id and operations_service.role(db, p, project) in operations_service.EXECUTION_ROLES:
-        operations_service.active(project)
-    else:
-        operations_service.manage(db, p, project)
+    if not p.has_delete_grant or kind == "operation-goal":
+        if kind == "operation-competitor":
+            if not operations_competitors._can_edit(db, p, project):
+                raise forbidden("仅本项目有编辑权限的团队成员可删除对手信息")
+        elif kind == "maintenance" and row.owner_id == p.id and operations_service.role(db, p, project) in operations_service.EXECUTION_ROLES:
+            operations_service.active(project)
+        else:
+            operations_service.manage(db, p, project)
     _check_dependencies(db, row)
     if kind == "operation-goal":
         current = db.get(m.OpsTaskPolicy, row.task_id)
@@ -193,7 +194,11 @@ def _delete_project(db, p, ident, ip):
         key_projects.delete_project(db, p, project.project_code)
         return
     row = _row(db, m.BizProject, m.BizProject.id == project.id, "项目")
-    project_service.ensure_edit(db, p, row)
+    if p.has_delete_grant:
+        if not project_service.can_view(db, p, row):
+            raise forbidden("无权查看该项目")
+    else:
+        project_service.ensure_edit(db, p, row)
     if row.is_deleted:
         raise not_found("项目")
     row.is_deleted = True
@@ -207,7 +212,7 @@ def _delete_key_task(db, p, ident, ip):
     if not item:
         raise not_found("重点项目任务")
     project = key_projects.project(db, p, item.project_id, lock=True)
-    if not key_projects.can_manage(p, project):
+    if not (p.has_delete_grant or key_projects.can_manage(p, project)):
         raise forbidden("无权删除该项目的任务")
     row = _row(db, m.BizProjectMilestone, m.BizProjectMilestone.id == item.id, "重点项目任务")
     _mark(db, p, row, row.node_name, ip)
@@ -280,7 +285,7 @@ def _delete_other(db, p, kind, ident, ip):
         from app.services import sporadic_collections
 
         records.menu(p, "contracts", "receivables")
-        if not collection_service.can_request(p):
+        if not (p.has_delete_grant or collection_service.can_request(p)):
             raise forbidden("无权删除零星回款")
         row = sporadic_collections.get_project(db, p, records.number(ident), lock=True)
         _mark(db, p, row, row.name, ip)
@@ -290,7 +295,7 @@ def _delete_other(db, p, kind, ident, ip):
         row = _by_id(db, m.WorkbookCollectionReport, ident, "回款报告")
         if not workbook or row.workbook_id != workbook.id:
             raise not_found("回款报告")
-        if row.author_id != p.id and not collection_service.can_request(p):
+        if row.author_id != p.id and not (p.has_delete_grant or collection_service.can_request(p)):
             raise forbidden("无权删除此回款报告")
         _mark(db, p, row, row.title, ip)
         return
@@ -299,14 +304,14 @@ def _delete_other(db, p, kind, ident, ip):
 
         records.menu(p, "contracts", "receivables")
         row = collection_followups._get(db, p, records.number(ident), lock=True)
-        if row.author_id != p.id and not collection_service.can_request(p):
+        if row.author_id != p.id and not (p.has_delete_grant or collection_service.can_request(p)):
             raise forbidden("只有跟进发起人或获授权的管理人员可删除")
         _mark(db, p, row, row.contract_name, ip)
         return
     if kind == "ops-digest":
         item = records.resolve(db, p, kind, {"id": ident})
         row = _by_id(db, m.OpsDigestSnapshot, ident, "运营报告")
-        if not item.manager and row.generated_by != p.id:
+        if not (p.has_delete_grant or item.manager or row.generated_by == p.id):
             raise forbidden("仅报告作者或项目管理员可删除")
         _mark(db, p, row, item.title, ip)
         return

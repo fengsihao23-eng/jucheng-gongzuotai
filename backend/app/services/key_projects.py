@@ -27,6 +27,10 @@ def can_create(p):
     return p.is_admin or p.can("project:key")
 
 
+def can_delete(p):
+    return p.has_delete_grant or can_create(p)
+
+
 def can_manage(p, project):
     return can_create(p) or ps.can_edit(p, project)
 
@@ -106,7 +110,7 @@ def save_project(db, p, body, code=None):
 
 
 def delete_project(db, p, code):
-    if not can_create(p):
+    if not can_delete(p):
         raise forbidden("无删除重点项目权限")
     row = project(db, p, code, lock=True)
     fields = [*PROJECT_FIELDS, "is_deleted"]
@@ -307,7 +311,8 @@ def detail(db, p, code, period=""):
     tasks = [task_data(db, p, row, m) for m in row.milestones]
     fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id).order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50))
     return {**ps.project_brief(db, row), "content": row.remark or "", "revision": project_revision(row), "today": today(),
-            "paused": bool(paused and paused.paused), "can_manage": can_manage(p, row), "can_pause": can_pause(p), "tasks": tasks,
+            "paused": bool(paused and paused.paused), "can_manage": can_manage(p, row), "can_delete": can_delete(p),
+            "can_pause": can_pause(p), "tasks": tasks,
             "feedbacks": [ps.feedback_dict(f) for f in fbs], "money": ps.contract_detail(db, row.project_code),
             "financials": financials(db, row, period)}
 

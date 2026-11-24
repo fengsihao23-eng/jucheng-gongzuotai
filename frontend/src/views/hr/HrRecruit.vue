@@ -121,7 +121,7 @@ import { PALETTE } from '@/utils/chart'
 
 const auth = useAuth()
 const canWrite = computed(() => auth.can('hr:write'))
-const candidateRemoval = row => canWrite.value && recordRemoval('hr-candidate', row.id, row.name, () => {
+const candidateRemoval = row => auth.canDelete('hr:write') && recordRemoval('hr-candidate', row.id, row.name, () => {
   if (scRes.value) scRes.value.candidates = scRes.value.candidates.filter(candidate => candidate.id !== row.id)
   return load()
 }, { title: '删除候选人' })

@@ -42,7 +42,7 @@
             <el-button :type="todoFilter === 'pending_replies' ? 'primary' : 'default'" @click="todoFilter = todoFilter === 'pending_replies' ? 'all' : 'pending_replies'">待我回复（{{ data.todos.filter(t => t.pending_replies).length }}）</el-button>
             <el-checkbox v-if="!['delay_review', 'pending_replies'].includes(todoFilter)" v-model="mine">只看我负责的</el-checkbox>
           </div>
-          <el-table :data="todos" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-click="openTask">
+          <el-table :data="todos" :row-class-name="({ row }) => row.overdue ? 'is-alert' : ''" @row-click="openTask" @row-contextmenu="taskMenu">
             <el-table-column label="任务 / 项目" min-width="260"><template #default="{ row }"><b>{{ row.title }}</b><div class="jc-small jc-muted">{{ row.project_name }}{{ row.school_name ? ` · ${row.school_name}` : '' }}</div></template></el-table-column>
             <el-table-column prop="owner_name" label="负责人" width="110" />
             <el-table-column prop="due_date" label="截止日期" width="120" />
@@ -67,6 +67,7 @@
 </template>
 
 <script setup>
+import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api/client'
@@ -82,6 +83,7 @@ import { PROJECT_STATUS, TASK_STATUS, completionLabel, deadlineTone, tone } from
 const router = useRouter(), route = useRoute(), auth = useAuth(), loading = ref(false), createOpen = ref(false), tab = ref('projects')
 const query = reactive({ keyword: '', category: '', key_only: false }), categories = ref([])
 const data = reactive({ items: [], todos: [], delay_review_inbox: [], can_create: false, can_delete: false })
+const taskMenu = rowDeletion(row => row.can_archive && recordRemoval('operation-task', row.id, row.title, () => load(), { title: '删除任务' }))
 const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = ref(false)
 const editProject = ref(null), editingTask = ref(null), editOpen = ref(false), popupPaused = ref(false)
 const selectedTask = computed(() => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined)

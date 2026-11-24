@@ -241,12 +241,15 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api, { openFile } from '@/api/client'
 import { date, datetime } from '@/utils/format'
+
+const removalAuth = useAuth()
 
 const EV = { tender: '需求书', bid: '投标文件', lexiang: '知识库', material: '投喂资料', local: '工作台' }
 const ENGINE = { rule: '规则引擎', llm: '大模型', 'llm+rule': '大模型 + 规则' }
@@ -371,9 +374,9 @@ onMounted(async () => {
   if (tab.value === 'lib') lib.value = await api.get('/tender/library')
 })
 
-const tenderDocMenu = rowDeletion(row => meta.value.can_write && { endpoint: '/tender/docs/' + row.id, name: row.title, title: '删除标书资料', onDeleted: loadDocs })
-const tenderCheckMenu = rowDeletion(row => meta.value.can_write && recordRemoval('tender-check', row.id, row.title || '合规检查', loadChecks, { title: '删除合规检查' }))
-const tenderGenerationMenu = rowDeletion(row => meta.value.can_write && recordRemoval('tender-generation', row.id, row.title || '生成方案', loadGens, { title: '删除方案' }))
+const tenderDocMenu = rowDeletion(row => removalAuth.canDelete('tender:write') && { endpoint: '/tender/docs/' + row.id, name: row.title, title: '删除标书资料', onDeleted: loadDocs })
+const tenderCheckMenu = rowDeletion(row => removalAuth.canDelete('tender:write') && recordRemoval('tender-check', row.id, row.title || '合规检查', loadChecks, { title: '删除合规检查' }))
+const tenderGenerationMenu = rowDeletion(row => removalAuth.canDelete('tender:write') && recordRemoval('tender-generation', row.id, row.title || '生成方案', loadGens, { title: '删除方案' }))
 </script>
 
 <style scoped>

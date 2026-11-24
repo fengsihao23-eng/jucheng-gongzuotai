@@ -47,7 +47,7 @@ const states = { pending: '待回复', replied: '已回复', cancelled: '已撤�
 const history = ref(null), recipient = ref(null), content = ref(''), error = ref(''), loading = ref(false), saving = ref(false)
 const endpoint = computed(() => `/business-workbook/collections/items/${encodeURIComponent(props.sheet)}/${props.row}/followups`)
 let generation = 0
-const followupRemoval = row => (history.value?.can_request || row.author_id === auth.profile?.id) &&
+const followupRemoval = row => (auth.hasDeleteGrant || history.value?.can_request || row.author_id === auth.profile?.id) &&
   recordRemoval('collection-thread', row.id, '回款跟进要求', async () => { await load(); emit('changed') },
     { title: '删除回款跟进' })
 async function load() {

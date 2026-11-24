@@ -123,7 +123,7 @@ async function open(row) {
 onMounted(load)
 
 const deletionAuth = useAuth()
-const approvalMenu = rowDeletion(row => deletionAuth.can('contracts:write') && recordRemoval('approval', row.sp_no, row.sp_name || row.sp_no, load, { title: '删除审批记录' }))
+const approvalMenu = rowDeletion(row => deletionAuth.canDelete('contracts:write') && recordRemoval('approval', row.sp_no, row.sp_name || row.sp_no, load, { title: '删除审批记录' }))
 </script>
 
 <style scoped>

@@ -229,8 +229,8 @@ import { baseGrid, wanAxis, wanTooltip } from '@/utils/chart'
 
 const auth = useAuth()
 const canSync = computed(() => auth.can('finance:sync'))
-const lemonMenu = rowDeletion(row => canSync.value && recordRemoval('finance-batch', row.id, row.batch_no, loadBatches, { title: '删除财务同步记录' }))
-const taxMenu = rowDeletion(row => auth.can('tax:upload') && recordRemoval('tax', row.id, row.tax_type, loadTax, { title: '删除税务资料' }))
+const lemonMenu = rowDeletion(row => auth.canDelete('finance:sync') && recordRemoval('finance-batch', row.id, row.batch_no, loadBatches, { title: '删除财务同步记录' }))
+const taxMenu = rowDeletion(row => auth.canDelete('tax:upload') && recordRemoval('tax', row.id, row.tax_type, loadTax, { title: '删除税务资料' }))
 const REC = { pass: '通过', diff: '有差异', pending: '待对账', error: '解析失败' }
 const REC_TONE = { pass: 'up', diff: 'warn', error: 'down' }
 const CONS = { pass: '一致', diff: '不一致', no_file: '无文件批次' }
@@ -335,7 +335,7 @@ async function saveCost() {
     ElMessage.success('已保存'); cost.open = false; loadCosts()
   } finally { cost.saving = false }
 }
-const costRemoval = row => costs.value.can_write && !row.bank_flow_id && {
+const costRemoval = row => auth.canDelete('cost:write') && !row.bank_flow_id && {
   endpoint: `/finance-data/costs/${row.id}`, name: row.summary || row.project_code, title: '删除成本登记', onDeleted: () => loadCosts(),
 }
 const costMenu = rowDeletion(costRemoval)

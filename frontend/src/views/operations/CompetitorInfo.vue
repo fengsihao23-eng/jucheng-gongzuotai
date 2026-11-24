@@ -49,6 +49,7 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -56,8 +57,10 @@ import api from '@/api/client'
 import { announceBusinessChange, useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
 
+const removalAuth = useAuth()
+
 const props = defineProps({ projectId: { type: Number, required: true }, active: Boolean })
-const competitorRemoval = row => data.value?.can_edit && recordRemoval('operation-competitor', row.id, row.name, () => load(), { title: '删除对手信息' })
+const competitorRemoval = row => (data.value?.can_edit || removalAuth.hasDeleteGrant) && recordRemoval('operation-competitor', row.id, row.name, () => load(), { title: '删除对手信息' })
 const endpoint = computed(() => `/operations/${props.projectId}/competitors`)
 const data = ref(null)
 const loading = ref(false)

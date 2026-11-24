@@ -484,7 +484,7 @@ onMounted(async () => {
   if (/^\d+$/.test(String(route.query.detail || ''))) openDetail({ id: Number(route.query.detail) }).catch(() => {})
 })
 
-const opportunityMenu = rowDeletion(row => auth.can('opp:write') && recordRemoval('opportunity', row.id, row.name, load, { title: '删除商机' }))
+const opportunityMenu = rowDeletion(row => auth.canDelete('opp:write') && recordRemoval('opportunity', row.id, row.name, load, { title: '删除商机' }))
 </script>
 
 <style scoped>

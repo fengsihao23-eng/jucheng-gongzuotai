@@ -784,6 +784,7 @@ def project_detail(db, p, project_id):
         select(OpsImportBatch).where(OpsImportBatch.project_id == project.id, OpsImportBatch.kind.in_(
             (["income"] if can_income else []) + (["equipment"] if can_procurement else []))).order_by(OpsImportBatch.id.desc()))] if shared else []
     return {**project_dict(db, p, project),
+            "can_delete": can_delete_project(p),
             "can_configure": role(db, p, project) == "manager" and (is_superuser(p) or p.has_section("operations", "settings")),
             "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],

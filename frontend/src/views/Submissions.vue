@@ -95,6 +95,7 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -103,6 +104,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { baseGrid } from '@/utils/chart'
+
+const removalAuth = useAuth()
 
 const TYPE_OPTS = [{ label: '周报', value: 'weekly' }, { label: '月报', value: 'monthly' }, { label: '日报', value: 'daily' }]
 const route = useRoute()
@@ -183,7 +186,7 @@ const trendOption = computed(() => {
 })
 
 onMounted(load)
-const submissionMenu = rowDeletion(row => d.value?.can_remind && recordRemoval('submission', row.submission_id, row.name,
+const submissionMenu = rowDeletion(row => removalAuth.canDelete('submissions:remind') && recordRemoval('submission', row.submission_id, row.name,
   load, { title: '删除工作台汇报记录' }))
 </script>
 

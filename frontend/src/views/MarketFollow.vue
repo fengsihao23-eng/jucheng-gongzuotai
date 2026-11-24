@@ -243,7 +243,7 @@ onMounted(() => {
 })
 useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value && !menu.open && !deleteOpen.value })
 
-const marketReportMenu = rowDeletion(row => auth.can('report:generate') && recordRemoval('market-report', row.id, row.title, loadReports, { title: '删除市场报告' }))
+const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') && recordRemoval('market-report', row.id, row.title, loadReports, { title: '删除市场报告' }))
 </script>
 
 <style scoped>

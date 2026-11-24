@@ -66,7 +66,7 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
     can_pause = bool(p and key_projects.can_pause(p))
     for x in projects:
         b = ps.project_brief(db, x, T, money.get(x.project_code))
-        b["can_delete"] = bool(p and x.is_key and key_projects.can_create(p))
+        b["can_delete"] = bool(p and x.is_key and key_projects.can_delete(p))
         b["can_pause"] = can_pause and x.is_key
         f = latest.get(x.id)
         b["latest_feedback"] = ps.feedback_dict(f) if f else None

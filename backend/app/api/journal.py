@@ -102,7 +102,8 @@ def update(entry_id: int, body: EntryBody, request: Request, p: Principal = Menu
 
 @router.delete("/{entry_id}")
 def delete(entry_id: int, body: DeletionIn, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
-    _need(p)
+    if not p.can_delete("journal:write"):
+        raise forbidden("无权删除日记账记录")
     verify_deletion(db, body)
     j = _editable(db, entry_id)
     log_op(db, p.id, "journal.delete", "journal", j.id, snapshot(j, FIELDS), None, client_ip(request))

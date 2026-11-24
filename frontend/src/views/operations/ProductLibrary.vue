@@ -23,12 +23,15 @@
   </div>
 </template>
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import CampusProposal from './CampusProposal.vue'
 import { unitPrice, announceChange } from './shared'
+const removalAuth = useAuth()
+
 const props = defineProps({ project: Object }), emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), formRef = ref(), id = ref(null), form = reactive({})
 function edit(row) { id.value = row?.id || null; Object.assign(form, { name: row?.name || '', brand: row?.brand || '', model: row?.model || '', unit: row?.unit || '台', reference_price: row?.reference_price == null ? null : Number(row.reference_price), note: row?.note || '' }); visible.value = true }
@@ -38,6 +41,6 @@ async function save() {
   try { const base = `/operations/${props.project.id}/products`; if (id.value) await api.put(`${base}/${id.value}`, form); else await api.post(base, form); visible.value = false; ElMessage.success('产品已保存'); emit('saved'); announceChange() } catch {} finally { saving.value = false }
 }
 
-const productMenu = rowDeletion(row => props.project.can_manage && recordRemoval('operation-product', row.id, row.name, () => emit('saved'), { title: '删除设备产品' }))
+const productMenu = rowDeletion(row => (props.project.can_manage || removalAuth.hasDeleteGrant) && recordRemoval('operation-product', row.id, row.name, () => emit('saved'), { title: '删除设备产品' }))
 </script>
 <style scoped>.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } @media(max-width: 500px) { .two { grid-template-columns: 1fr; gap: 0; } }</style>

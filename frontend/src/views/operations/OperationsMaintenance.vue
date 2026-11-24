@@ -29,6 +29,7 @@
   </div>
 </template>
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -36,6 +37,8 @@ import api from '@/api/client'
 import { money, datetime } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { announceChange } from './shared'
+const removalAuth = useAuth()
+
 const props=defineProps({project:Object,active:Boolean,kind:String})
 const labels={device_maintenance:'设备运维',arrears:'欠费维护',collection_maintenance:'回款维护',customers:'客户资料维护'}, statuses={open:'待处理',processing:'处理中',done:'已完成'}
 const data=ref(null),keyword=ref(''),status=ref(''),loading=ref(false),saving=ref(false),opened=ref(false),formRef=ref(),form=reactive({}),history=ref([]),readOnly=ref(false)
@@ -51,7 +54,7 @@ async function save(){if(saving.value||!await formRef.value.validate().catch(()=
 watch(()=>[props.project.id,props.active,props.kind],()=>load(),{immediate:true})
 useBusinessRefresh(()=>load(true),{interval:12000,enabled:()=>props.active&&!opened.value})
 
-const maintenanceMenu = rowDeletion(row => (row.can_edit || data.value?.can_manage) && recordRemoval('maintenance', row.id, row.title, () => load(), { title: '删除维护记录' }))
+const maintenanceMenu = rowDeletion(row => (removalAuth.hasDeleteGrant || row.can_edit || data.value?.can_manage) && recordRemoval('maintenance', row.id, row.title, () => load(), { title: '删除维护记录' }))
 </script>
 <style scoped>
 .tools { display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px; }.tools h3 { margin:0; }.tools .el-input { width:240px; }.tools .el-select { width:130px; }.two { display:grid;grid-template-columns:1fr 1fr;gap:14px; }.el-form .el-select,.el-form .el-date-editor { width:100%; }.history article { border-top:1px solid var(--jc-line);padding:12px 0;white-space:pre-wrap;overflow-wrap:anywhere; }.history p { margin:5px 0; }:global(.ops-maintenance-dialog > .el-dialog__body) { max-height:70dvh;overflow:auto; }@media(max-width:560px) { .two { grid-template-columns:1fr;gap:0; }.tools .el-input { width:100%; } }

@@ -71,15 +71,18 @@
 </template>
 
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval } from '@/composables/useRecordDeletion'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import { BUSINESS_LINES, PROJECT_STATUS, date } from '@/utils/format'
 
+const removalAuth = useAuth()
+
 const loading = ref(false)
 const data = reactive({ items: [], total: 0, tags: [], candidates: [], can_write: false })
-const reviewRemoval = row => data.can_write && recordRemoval('review', row.id, row.title, load, { title: '删除复盘' })
+const reviewRemoval = row => removalAuth.canDelete('review:write') && recordRemoval('review', row.id, row.title, load, { title: '删除复盘' })
 const q = reactive({ keyword: '', tag: '', status: null, business_line: '' })
 
 async function load() {

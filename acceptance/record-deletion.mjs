@@ -107,6 +107,58 @@ try {
     await manager.getByText('暂无对手信息', { exact: true }).waitFor()
     assert.equal((await call('admin', 'GET', path + '/competitors')).items.length, 0)
   })
+
+  await step('DEL-04', '单独授予删除权限后，可从重点项目和零星回款右键删除', async () => {
+    const account = 'zhangzhenhua'
+    const { items } = await call('admin', 'GET', '/admin/users', { keyword: account })
+    const user = items.find(item => item.userid === account)
+    assert.ok(user)
+    const path = `/admin/users/${user.id}`
+    const original = await call('admin', 'GET', path + '/effective-permissions')
+    async function grant(permissions) {
+      const current = await call('admin', 'GET', path + '/effective-permissions')
+      return call('admin', 'PUT', path + '/permissions', {
+        role_codes: original.assigned_roles, expected_revision: current.permission_revision, permissions,
+      })
+    }
+    const testPermissions = { menus: ['market', 'projects', 'receivables'], buttons: [], data_scope: 'all' }
+    const name = '授权验收重点项目-' + suffix
+    const project = await call('admin', 'POST', '/market/projects', {
+      name, owner_id: profile.id, business_line: 'TD', preparation_on: '2026-11-24', due_on: '2026-11-30',
+    })
+    try {
+      await grant(testPermissions)
+      const reader = await loginPage(browser, account)
+      const card = reader.getByRole('button', { name: '查看重点项目：' + name, exact: true })
+      await reader.goto(WEB + '/market')
+      await card.click({ button: 'right' })
+      assert.equal(await reader.getByRole('menuitem', { name: '删除项目', exact: true }).count(), 0)
+
+      await grant({ ...testPermissions, buttons: ['record:delete'] })
+      await reader.reload()
+      await card.click({ button: 'right' })
+      await reader.getByRole('menuitem', { name: '删除项目', exact: true }).click()
+      let dialog = reader.getByRole('dialog', { name: '删除重点项目', exact: true })
+      await dialog.waitFor()
+      await capture(reader, '04-key-project-deletion-grant')
+      assert.equal(await reader.getByRole('button', { name: '新建重点项目', exact: true }).count(), 0)
+      await confirm(dialog, DELETE_PASSWORD)
+      await dialog.waitFor({ state: 'hidden' })
+      await card.waitFor({ state: 'hidden' })
+      assert.equal((await call(account, 'GET', '/market/projects/' + project.project_code, null, { raw: true })).status, 404)
+
+      const collectionName = '授权验收回款-' + suffix
+      await call('admin', 'POST', '/collections/sporadic', { name: collectionName, owner_id: profile.id })
+      await reader.goto(WEB + '/collections/sporadic')
+      const row = reader.getByText(collectionName, { exact: true })
+      dialog = await openRemoval(reader, row, '删除零星回款项目')
+      assert.equal(await reader.getByRole('button', { name: '登记零星回款' }).count(), 0)
+      await confirm(dialog, DELETE_PASSWORD)
+      await row.waitFor({ state: 'hidden' })
+    } finally {
+      await grant(original.individual_permissions)
+    }
+  })
 } finally {
   await browser.close()
 }

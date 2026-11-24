@@ -2,9 +2,10 @@
   <div class="jc-page" v-loading="loading">
     <el-button link @click="router.push(auth.hasMenu('market') ? '/market' : '/projects')">← 重点项目</el-button>
     <template v-if="project">
-      <PageHeader eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
+      <PageHeader v-record-delete="projectRemoval" eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="editTask(null)">安排任务</el-button>
         <KeyProjectPauseButton :project="project" @changed="load()" />
+        <el-button v-if="projectRemoval" plain type="danger" @click="deleteRecord(projectRemoval)">删除项目</el-button>
         <RecordFeedbackButton :target="{ kind: 'key-project', id: project.project_code }" :heading="project.name"
           progress-hint="说明关键事项、节点进展或需要协调的问题。" />
       </PageHeader>
@@ -31,7 +32,7 @@
   </div>
 </template>
 <script setup>
-import { recordRemoval } from '@/composables/useRecordDeletion'
+import { deleteRecord, recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -51,7 +52,11 @@ const taskOpen=computed({get:()=>Boolean(taskId.value)&&!taskForm.value,set:v=>{
 const tasks=computed(()=>(project.value?.tasks||[]).filter(t=>(filter.value==='done'?t.status===3:t.status!==3)&&(!attention.value||t.alert)&&`${t.title} ${t.owner_name}`.includes(search.value.trim())))
 let version=0
 async function load(quiet=false){const v=++version;if(!quiet&&!project.value)loading.value=true;try{const r=await api.get(`/market/projects/${route.params.code}`,{period:period.value},{silent:quiet});if(v===version)project.value=r}catch(e){if(v===version&&(!quiet||[40301,40401].includes(e.code)))project.value=null}finally{if(v===version)loading.value=false}}
-const taskRemoval = row => project.value?.can_manage && recordRemoval('key-task', row.id, row.title, () => load(), { title: '删除重点项目任务' })
+const taskRemoval = row => (project.value?.can_manage || auth.hasDeleteGrant) && recordRemoval('key-task', row.id, row.title, () => load(), { title: '删除重点项目任务' })
+const projectRemoval = computed(() => project.value?.can_delete && {
+  endpoint: '/market/projects/' + project.value.project_code, title: '删除重点项目', name: project.value.name,
+  onDeleted: () => router.push(auth.hasMenu('market') ? '/market' : '/projects'),
+})
 function openTask(id){router.replace({query:{...route.query,task:id}})}
 function editTask(t){editingTask.value=t;taskForm.value=true}
 async function savedTask(t){await load();openTask(t.id)}

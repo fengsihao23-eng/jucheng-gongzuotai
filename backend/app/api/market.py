@@ -75,7 +75,7 @@ def edit_key_project(project_code: str, body: KeyProjectEditIn, p: Principal = M
 
 
 @router.delete("/projects/{project_code}")
-def delete_key_project(project_code: str, body: DeletionIn, p: Principal = Market, db: Session = Depends(get_db)):
+def delete_key_project(project_code: str, body: DeletionIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
     verify_deletion(db, body)
     result = keys.delete_project(db, p, project_code)
     db.commit()
@@ -329,8 +329,8 @@ def update_intel(iid: int, body: IntelIn, request: Request, p: Principal = Intel
 
 @router.delete("/intel/{iid}")
 def delete_intel(iid: int, body: DeletionIn, request: Request, p: Principal = Intel, db: Session = Depends(get_db)):
-    if not p.can("intel:write"):
-        raise forbidden("无情报维护权限")
+    if not p.can_delete("intel:write"):
+        raise forbidden("无权删除竞品情报")
     verify_deletion(db, body)
     i = get_or_404(db, MktIntel, iid, "情报")
     log_op(db, p.id, "intel.delete", "intel", i.id, snapshot(i, INTEL_FIELDS), None, client_ip(request))

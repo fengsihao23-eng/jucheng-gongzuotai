@@ -141,7 +141,7 @@ import { datetime } from '@/utils/format'
 const ENDPOINT = '/business-workbook/opportunities'
 const queryKeys = ['keyword', 'status', 'owner', 'contact', 'start', 'end', 'sheet', 'year']
 const route = useRoute(), router = useRouter(), auth = useAuth()
-const opportunityMenu = rowDeletion(row => auth.can('opp:write') && recordRemoval('workbook-opportunities', row.row, row.name, () => load(), {
+const opportunityMenu = rowDeletion(row => auth.canDelete('opp:write') && recordRemoval('workbook-opportunities', row.row, row.name, () => load(), {
   query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台商机',
   description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
 }))

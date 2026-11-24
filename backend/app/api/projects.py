@@ -234,7 +234,7 @@ def edit_ms(code: str, mid: int, body: MilestoneIn, p: Principal = Menu, db: Ses
 
 @router.delete("/{code}/milestones/{mid}")
 def del_ms(code: str, mid: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    proj = _editable(db, code, p)
+    proj = ps.get_project(db, code, p) if p.has_delete_grant else _editable(db, code, p)
     verify_deletion(db, body)
     ps.delete_milestone(db, proj, _ms(db, proj, mid), p.id)
     db.commit()

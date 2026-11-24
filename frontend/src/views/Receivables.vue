@@ -149,9 +149,9 @@ import dayjs from 'dayjs'
 
 const auth = useAuth(), route = useRoute()
 const can = (key) => auth.can(`receivables:${key}`)
-const invoiceMenu = rowDeletion(row => can('correct') && recordRemoval('invoice', row.id, row.invoice_no || row.customer, refresh, { title: '删除发票记录' }))
+const invoiceMenu = rowDeletion(row => auth.canDelete('receivables:correct') && recordRemoval('invoice', row.id, row.invoice_no || row.customer, refresh, { title: '删除发票记录' }))
 const sourceMenu = rowDeletion(row => can('source') && recordRemoval('receivables-source', row.id, row.record_key, refresh, { title: '删除开票回款来源记录' }))
-const receiptMenu = rowDeletion(row => can('correct') && row.state === 'confirmed' &&
+const receiptMenu = rowDeletion(row => auth.canDelete('receivables:correct') && row.state === 'confirmed' &&
   { menuLabel: '删除到账', open: () => open('void', row) })
 const prefix = '/receivables'
 const kinds = { contract: '合同回款', unmatched: '待匹配收款', other: '其他收款' }

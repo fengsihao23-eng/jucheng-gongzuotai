@@ -76,7 +76,7 @@ import { useAuth } from '@/store/auth'
 const auth = useAuth()
 const router = useRouter()
 const canWrite = computed(() => auth.can('hr:write'))
-const alertMenu = rowDeletion(row => canWrite.value && recordRemoval('hr-alert', row.id, row.name, load, { title: '删除人事预警' }))
+const alertMenu = rowDeletion(row => auth.canDelete('hr:write') && recordRemoval('hr-alert', row.id, row.name, load, { title: '删除人事预警' }))
 const status = ref('pending')
 const items = ref([])
 const rule = ref({})

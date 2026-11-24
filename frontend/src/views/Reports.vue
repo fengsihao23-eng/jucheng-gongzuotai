@@ -365,7 +365,7 @@ onMounted(async () => {
   if (route.query.id) openDetail({ id: Number(route.query.id) })
 })
 
-const reportMenu = rowDeletion(row => auth.can('report:generate') && recordRemoval('report', row.id, row.title || '报表 V' + row.version, () => {
+const reportMenu = rowDeletion(row => auth.canDelete('report:generate') && recordRemoval('report', row.id, row.title || '报表 V' + row.version, () => {
   drawer.show = false
   for (const id of Object.keys(versions)) delete versions[id]
   return load()

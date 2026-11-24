@@ -19,18 +19,21 @@
   </section>
 </template>
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval } from '@/composables/useRecordDeletion'
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { datetime } from '@/utils/format'
 import { announceChange } from './shared'
+const removalAuth = useAuth()
+
 const props = defineProps({ project: Object, school: Object }), emit = defineEmits(['saved'])
 const items = ref([]), open = ref(false), saving = ref(false), target = ref('operating'), reason = ref('')
 const form = reactive({ occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null })
 const base = () => `/operations/${props.project.id}/schools/${props.school.id}`
 let request = 0
-const visitRemoval = row => props.project.can_manage && recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') }, { title: '删除学校跟进记录' })
+const visitRemoval = row => (props.project.can_manage || removalAuth.hasDeleteGrant) && recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') }, { title: '删除学校跟进记录' })
 async function load() { const version = ++request; try { const data = await api.get(base() + '/visits'); if (version === request) items.value = data.items } catch {} }
 watch(() => props.school.id, () => { open.value = false; reason.value = ''; Object.assign(form, { occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null }); load() }, { immediate: true })
 async function save() { saving.value = true; try { await api.post(base() + '/visits', form); open.value = false; form.content = ''; form.next_action = ''; form.next_contact_date = null; await load(); emit('saved'); announceChange(); ElMessage.success('跟进已保存') } catch {} finally { saving.value = false } }

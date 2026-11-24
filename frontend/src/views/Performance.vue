@@ -284,7 +284,7 @@ useBusinessRefresh(() => tab.value === 'board' ? loadBoard() : loadPerf())
 onMounted(() => (tab.value === 'board' ? loadBoard() : loadPerf()))
 
 const deletionAuth = useAuth()
-const performanceReportMenu = rowDeletion(row => deletionAuth.can('report:generate') && recordRemoval('performance-report', row.id, row.title, loadPerf, { title: '删除业绩报告' }))
+const performanceReportMenu = rowDeletion(row => deletionAuth.canDelete('report:generate') && recordRemoval('performance-report', row.id, row.title, loadPerf, { title: '删除业绩报告' }))
 </script>
 
 <style scoped>

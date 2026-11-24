@@ -212,7 +212,7 @@ load()
 useBusinessRefresh(() => load(true), { interval: 15000, enabled: () => !loading.value && !editorOpen.value })
 onBeforeUnmount(() => { version++ })
 
-const sporadicMenu = rowDeletion(row => data.value?.can_manage && recordRemoval('sporadic-collection', row.id, row.name, () => load(), { title: '删除零星回款项目' }))
+const sporadicMenu = rowDeletion(row => data.value?.can_delete && recordRemoval('sporadic-collection', row.id, row.name, () => load(), { title: '删除零星回款项目' }))
 </script>
 
 <style scoped>

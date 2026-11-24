@@ -37,9 +37,9 @@
         </el-table-column>
         <el-table-column label="重要度" width="80"><template #default="{ row }"><span :class="{ 'jc-down': row.importance === 3, 'jc-warn': row.importance === 2 }">{{ row.importance_text }}</span></template></el-table-column>
         <el-table-column prop="source_name" label="来源" width="110" />
-        <el-table-column v-if="canWrite" label="" width="110" align="right">
+        <el-table-column v-if="auth.canDelete('intel:write')" label="" width="110" align="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click.stop="openEdit(row)">编辑</el-button>
+            <el-button v-if="canWrite" link type="primary" @click.stop="openEdit(row)">编辑</el-button>
             <el-button link type="danger" @click.stop="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -196,7 +196,7 @@ async function save() {
     saving.value = false
   }
 }
-const removal = row => canWrite.value && {
+const removal = row => auth.canDelete('intel:write') && {
   endpoint: `/market/intel/${row.id}`, name: row.title, title: '删除情报', onDeleted: load,
 }
 const removeMenu = rowDeletion(removal)

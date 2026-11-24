@@ -307,7 +307,7 @@ onMounted(async () => {
   load(1); loadStats()
 })
 
-const expenseMenu = rowDeletion(row => canAllocate.value && recordRemoval('expense', row.id, row.approval_no, async () => { await load(); await loadStats() }, { title: '删除报销单' }))
+const expenseMenu = rowDeletion(row => auth.canDelete('expense:allocate') && recordRemoval('expense', row.id, row.approval_no, async () => { await load(); await loadStats() }, { title: '删除报销单' }))
 </script>
 
 <style scoped>

@@ -2,10 +2,12 @@
   <div class="jc-page" v-loading="loading">
     <el-button link @click="router.push('/operations')">← 运营项目</el-button>
     <template v-if="project">
-      <PageHeader :eyebrow="`${project.category} · ${PROJECT_STATUS[project.status]}`" :title="project.name" :desc="project.objective || '明确阶段目标，推进关键任务。'">
+      <PageHeader v-record-delete="projectRemoval" :eyebrow="`${project.category} · ${PROJECT_STATUS[project.status]}`"
+        :title="project.name" :desc="project.objective || '明确阶段目标，推进关键任务。'">
         <el-button @click="ask">问小聚</el-button>
         <el-button v-if="project.can_configure" @click="projectForm = true">编辑项目</el-button>
         <el-button v-if="project.can_manage && canSection('tasks') && project.status === 'active'" type="primary" @click="newTask">布置任务</el-button>
+        <el-button v-if="projectRemoval" plain type="danger" @click="deleteRecord(projectRemoval)">删除项目</el-button>
       </PageHeader>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
@@ -80,7 +82,7 @@
   </div>
 </template>
 <script setup>
-import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
+import { deleteRecord, recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -157,6 +159,10 @@ function newSelfTask() {schoolPreset.value = null; taskMode.value='self';editing
 function editTask(task) { schoolPreset.value = null; editingTask.value = task; popupPaused.value = true; taskForm.value = true }
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 const taskMenu = rowDeletion(row => row.can_archive && recordRemoval('operation-task', row.id, row.title, () => load(), { title: '删除任务' }))
+const projectRemoval = computed(() => project.value?.can_delete && {
+  endpoint: '/operations/' + project.value.id, title: '删除运营项目', name: project.value.name,
+  onDeleted: () => router.push('/operations'),
+})
 function closeTask() { const { task, ...query } = route.query; if (task) router.replace({ query }) }
 function selectDelay(row) { pendingDelay.value = row; delayOpen.value = false }
 function delayClosed() { if (pendingDelay.value) { openTask(pendingDelay.value); pendingDelay.value = null } }

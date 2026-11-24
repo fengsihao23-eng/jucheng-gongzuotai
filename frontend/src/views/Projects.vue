@@ -141,8 +141,8 @@ import { BUSINESS_LINES, PROJECT_STATUS, percent, wan } from '@/utils/format'
 const auth = useAuth()
 const projectRemoval = row => {
   const admin = auth.profile?.is_admin
-  const allowed = row.is_key ? admin || auth.can('project:key')
-    : admin || auth.can('milestone:write') || row.owner_id === auth.profile?.id
+  const allowed = row.is_key ? admin || auth.canDelete('project:key')
+    : admin || auth.canDelete('milestone:write') || row.owner_id === auth.profile?.id
   return allowed && recordRemoval('project', row.project_code, row.name, load, { title: '删除项目' })
 }
 const projectMenu = rowDeletion(projectRemoval)

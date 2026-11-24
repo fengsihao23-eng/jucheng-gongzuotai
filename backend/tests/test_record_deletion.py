@@ -6,15 +6,69 @@ from uuid import uuid4
 
 from sqlalchemy import delete, select
 
-from app.core.permissions import SYSTEM_MANAGEMENT_ROLE
+from app.core.permissions import RECORD_DELETE_BUTTON, SYSTEM_MANAGEMENT_ROLE
 from app.core.security import create_jwt
-from app.models import BizContract, BizPaymentPlan, BusinessRecordDeletion, LogOperation, SysRole, SysUser, SysUserRole, SystemDeletePassword
+from app.models import (BizContract, BizPaymentPlan, BusinessRecordDeletion, LogOperation,
+                        SysRole, SysUser, SysUserPermission, SysUserRole, SystemDeletePassword)
+from app.services import finance_ledger_fields, finance_ledgers
 from tests.conftest import data, deletion_body
 from tests.test_collection_workbook import collection_source, source_only  # noqa: F401
 
 ADMIN = "/api/v1/admin"
 REMOVE = "/api/v1/record-deletions"
 COLLECTION = "/api/v1/business-workbook/collections"
+
+
+def test_individual_grant_enables_deletion_without_creating_write_permissions(client, login, db):
+    admin = login("admin")
+    owner = data(client.get("/api/v1/auth/me", headers=admin))["id"]
+    actor = SysUser(wecom_userid=f"delete-grant-{uuid4().hex[:10]}", name="删除专项验收", workbench_enabled=True)
+    db.add(actor)
+    db.flush()
+    grant = SysUserPermission(user_id=actor.id, menus=["market", "projects", "receivables", "service"],
+                              buttons=[], data_scope="all")
+    db.add(grant)
+    db.commit()
+    headers = {"Authorization": f"Bearer {create_jwt(actor.id)[0]}"}
+    project_body = {"name": f"专项删除验收-{uuid4().hex[:6]}", "owner_id": owner, "business_line": "TD",
+                    "preparation_on": "2026-10-01", "due_on": "2026-10-30"}
+    project = data(client.post("/api/v1/market/projects", json=project_body, headers=admin))
+    path = f"/api/v1/market/projects/{project['project_code']}"
+
+    def can_delete_key_project():
+        cards = data(client.get("/api/v1/market/board", headers=headers))["projects"]
+        return next(card["can_delete"] for card in cards if card["project_code"] == project["project_code"])
+
+    assert not can_delete_key_project()
+    assert client.request("DELETE", path, headers=headers, json=deletion_body()).status_code == 403
+    grant.buttons = [RECORD_DELETE_BUTTON]
+    db.commit()
+    assert can_delete_key_project()
+    detail = data(client.get(path, headers=headers))
+    assert detail["can_delete"] and not detail["can_manage"]
+    assert client.post("/api/v1/market/projects", json=project_body, headers=headers).status_code == 403
+    assert client.get(ADMIN + "/deletion-password", headers=headers).status_code == 403
+    assert client.request("DELETE", path, headers=headers, json={"password": "wrong"}).status_code == 400
+
+    sporadic = data(client.post("/api/v1/collections/sporadic", headers=admin, json={"name": "回款专项验收", "owner_id": owner}))
+    with_grant = data(client.get("/api/v1/collections/sporadic", headers=headers))
+    assert with_grant["can_delete"] and not with_grant["can_manage"]
+    payment_path = f"{REMOVE}/sporadic-collection/{sporadic['id']}"
+    grant.data_scope = "self"
+    db.commit()
+    assert client.request("DELETE", path, headers=headers, json=deletion_body()).status_code == 403
+    assert client.request("DELETE", payment_path, headers=headers, json=deletion_body()).status_code == 404
+    grant.data_scope = "all"
+    db.commit()
+    assert data(client.request("DELETE", path, headers=headers, json=deletion_body()))["deleted"]
+    assert data(client.request("DELETE", payment_path, headers=headers, json=deletion_body()))["deleted"]
+
+    from app.core.deps import build_principal
+    db.expire_all()
+    principal = build_principal(actor)
+    assert finance_ledgers.can_remove(principal, "invoice", owner)
+    assert not finance_ledger_fields.can_import(principal, "invoice")
+    assert not finance_ledgers.can_remove(principal, "cash_journal", owner)
 
 
 def test_password_rotation_requires_the_configurable_system_management_role(client, login, db):

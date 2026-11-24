@@ -32,12 +32,15 @@
   </div>
 </template>
 <script setup>
+import { useAuth } from '@/store/auth'
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { announceChange } from './shared'
+const removalAuth = useAuth()
+
 const props = defineProps({ project: Object, active: Boolean, scrapOnly: Boolean })
 const data = ref(null), loading = ref(false), saving = ref(false), formOpen = ref(false), formRef = ref(), products = ref([]), form = reactive({})
 const actions = computed(() => props.scrapOnly ? { scrap_warehouse: '在库设备报废', scrap_operating: '运营设备报废' } : { inbound: '设备入库', outbound: '出库投入运营', return: '退回仓库' })
@@ -65,7 +68,7 @@ async function save() {
 watch(() => [props.project.id, props.active, props.scrapOnly], () => load(), { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => props.active && !formOpen.value })
 
-const movementMenu = rowDeletion(row => props.project.can_manage && recordRemoval('asset-movement', row.id, row.product_name, () => load(), { title: '删除设备流转记录' }))
+const movementMenu = rowDeletion(row => (props.project.can_manage || removalAuth.hasDeleteGrant) && recordRemoval('asset-movement', row.id, row.product_name, () => load(), { title: '删除设备流转记录' }))
 </script>
 <style scoped>
 .tools { gap:12px; flex-wrap:wrap; }.tools h3 { margin:0; }.tools p { margin:6px 0; line-height:1.6; }.warehouse .el-select { width:100%; }.two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }.two .el-date-editor { width:100%; }.stock-stats { margin-top:14px; }@media(max-width:600px) { .stock-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.two { grid-template-columns:1fr; gap:0; } }

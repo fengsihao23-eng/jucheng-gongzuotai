@@ -80,7 +80,7 @@ const item = ref(null), error = ref(''), content = ref(''), expectedOn = ref('')
 const nativeHistory = computed(() => (item.value?.reports || []).map(entry => ({ ...entry, key: `collection-progress-${entry.id}`,
   author: entry.author_name, action: 'progress', title: entry.stage_name, next_due_on: entry.expected_on })))
 const removal = computed(() => item.value &&
-  (item.value.author_id === auth.profile?.id || ['collections:request', 'contracts:write', 'receivables:correct'].some(button => auth.can(button))) &&
+  (item.value.author_id === auth.profile?.id || auth.canDelete('collections:request', 'contracts:write', 'receivables:correct')) &&
   recordRemoval('collection-thread', route.params.id, item.value.contract_name, () => emit('update:modelValue', false),
     { title: '删除回款跟进' }))
 const stage = ref('contact')

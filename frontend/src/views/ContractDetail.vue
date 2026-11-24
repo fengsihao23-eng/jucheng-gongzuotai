@@ -209,7 +209,7 @@ import ContractForm from './contract-form.vue'
 import WecomApprovalDialog from '@/components/WecomApprovalDialog.vue'
 
 const auth = useAuth()
-const paymentMenu = rowDeletion(row => (auth.can('contracts:write') || auth.can('receivables:correct')) &&
+const paymentMenu = rowDeletion(row => auth.canDelete('contracts:write', 'receivables:correct') &&
   recordRemoval('contract-payment', row.id, `${row.payment_date} · ${money(row.amount)} 元`, () => load(),
     { title: '删除合同回款', description: '确认删除这笔回款？删除后会重算合同已收金额和各期未收余额。' }))
 

@@ -8,6 +8,7 @@ export const useAuth = defineStore('auth', {
   getters: {
     loggedIn: () => !!getToken(),
     menus: (s) => new Set(s.profile?.menus || []),
+    hasDeleteGrant: (s) => s.profile?.buttons?.includes('record:delete') === true,
   },
   actions: {
     fetchMe() {
@@ -46,6 +47,9 @@ export const useAuth = defineStore('auth', {
     can(button) {
       const b = this.profile?.buttons || []
       return b.includes('*') || b.includes(button)
+    },
+    canDelete(...buttons) {
+      return this.hasDeleteGrant || buttons.some(button => this.can(button))
     },
     hasMenu(key) {
       return this.menus.has(key)

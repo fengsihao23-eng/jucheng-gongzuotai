@@ -156,7 +156,7 @@ async function save() {
     ElMessage.success('已保存'); form.open = false; load()
   } finally { form.saving = false }
 }
-const removal = row => row.source_type === 2 && {
+const removal = row => auth.canDelete('journal:write') && row.source_type === 2 && {
   endpoint: `/journal/${row.id}`, name: row.summary, title: '删除日记账', onDeleted: load,
 }
 const removeMenu = rowDeletion(removal)

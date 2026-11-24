@@ -94,7 +94,7 @@ import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
 
 const auth = useAuth()
-const documentMenu = rowDeletion(row => auth.can('hr:write') && recordRemoval('hr-doc', row.id, row.title, loadHistory, { title: '删除人事文档' }))
+const documentMenu = rowDeletion(row => auth.canDelete('hr:write') && recordRemoval('hr-doc', row.id, row.title, loadHistory, { title: '删除人事文档' }))
 const route = useRoute()
 const LONG = ['items', 'goals', 'kpis', 'modules', 'raw_text', 'content', 'issues', 'highlights', 'improvements', 'objectives', 'termination_reason']
 const BOOL = ['non_compete', 'agreed']

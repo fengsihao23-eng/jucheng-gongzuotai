@@ -96,7 +96,9 @@ def listing(db, p, *, keyword, page, size):
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     page = min(page, max(1, (total + size - 1) // size))
     items = _rows(db, query.order_by(Project.id.desc()).offset((page - 1) * size).limit(size))
-    return {"items": items, "total": total, "page": page, "size": size, "can_manage": can_request(p)}
+    can_manage = can_request(p)
+    return {"items": items, "total": total, "page": page, "size": size,
+            "can_manage": can_manage, "can_delete": can_manage or p.has_delete_grant}
 
 
 def report_rows(db, p):
