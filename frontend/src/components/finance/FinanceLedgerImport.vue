@@ -17,7 +17,12 @@
       </div>
       <template v-else>
         <div class="intake-destination">从 <strong>{{ ledgers[kind]?.label }}</strong> 导入</div>
-        <el-alert v-if="prepareError" :title="prepareError" type="error" :closable="false" show-icon />
+        <el-alert v-if="prepareError" :title="prepareError" type="error" :closable="false" show-icon>
+          <template v-if="prepareTrace || (file && !pasteMode)" #default>
+            <span v-if="file && !pasteMode" class="intake-error-detail">{{ file.name }}</span>
+            <span v-if="prepareTrace" class="intake-error-detail">问题编号 {{ prepareTrace }}</span>
+          </template>
+        </el-alert>
         <template v-if="!pasteMode">
           <button class="dropzone" :class="{ dragging }" type="button" @click="picker?.click()"
             @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="dropFile">
@@ -207,7 +212,7 @@ const open = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['confirmed', 'history', 'finished'])
 const pasteMode = ref(false), file = ref(null), picker = ref(null), pasted = ref(''), pasteInput = ref(null)
 const resuming = ref(false)
-const useXiaoju = ref(true), prepareError = ref(''), dragging = ref(false), accountInput = ref(null)
+const useXiaoju = ref(true), prepareError = ref(''), prepareTrace = ref(''), dragging = ref(false), accountInput = ref(null)
 const draft = ref(null), receipt = ref(null), groupID = ref(''), config = ref(null), previewPage = ref(1), busy = ref(false)
 const rowFilter = ref('all'), accountConfig = ref(null)
 let showHistory = false
@@ -260,7 +265,7 @@ watch(open, async (shown) => {
     if (data.result) receipt.value = data.result
     else applyDraft(data)
   } catch (error) {
-    prepareError.value = error.message
+    showPrepareError(error)
   } finally {
     busy.value = false
     resuming.value = false
@@ -278,6 +283,7 @@ function reset() {
   pasteMode.value = false
   useXiaoju.value = true
   prepareError.value = ''
+  prepareTrace.value = ''
   dragging.value = false
   draft.value = null
   receipt.value = null
@@ -296,6 +302,8 @@ function selectFile(next) {
   if (!next || busy.value) return
   if (picker.value) picker.value.value = ''
   if (next.size > 20 * 1024 * 1024) {
+    file.value = null
+    prepareTrace.value = ''
     prepareError.value = '这份文件超过 20 MB，请拆分后再上传。'
     return
   }
@@ -307,6 +315,8 @@ function selectFile(next) {
 function dropFile(event) {
   dragging.value = false
   if (event.dataTransfer.files.length > 1) {
+    file.value = null
+    prepareTrace.value = ''
     prepareError.value = '每次可以核对一份文件。'
     return
   }
@@ -316,6 +326,7 @@ function dropFile(event) {
 async function togglePaste() {
   pasteMode.value = !pasteMode.value
   prepareError.value = ''
+  prepareTrace.value = ''
   if (pasteMode.value) {
     await nextTick()
     pasteInput.value?.focus()
@@ -360,14 +371,20 @@ function preparePasted() {
 async function prepare(upload) {
   if (busy.value) return
   prepareError.value = ''
+  prepareTrace.value = ''
   busy.value = true
   try {
     const data = await api.upload('/finance-ledgers/preview', upload, { kind: props.kind, use_xiaoju: useXiaoju.value },
       { timeout: 300000, silent: true })
     applyDraft(data)
   } catch (error) {
-    prepareError.value = error.message
+    showPrepareError(error)
   } finally { busy.value = false }
+}
+
+function showPrepareError(error) {
+  prepareError.value = error.message
+  prepareTrace.value = error.traceId || ''
 }
 
 function toggleRow(id, checked) {
@@ -489,6 +506,7 @@ function closed() {
 .intake-form, .preview { display: grid; gap: 13px; }
 .intake-destination { display: flex; align-items: baseline; gap: 9px; font-size: 13px; color: var(--jc-ink-2); }
 .intake-destination strong { font-size: 14px; color: var(--jc-ink); }
+.intake-error-detail { display: block; overflow-wrap: anywhere; }
 .dropzone { display: grid; justify-items: center; gap: 12px; padding: 35px 14px; width: 100%; border: 1px dashed #aebbd7; background: #f8faff; border-radius: 9px; text-align: center; font: inherit; cursor: pointer; }
 .dropzone:hover, .dropzone.dragging { background: var(--jc-brand-50); border-color: var(--jc-brand); }
 .dropzone .el-icon { color: var(--jc-brand); }

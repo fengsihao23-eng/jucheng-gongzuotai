@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import logging
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -9,15 +10,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 import unicodedata
+from zipfile import ZipFile
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from app.core.response import BizError, bad_request
+from app.core.response import BizError, bad_request, trace_id_var
 from app.services import kb_extract, pi_bridge
 from app.services.finance_ledger_fields import COLLECTION, LEDGERS, MAX_COLUMNS, MAX_ROWS, header, is_opening, mapping_fields, parse_date, parse_money
 from app.services.xiaoju_tools import spec
+from app.services.xlsx_compat import repair_empty_fills
 
+log = logging.getLogger(__name__)
 AI_SLOTS = BoundedSemaphore(2)
 TEXT_EXTS = {".csv", ".tsv", ".txt", ".md", ".markdown"}
 TOTALS = {"合计", "小计", "总计", "本月合计", "本期合计", "累计", "累计合计", "月计", "本页合计", "本年累计",
@@ -44,7 +48,16 @@ def cell_text(value):
 
 def excel_rows(content):
     kb_extract.validate_archive(content)
-    workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True, keep_links=False)
+    options = {"data_only": True, "read_only": True, "keep_links": False}
+    try:
+        workbook = load_workbook(io.BytesIO(content), **options)
+    except TypeError:
+        # Some WeCom exports declare an empty fill that openpyxl cannot load.
+        with ZipFile(io.BytesIO(content)) as archive:
+            repaired = repair_empty_fills(archive, content)
+        if repaired is content:
+            raise
+        workbook = load_workbook(io.BytesIO(repaired), **options)
     try:
         total = 0
         for sheet in workbook.worksheets:
@@ -111,8 +124,9 @@ def text_rows(text, ext):
 
 def read_source(content, filename):
     ext = Path(filename).suffix.lower()
+    excel = ext in {".xlsx", ".xlsm"} or (content.startswith(b"PK") and ext not in {".docx", ".pptx"})
     try:
-        if ext in {".xlsx", ".xlsm"} or content.startswith(b"PK") and ext not in {".docx", ".pptx"}:
+        if excel:
             sources = list(excel_rows(content))
         elif ext in TEXT_EXTS:
             if content.startswith(b"\xd0\xcf\x11\xe0"):
@@ -124,6 +138,11 @@ def read_source(content, filename):
     except BizError:
         raise
     except Exception as exc:
+        # Parser exceptions can include cell content. Keep only diagnostic metadata.
+        log.warning("Finance ledger source read failed (trace=%s, excel=%s, bytes=%s, error=%s)",
+                    trace_id_var.get(), excel, len(content), type(exc).__name__)
+        if excel:
+            raise bad_request("Excel 文件无法打开。请用 Excel 或 WPS 打开原文件，另存为 .xlsx 后重传，或直接粘贴表格。") from exc
         raise bad_request("无法读取文件，请核对文件格式或将数据粘贴到导入窗口") from exc
     sources = [(name, rows) for name, rows in sources if rows]
     if not sources:

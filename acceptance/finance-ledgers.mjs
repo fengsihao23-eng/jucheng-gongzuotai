@@ -14,9 +14,10 @@ async function capture(page, name) {
 }
 let previewResponse
 
-function xlsx(sheets) {
+function xlsx(sheets, { emptyFill = false } = {}) {
   return execFileSync(process.env.FINANCE_TEST_PYTHON || 'python3', ['-c', `
 import io, json, sys
+from zipfile import ZipFile, ZIP_DEFLATED
 from openpyxl import Workbook
 workbook = Workbook()
 workbook.remove(workbook.active)
@@ -26,8 +27,18 @@ for name, rows in json.load(sys.stdin).items():
         sheet.append(row)
 buffer = io.BytesIO()
 workbook.save(buffer)
+if sys.argv[1] == 'empty-fill':
+    exported = io.BytesIO()
+    with ZipFile(buffer) as original, ZipFile(exported, 'w', ZIP_DEFLATED) as target:
+        for name in original.namelist():
+            content = original.read(name)
+            if name == 'xl/styles.xml':
+                assert b'<fill><patternFill/></fill>' in content
+                content = content.replace(b'<fill><patternFill/></fill>', b'<fill/>', 1)
+            target.writestr(name, content)
+    buffer = exported
 sys.stdout.buffer.write(buffer.getvalue())
-`], { input: JSON.stringify(sheets) })
+`, emptyFill ? 'empty-fill' : 'standard'], { input: JSON.stringify(sheets) })
 }
 
 async function visit(path, heading) {
@@ -65,28 +76,29 @@ async function confirm(dialog) {
   return result.data
 }
 
-await step('FIN-01', '图六银行收入 XLSX 直接核对，旧入口跳转出纳日记账', async () => {
+await step('FIN-01', '兼容在线表格空样式，银行收入 XLSX 直接核对', async () => {
   await visit('/receivables?ledger=bank_receipt', '出纳日记账')
   const directions = screen.getByRole('group', { name: '收支方向' })
   assert.equal(await directions.getByRole('button', { name: '收入', exact: true }).getAttribute('aria-pressed'), 'true')
   assert.equal((await existing('bank_receipt')).total, 0)
   const columns = ['序号', '收款日期', '收款银行', '汇款公司', '收入金额', '摘要', '项目']
-  const dialog = await preview('测试_银行收款明细.xlsx', xlsx({ 银行收入: [
+  const dialog = await preview('测试_在线表格导出_银行收款.xlsx', xlsx({ 银行收入: [
     ['收款记录明细表'],
     columns,
     [1, '2026/11/4', '测试银行尾号 2208', '示例技术公司', 3680.50, '首批设备款', '校园设备项目'],
     [2, '2026/11/5', '测试银行尾号 2208', '示例教育中心', 15620.90, '阶段款', '实验室改造'],
     [3, '2026/11/6', '测试银行尾号 6702', '示例文化中心', 865.35, '维护补款', '校园服务'],
-  ] }))
+  ] }, { emptyFill: true }))
   assert.equal(previewResponse.groups[0].method, 'rule')
   assert.equal(previewResponse.counts.ready, 3)
   assert.equal((await existing('bank_receipt')).total, 0)
+  const previewEvidence = await capture(screen, '00-在线表格导出-银行收入核对')
   assert.equal((await confirm(dialog)).inserted, 3)
   await screen.getByText('示例技术公司', { exact: true }).waitFor()
   assert.equal((await existing('bank_receipt')).totals.inflow, '20166.75')
   const region = screen.getByRole('region', { name: '银行收入日记账' })
   assert.deepEqual(await region.getByRole('columnheader').allTextContents(), [...columns, '操作'])
-  return { evidence: await capture(screen, '01-银行日记账-收入') }
+  return { evidence: [previewEvidence, await capture(screen, '01-银行日记账-收入')] }
 })
 
 await step('FIN-02', '开票台账在前，二维码入口停用，年份和月份可切换', async () => {
@@ -328,6 +340,23 @@ await step('FIN-10', '真实小聚整理非标准现金 XLSX，来源不明的�
   const result = await existing('cash_journal', { period: '2026-10' })
   assert.deepEqual(result.totals, { inflow: '850.00', outflow: '440.00', fee: '0.00' })
   return { evidence }
+})
+
+await step('FIN-11', '确实无法读取的 Excel 显示文件名、处理办法和问题编号', async () => {
+  await visit('/journal?ledger=bank_receipt', '出纳日记账')
+  await screen.getByRole('button', { name: '导入财务账表', exact: true }).click()
+  const dialog = screen.getByRole('dialog', { name: '导入财务账表' })
+  const pending = screen.waitForResponse((res) => res.url().endsWith(`${base}/preview`))
+  await dialog.locator('input[type=file]').setInputFiles({ name: '测试_无法打开的文件.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('not a workbook') })
+  const response = await pending
+  assert.equal(response.status(), 400)
+  const result = await response.json()
+  const alert = dialog.getByRole('alert')
+  await alert.getByText(/另存为 \.xlsx/).waitFor()
+  await alert.getByText('测试_无法打开的文件.xlsx', { exact: true }).waitFor()
+  await alert.getByText(`问题编号 ${result.trace_id}`, { exact: true }).waitFor()
+  return { evidence: await capture(screen, '12-无法读取时提示文件名和问题编号') }
 })
 
 await browser.close()

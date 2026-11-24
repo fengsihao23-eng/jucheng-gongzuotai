@@ -7,13 +7,14 @@ import json
 import re
 import shutil
 import uuid
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZipFile
 
 from openpyxl import load_workbook
 from openpyxl.utils.cell import get_column_letter, range_boundaries
 
 from app.core.response import BizError, bad_request
 from app.services import wecom_cli_service as cli, wecom_import_formats as formats
+from app.services.xlsx_compat import repair_empty_fills
 
 MAX_SHEETS = 40
 MAX_CELLS = 500_000
@@ -122,7 +123,7 @@ def read_xlsx(content):
             entries = zip_file.infolist()
             if len(entries) > 2000 or sum(i.file_size for i in entries) > 4 * formats.MAX_BYTES:
                 raise bad_request("XLSX 解压后超出同步上限")
-            content = _repair_empty_fills(zip_file, content)
+            content = repair_empty_fills(zip_file, content)
         with_formulas = load_workbook(io.BytesIO(content), keep_links=False)
         try:
             with_values = load_workbook(io.BytesIO(content), data_only=True, keep_links=False)
@@ -136,28 +137,6 @@ def read_xlsx(content):
         raise
     except Exception:
         raise bad_request("企微文件不是可完整读取的 XLSX，保留上次完整版本") from None
-
-
-def _repair_empty_fills(zip_file, content):
-    # WeCom export can emit empty <fill/> entries. Preserve their indices
-    # and every non-style file so numeric formats, dates and formulas survive.
-    from openpyxl.xml.functions import SubElement, fromstring, tostring
-
-    style_name = "xl/styles.xml"
-    if style_name not in zip_file.namelist():
-        return content
-    styles = fromstring(zip_file.read(style_name))
-    ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
-    fills = [f for f in styles.findall(f"{ns}fills/{ns}fill") if not len(f)]
-    if not fills:
-        return content
-    for fill in fills:
-        SubElement(fill, f"{ns}patternFill", {"patternType": "none"})
-    out = io.BytesIO()
-    with ZipFile(out, "w", compression=ZIP_DEFLATED) as repaired:
-        for entry in zip_file.infolist():
-            repaired.writestr(entry.filename, tostring(styles) if entry.filename == style_name else zip_file.read(entry))
-    return out.getvalue()
 
 
 def _xlsx_tabs(with_formulas, with_values):

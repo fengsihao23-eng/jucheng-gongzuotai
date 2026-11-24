@@ -2,6 +2,7 @@
 import io
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from openpyxl import Workbook
@@ -44,6 +45,50 @@ def workbook(sheets):
     stream = io.BytesIO()
     wb.save(stream)
     return stream.getvalue()
+
+
+def test_wecom_export_with_empty_fill_preserves_source_values(client, login, monkeypatch):
+    def unexpected_ai(*args):
+        pytest.fail("兼容处理后的标准表头应直接进入核对")
+
+    monkeypatch.setattr(source, "run_xiaoju", unexpected_ai)
+    headers = login("chenjing")
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "银行收入"
+    sheet.append(["收款记录明细表"])
+    sheet.append(["收款日期", "收款银行", "汇款公司", "收入金额", "流水号"])
+    sheet.append([date(2026, 6, 2), "在线表格测试银行", "示例公司", 123.45, 123])
+    sheet["E3"].number_format = "00000000"
+    original, exported = io.BytesIO(), io.BytesIO()
+    wb.save(original)
+    with ZipFile(original) as archive, ZipFile(exported, "w", ZIP_DEFLATED) as target:
+        for filename in archive.namelist():
+            content = archive.read(filename)
+            if filename == "xl/styles.xml":
+                assert b"<fill><patternFill/></fill>" in content
+                content = content.replace(b"<fill><patternFill/></fill>", b"<fill/>", 1)
+            target.writestr(filename, content)
+
+    batch = data(upload(client, headers, "bank_receipt", exported.getvalue(), "在线表格导出.xlsx", ai=True))
+    assert batch["groups"][0]["method"] == "rule"
+    row, = batch["rows"]
+    assert (row["sheet"], row["row"], row["status"]) == ("银行收入", 3, "ready")
+    assert row["values"]["date"] == "2026-06-02"
+    assert row["values"]["net"] == "123.45"
+    assert row["values"]["reference"] == "00000123"
+    assert show(client, headers, "bank_receipt", account="在线表格测试银行")["total"] == 0
+
+
+def test_unreadable_excel_returns_actionable_error_without_creating_draft(client, login, db, caplog):
+    before = db.scalar(select(func.count()).select_from(FinLedgerImport))
+    response = upload(client, login("chenjing"), "bank_receipt", b"not a workbook", "无法打开的表.xlsx", ai=True)
+    assert response.status_code == 400
+    error = response.json()
+    assert "另存为 .xlsx" in error["message"] and "粘贴表格" in error["message"]
+    assert error["trace_id"] in caplog.text and "BadZipFile" in caplog.text
+    assert "not a workbook" not in caplog.text
+    assert db.scalar(select(func.count()).select_from(FinLedgerImport)) == before
 
 
 def test_workbook_templates_and_standalone_financials(client, login, db, monkeypatch):
