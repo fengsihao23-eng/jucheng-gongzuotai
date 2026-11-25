@@ -73,6 +73,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     key_checks = {key_projects.NOTICE: key_projects.eligible_notice,
                   key_projects.ASSIGNMENT_NOTICE: key_projects.eligible_assignment,
                   key_projects.TASK_ASSIGNMENT_NOTICE: key_projects.eligible_task_assignment,
+                  key_projects.TEAM_NOTICE: key_projects.eligible_team_notice,
                   KEY_OVERDUE: key_projects.eligible_feedback_deadline}
     pending_rows = []
     for r in rows:

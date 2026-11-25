@@ -9,6 +9,7 @@ export const useAuth = defineStore('auth', {
     loggedIn: () => !!getToken(),
     menus: (s) => new Set(s.profile?.menus || []),
     hasDeleteGrant: (s) => s.profile?.buttons?.includes('record:delete') === true,
+    canAccessKeyProjects: (s) => s.profile?.menus?.includes('market') || s.profile?.key_project_team === true,
   },
   actions: {
     fetchMe() {

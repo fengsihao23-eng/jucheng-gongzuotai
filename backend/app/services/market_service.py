@@ -45,16 +45,19 @@ def _llm(system: str, user: str) -> str | None:
 
 # ------------------------------------------------------------------ 跟进看板
 def key_board(db: Session, p=None, include_all: bool = False, include_paused: bool = False) -> dict:
+    from app.services import key_projects
+
     paused = set(db.scalars(select(BizProjectFollowSetting.project_id).where(BizProjectFollowSetting.paused.is_(True))))
-    q = ps.visible_query(p).where(BizProject.status != 5)
+    standard_scope = key_projects.standard_scope(p, overview=True)
+    q = key_projects.visible_projects(p, overview=True).add_columns(standard_scope.label("standard")).where(BizProject.status != 5)
     if not include_paused:
         q = q.where(BizProject.id.not_in(paused))
     if not include_all:
         q = q.where(BizProject.is_key.is_(True))
-    projects = db.scalars(q.order_by(BizProject.project_code)).unique().all()
+    projects = db.execute(q.order_by(BizProject.project_code)).unique().all()
     T = today()
-    money = ps.money_summary(db, [x.project_code for x in projects])
-    ids = [x.id for x in projects]
+    money = ps.money_summary(db, [x.project_code for x, standard in projects if standard])
+    ids = [x.id for x, _ in projects]
     latest: dict[int, BizProjectFeedback] = {}
     week_start, _ = week_range(ref=T)
     if ids:
@@ -62,26 +65,27 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
                             .order_by(BizProjectFeedback.feedback_date, BizProjectFeedback.id)):
             latest[f.project_id] = f
     cards = []
-    from app.services import key_projects
     can_pause = bool(p and key_projects.can_pause(p))
-    for x in projects:
-        b = ps.project_brief(db, x, T, money.get(x.project_code))
-        b["can_delete"] = bool(p and x.is_key and key_projects.can_delete(p))
-        b["can_pause"] = can_pause and x.is_key
+    for x, standard in projects:
+        b = key_projects.brief(db, x, standard, day=T, money=money.get(x.project_code))
+        b["can_view_financials"] = standard
+        b["can_delete"] = bool(standard and p and x.is_key and key_projects.can_delete(p))
+        b["can_pause"] = standard and can_pause and x.is_key
         f = latest.get(x.id)
         b["latest_feedback"] = ps.feedback_dict(f) if f else None
         b["paused"] = x.id in paused
         b["reported_this_week"] = bool(f and week_start <= f.feedback_date <= T)
         b["alert"] = b["delayed_nodes"] > 0 or bool(f and f.risk_level >= 2)
-        task_rows = [key_projects.task_data(db, p, x, m) for m in x.milestones] if p else []
+        manageable = key_projects.can_manage(db, p, x, standard=standard) if p else False
+        task_rows = [key_projects.task_data(db, p, x, m, manageable=manageable) for m in x.milestones] if p else []
         b["needs_feedback"] = sum(t["needs_feedback"] for t in task_rows)
         b["risk_tasks"] = sum(bool(t["problems"]) and t["status"] != 3 for t in task_rows)
         b["delayed_nodes"] += sum(n["overdue"] for t in task_rows if t["status"] != 3 for n in t["nodes"])
         b["alert"] = b["alert"] or any(t["alert"] and t["status"] != 3 for t in task_rows)
         cards.append(b)
     cards.sort(key=lambda c: (not c["alert"], c["project_code"]))
-    tot_c = sum((c["contract_total"] for c in cards), ZERO)
-    tot_r = sum((c["received"] for c in cards), ZERO)
+    tot_c = sum((c.get("contract_total", ZERO) for c in cards), ZERO)
+    tot_r = sum((c.get("received", ZERO) for c in cards), ZERO)
     current = [x for x in cards if x["is_key"] and not x["paused"]]
     summary_text = "\n".join(
         f"{x['name']}：{x['market_owner_name'] or x['owner_name'] or '未分配'}；"
@@ -110,7 +114,7 @@ def key_events(db: Session, p=None, days: int = 60, kinds=("event", "risk"), pro
             for f, x in rows]
 
 
-def add_feedback(db: Session, proj: BizProject, data: dict, reporter_id: int | None) -> BizProjectFeedback:
+def add_feedback(db: Session, proj: BizProject, data: dict, reporter_id: int | None, *, item=None, notice_ids=None) -> BizProjectFeedback:
     content = (data.get("content") or "").strip()
     if not content:
         raise bad_request("反馈内容必填")
@@ -132,6 +136,12 @@ def add_feedback(db: Session, proj: BizProject, data: dict, reporter_id: int | N
                            risk_level=int(data.get("risk_level") or (2 if kind == "risk" else 0)), reporter_id=reporter_id)
     db.add(f)
     db.flush()
+    if proj.is_key:
+        from app.services.key_projects import queue_team_notice
+
+        pending = queue_team_notice(db, proj, "重点项目有新进展", exclude=[reporter_id] if reporter_id else [], item=item)
+        if notice_ids is not None:
+            notice_ids.extend(pending)
     return f
 
 

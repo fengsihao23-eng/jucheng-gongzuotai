@@ -208,21 +208,25 @@ def resolve(db, p, kind, ref, *, lock=False):
                 raise not_found("项目")
             return Record(kind, row.project_code, "项目利润详情", row.name, "项目利润", owners(row.owner_id),
                           p.can("cost:write"), facts=facts(row, (("项目编号", "project_code"),)), path="/profit")
-        menu(p, *(("market", "projects") if kind == "key-project" else ("projects",)))
-        row = key_projects.project(db, p, ident) if kind == "key-project" else project_service.get_project(db, ident, p)
-        writers = project_service.can_edit(p, row) or p.can("feedback:write") or p.can("project:key")
+        if kind == "key-project":
+            row = key_projects.project(db, p, ident, lock=lock)
+            standard = key_projects.standard_access(db, p, row)
+        else:
+            menu(p, "projects")
+            row = project_service.get_project(db, ident, p)
+            standard = True
+        writers = standard and (project_service.can_edit(p, row) or p.can("feedback:write") or p.can("project:key"))
         return Record(kind, row.project_code, "重点项目详情" if kind == "key-project" else "项目详情", row.name,
                       "重点项目" if kind == "key-project" else "项目台账", owners(row.owner_id, row.market_owner_id), writers,
                       facts=facts(row, (("项目编号", "project_code"), ("客户", "customer_name"), ("计划完成", "plan_end_date"))),
                       context=row.remark or "", path=("/market/projects/" if kind == "key-project" else "/projects/") + row.project_code,
                       legacy=("project", row.id))
     if kind == "key-task":
-        menu(p, "market", "projects")
         item = get_or_404(db, m.BizProjectMilestone, number(ident), "项目任务")
         project = get_or_404(db, m.BizProject, item.project_id, "重点项目")
-        project = key_projects.project(db, p, project.project_code)
+        project = key_projects.project(db, p, project.project_code, lock=lock)
         record = Record(kind, str(item.id), "任务详情", item.node_name, "重点项目", owners(item.owner_id, project.owner_id),
-                        key_projects.can_manage(p, project) or (p.can("feedback:write") and item.owner_id == p.id),
+                        key_projects.can_feedback_task(db, p, project, item),
                         facts=facts(item, (("截止日期", "plan_date"),)), context=project.name,
                         path=f"/market/projects/{project.project_code}?task={item.id}", legacy=("key-task", item.id))
         return record

@@ -39,6 +39,12 @@
         </el-select>
       </el-form-item>
       <section v-else class="project-tasks" aria-label="项目任务">
+        <el-form-item label="项目团队（可选）">
+          <el-select v-model="teamMemberIds" filterable multiple collapse-tags collapse-tags-tooltip aria-label="新建项目团队成员" placeholder="选择项目团队成员">
+            <el-option v-for="person in teamUsers.filter(user => user.id !== form.owner_id)" :key="person.id" :value="person.id"
+              :label="`${person.name} · ${person.department || person.dept || '跨部门'}`" />
+          </el-select>
+        </el-form-item>
         <h3>项目任务</h3>
         <p class="jc-small jc-muted">可添加多项任务，默认沿用项目负责人和日期。创建后会通知项目和任务各自的负责人。</p>
         <section v-for="(task, index) in form.tasks" :key="task.key" class="task-plan" :aria-label="`任务 ${index + 1}`">
@@ -46,7 +52,7 @@
             <h4>任务 {{ index + 1 }}</h4>
             <el-button link :aria-label="`移除任务 ${index + 1}`" @click="form.tasks.splice(index, 1)">移除</el-button>
           </div>
-          <KeyTaskFields :plan="task.plan" :users="users" :path="`tasks.${index}.plan`" compact />
+          <KeyTaskFields :plan="task.plan" :users="taskUsers" :path="`tasks.${index}.plan`" compact />
         </section>
         <el-button type="primary" plain @click="addTask">添加任务</el-button>
       </section>
@@ -72,22 +78,37 @@ const props = defineProps({ modelValue: Boolean, initial: Object })
 const emit = defineEmits(['update:modelValue', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const auth = useAuth(), form = reactive({ tasks: [] }), users = ref([]), formRef = ref(), saving = ref(false)
+const teamUsers = ref([]), teamMemberIds = ref([])
+const taskUsers = computed(() => {
+  const listed = new Set(users.value.map(user => user.id))
+  return [...users.value, ...teamUsers.value.filter(user => teamMemberIds.value.includes(user.id) && !listed.has(user.id))]
+})
 let nextTaskKey = 0, optionsVersion = 0
 
 watch(visible, async open => {
   const version = ++optionsVersion
   if (!open) return
   const project = props.initial
+  teamMemberIds.value = []
+  teamUsers.value = []
   Object.assign(form, { name: project?.name || '', content: project?.content || '',
     owner_id: project?.owner_id || auth.profile?.id, preparation_on: project?.start_date || null,
     due_on: project?.plan_end_date || null, customer_name: project?.customer_name || '',
     business_line: project?.business_line || 'TD', status: project?.status || 2, tasks: [] })
   try {
-    const options = await api.get('/market/key-options')
+    const options = await api.get('/market/key-options', { include_team: project ? undefined : true })
     if (version !== optionsVersion) return
     users.value = options.users
+    teamUsers.value = options.team_users || []
     if (!form.preparation_on) form.preparation_on = options.today
   } catch { /* 请求错误由接口提示统一显示。 */ }
+})
+
+watch(teamMemberIds, () => {
+  const available = new Set(taskUsers.value.map(user => user.id))
+  for (const { plan } of form.tasks) {
+    if (!available.has(plan.owner_id)) plan.owner_id = null
+  }
 })
 
 const inheritedFields = ['owner_id', 'preparation_on', 'due_on']
@@ -115,7 +136,7 @@ async function save() {
     }
     const result = props.initial
       ? await api.put(`/market/projects/${props.initial.project_code}`, { ...project, expected_revision: props.initial.revision })
-      : await api.post('/market/projects', { ...project, tasks: tasks.map(task => task.plan) })
+      : await api.post('/market/projects', { ...project, tasks: tasks.map(task => task.plan), team_member_ids: teamMemberIds.value })
     visible.value = false
     ElMessage.success(props.initial ? '重点项目已保存' : tasks.length ? `重点项目及 ${tasks.length} 项任务已创建` : '重点项目已创建')
     emit('saved', result)

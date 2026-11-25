@@ -80,7 +80,7 @@ const taskOpen = computed({
   get: () => Boolean(taskId.value) && !formOpen.value,
   set: open => { if (!open && !formOpen.value) taskId.value = undefined },
 })
-const taskRemoval = task => (props.project.can_manage || auth.hasDeleteGrant) &&
+const taskRemoval = task => (props.project.can_manage || (props.project.can_delete && auth.hasDeleteGrant)) &&
   recordRemoval('key-task', task.id, task.title, () => emit('refresh'), { title: '删除重点项目任务' })
 const taskMenu = rowDeletion(taskRemoval)
 

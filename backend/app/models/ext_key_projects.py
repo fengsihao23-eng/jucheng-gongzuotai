@@ -7,6 +7,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, JSON, TimestampMixin
 
 
+class KeyProjectMember(Base):
+    __tablename__ = "key_project_member"
+    project_id: Mapped[int] = mapped_column(ForeignKey("biz_project.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class KeyProjectTaskPlan(Base):
     __tablename__ = "key_project_task_plan"
     milestone_id: Mapped[int] = mapped_column(ForeignKey("biz_project_milestone.id", ondelete="CASCADE"), primary_key=True)

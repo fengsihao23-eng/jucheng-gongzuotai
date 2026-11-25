@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_op, snapshot
 from app.core.db import get_db, get_or_404
 from app.core.deletion import DeletionIn, verify_deletion
-from app.core.deps import Principal, client_ip, require_menu
+from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.response import bad_request, forbidden, not_found, ok, page_data
 from app.core.storage import file_brief, read_bytes, save_bytes
 from app.core.timeutil import today
@@ -24,7 +24,7 @@ from app.services import market_service as ms
 from app.services import project_service as ps
 from app.services import key_projects as keys
 from app.services import notify_service
-from app.schemas.key_projects import KeyProjectCreateIn, KeyProjectEditIn, KeyTaskIn, KeyTaskFeedbackIn
+from app.schemas.key_projects import KeyProjectCreateIn, KeyProjectEditIn, KeyProjectTeamIn, KeyTaskIn, KeyTaskFeedbackIn
 
 router = APIRouter(prefix="/market", tags=["market"])
 Market = Depends(require_menu("market"))
@@ -41,15 +41,17 @@ def _docx(data: bytes, filename: str) -> Response:
 
 # ================================================================ 跟进看板
 @router.get("/board")
-def board(include_all: bool = False, include_paused: bool = False, p: Principal = Market, db: Session = Depends(get_db)):
+def board(include_all: bool = False, include_paused: bool = False, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    keys.require_overview(db, p)
     d = ms.key_board(db, p, include_all, include_paused)
-    d["events"] = ms.key_events(db, p, days=60)[:30]
+    d["events"] = ms.key_events(db, p, days=60)[:30] if p.has_menu("market") else []
     return ok(d)
 
 
 @router.get("/key-options")
-def key_project_options(p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    return ok(keys.options(db, p))
+def key_project_options(project_code: str | None = None, include_team: bool = False,
+                        p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    return ok(keys.options(db, p, project_code, include_team))
 
 
 @router.post("/projects")
@@ -62,7 +64,7 @@ def create_key_project(body: KeyProjectCreateIn, background: BackgroundTasks, p:
 
 
 @router.get("/projects/{project_code}")
-def key_project_detail(project_code: str, period: str = "", p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+def key_project_detail(project_code: str, period: str = "", p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     return ok(keys.detail(db, p, project_code, period))
 
 
@@ -81,6 +83,27 @@ def delete_key_project(project_code: str, body: DeletionIn, p: Principal = Marke
     return ok(result)
 
 
+@router.post("/projects/{project_code}/team")
+def add_key_project_team(project_code: str, body: KeyProjectTeamIn, background: BackgroundTasks,
+                         p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    row = keys.project(db, p, project_code, lock=True)
+    added, notices = keys.add_team(db, p, row, body.user_ids)
+    db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
+    return ok({"added": added})
+
+
+@router.delete("/projects/{project_code}/team/{user_id}")
+def remove_key_project_member(project_code: str, user_id: int, body: DeletionIn,
+                              p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    verify_deletion(db, body)
+    row = keys.project(db, p, project_code, lock=True)
+    keys.remove_team_member(db, p, row, user_id)
+    db.commit()
+    return ok()
+
+
 @router.post("/projects/{project_code}/tasks")
 def create_key_task(project_code: str, body: KeyTaskIn, background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
     notices = []
@@ -92,7 +115,7 @@ def create_key_task(project_code: str, body: KeyTaskIn, background: BackgroundTa
 
 
 @router.get("/projects/{project_code}/tasks/{task_id}")
-def key_task_detail(project_code: str, task_id: int, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+def key_task_detail(project_code: str, task_id: int, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     row = keys.project(db, p, project_code)
     return ok(keys.task_data(db, p, row, keys.task(db, row, task_id), history=True))
 
@@ -108,9 +131,13 @@ def edit_key_task(project_code: str, task_id: int, body: KeyTaskIn, background: 
 
 
 @router.post("/projects/{project_code}/tasks/{task_id}/feedback")
-def key_task_feedback(project_code: str, task_id: int, body: KeyTaskFeedbackIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    result = keys.feedback(db, p, project_code, task_id, body)
+def key_task_feedback(project_code: str, task_id: int, body: KeyTaskFeedbackIn, background: BackgroundTasks,
+                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    notices = []
+    result = keys.feedback(db, p, project_code, task_id, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(result)
 
 
@@ -145,13 +172,16 @@ class FeedbackIn(BaseModel):
 
 
 @router.post("/feedback")
-def add_feedback(body: FeedbackIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+def add_feedback(body: FeedbackIn, background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
     """进展反馈：feedback:write 按钮；项目经理/工程师只能写自己可见（负责）的项目。"""
     if not p.can("feedback:write"):
         raise forbidden("无进展反馈权限")
     proj = ps.get_project(db, body.project_code, p)
-    f = ms.add_feedback(db, proj, body.model_dump(), p.id)
+    notices = []
+    f = ms.add_feedback(db, proj, body.model_dump(), p.id, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     db.refresh(f)
     return ok(ps.feedback_dict(f))
 

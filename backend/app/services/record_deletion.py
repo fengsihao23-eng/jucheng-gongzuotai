@@ -212,7 +212,7 @@ def _delete_key_task(db, p, ident, ip):
     if not item:
         raise not_found("重点项目任务")
     project = key_projects.project(db, p, item.project_id, lock=True)
-    if not (p.has_delete_grant or key_projects.can_manage(p, project)):
+    if not (key_projects.can_manage(db, p, project) or (p.has_delete_grant and key_projects.standard_access(db, p, project))):
         raise forbidden("无权删除该项目的任务")
     row = _row(db, m.BizProjectMilestone, m.BizProjectMilestone.id == item.id, "重点项目任务")
     _mark(db, p, row, row.node_name, ip)

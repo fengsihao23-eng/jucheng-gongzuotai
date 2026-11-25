@@ -58,6 +58,11 @@ class KeyTaskIn(Input):
 
 class KeyProjectCreateIn(KeyProjectIn):
     tasks: list[KeyTaskIn] = Field(default_factory=list)
+    team_member_ids: list[Id] = Field(default_factory=list)
+
+
+class KeyProjectTeamIn(Input):
+    user_ids: list[Id] = Field(min_length=1)
 
 
 class KeyTaskFeedbackIn(Input):

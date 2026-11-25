@@ -2,22 +2,22 @@
   <div class="jc-page">
     <PageHeader eyebrow="市场部" title="重点项目"
       desc="明确项目内容、负责人和时间节点，查看进展、风险与回款。">
-      <el-button v-if="auth.can('project:key')" type="primary" @click="createOpen=true">新建重点项目</el-button>
+      <el-button v-if="canCreate" type="primary" @click="createOpen=true">新建重点项目</el-button>
     </PageHeader>
 
     <el-tabs v-model="tab">
       <el-tab-pane label="重点项目总览" name="key">
-        <div class="jc-grid c5 mb-16" v-if="board">
+        <div class="jc-grid mb-16" :class="showFinancials ? 'c5' : 'c3'" v-if="board">
           <Kpi label="重点项目" :value="stats.count" unit="个" />
           <Kpi label="异常项目" :value="stats.alert_count" unit="个" hint="延期、风险或进展待反馈" />
           <Kpi label="延期节点" :value="stats.delayed_nodes" unit="个" />
-          <Kpi label="累计合同" :value="wanNum(stats.contract_total)" unit="万" />
-          <Kpi label="累计回款" :value="wanNum(stats.received)" unit="万" :progress="Number(stats.payment_rate || 0)" :hint="`回款率 ${percent(stats.payment_rate)}`" />
+          <Kpi v-if="showFinancials" label="累计合同" :value="wanNum(stats.contract_total)" unit="万" />
+          <Kpi v-if="showFinancials" label="累计回款" :value="wanNum(stats.received)" unit="万" :progress="Number(stats.payment_rate || 0)" :hint="`回款率 ${percent(stats.payment_rate)}`" />
         </div>
 
         <Panel title="重点项目" sub="按异常优先排序" :loading="loading">
           <template #extra>
-            <el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox>
+            <el-checkbox v-if="auth.hasMenu('market')" v-model="includeAll" @change="load">含非重点项目</el-checkbox>
             <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
           </template>
           <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
@@ -47,7 +47,7 @@
                 <span v-else class="jc-muted">暂无进展反馈</span>
               </div>
               <div class="jc-divider" />
-              <div class="jc-row between jc-small">
+              <div v-if="p.can_view_financials" class="jc-row between jc-small">
                 <span class="jc-muted">合同 <span class="jc-num">{{ wan(p.contract_total) }}</span></span>
                 <span class="jc-muted">已回 <span class="jc-num">{{ wan(p.received) }}</span></span>
                 <b class="jc-num" :class="{ 'jc-warn': p.payment_rate != null && p.payment_rate < 0.5 }">{{ percent(p.payment_rate) }}</b>
@@ -56,11 +56,11 @@
               <KeyProjectPauseButton :project="p" compact @changed="load" />
             </div>
           </div>
-          <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="auth.can('project:key')&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
+          <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="canCreate&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
         </Panel>
       </el-tab-pane>
 
-      <el-tab-pane label="周报 / 月报" name="reports">
+      <el-tab-pane v-if="auth.hasMenu('market')" label="周报 / 月报" name="reports">
         <Panel class="report-history" title="报告历史" sub="每周一 10:30 自动生成上周周报，每月 1 日 11:00 生成上月月报" :padding="false">
           <template #extra>
             <el-button @click="gen('weekly')" :loading="genLoading === 'weekly'">生成周报</el-button>
@@ -131,10 +131,11 @@ import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
 const auth = useAuth()
+const canCreate = computed(() => auth.hasMenu('market') && auth.can('project:key'))
 const route = useRoute()
 const router = useRouter(), createOpen = ref(false), keyword = ref(''), projectStatus = ref(null), attentionOnly = ref(false)
 const tab = computed({
-  get: () => route.query.tab === 'reports' ? 'reports' : 'key',
+  get: () => route.query.tab === 'reports' && auth.hasMenu('market') ? 'reports' : 'key',
   set: (value) => router.replace({ query: { ...route.query, tab: value === 'key' ? undefined : value } }),
 })
 const board = ref(null)
@@ -144,6 +145,7 @@ const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = 
 let menuTrigger = null
 let loadVersion = 0
 const filteredProjects = computed(() => (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) && (!attentionOnly.value || p.alert) && `${p.name} ${p.customer_name} ${p.owner_name} ${p.market_owner_name}`.includes(keyword.value.trim())))
+const showFinancials = computed(() => auth.hasMenu('market') && (!board.value?.projects.length || board.value.projects.some(project => project.can_view_financials)))
 const stats = computed(() => { const rows=filteredProjects.value,contract=rows.reduce((s,p)=>s+Number(p.contract_total||0),0),received=rows.reduce((s,p)=>s+Number(p.received||0),0);return {count:rows.length,alert_count:rows.filter(p=>p.alert).length,delayed_nodes:rows.reduce((s,p)=>s+p.delayed_nodes,0),contract_total:contract,received,payment_rate:contract?received/contract:null} })
 function openProject(p) { router.push(`/${p.is_key?'market/projects':'projects'}/${p.project_code}`) }
 async function openMenu(event, project) {
@@ -168,6 +170,11 @@ async function load() {
   try {
     const result = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
     if (current === loadVersion) board.value = result
+  } catch (error) {
+    if (current === loadVersion && error.code === 40301) {
+      board.value = null
+      router.replace({ name: 'forbidden' })
+    }
   } finally {
     if (current === loadVersion) loading.value = false
   }

@@ -168,6 +168,90 @@ def deletion_password():
     return {"password": settings.operations_delete_password}
 
 
+def test_team_membership_grants_only_that_projects_workspace_and_notices(client, login, db, key_project):
+    from app.integration.wecom.mock import read_outbox
+    from app.services import notify_service
+
+    path, project, fields = key_project
+    admin, member = login("admin"), login("chenjing")
+    person = ident(db, "chenjing")
+    link = path.removeprefix("/api/v1")
+    other = data(client.post(BASE + "/projects", headers=admin, json={**fields, "name": "无需共享的重点项目"}))
+    assert client.get(BASE + "/board", headers=member).status_code == 403
+    assert client.get(path, headers=member).status_code == 403
+    assert data(client.post(path + "/team", headers=admin, json={"user_ids": [person, person, fields["owner_id"]]}))["added"] == 1
+    assert data(client.post(path + "/team", headers=admin, json={"user_ids": [person]}))["added"] == 0
+    overview = data(client.get(BASE + "/board?include_all=true", headers=member))
+    assert [row["id"] for row in overview["projects"]] == [project["id"]]
+    assert not overview["projects"][0]["can_view_financials"] and "contract_total" not in overview["projects"][0]
+    profile = data(client.get("/api/v1/auth/me", headers=member))
+    assert profile["key_project_team"] and "market" not in profile["menus"]
+    assert client.get(BASE + "/reports", headers=member).status_code == 403
+    assert client.get(BASE + f"/projects/{other['project_code']}", headers=member).status_code == 403
+    assert client.post(path + "/team", headers=member, json={"user_ids": [ident(db, "dingrui")]}).status_code == 403
+    assert client.put(path, headers=member, json={**fields, "expected_revision": "0" * 64}).status_code == 403
+
+    item = data(client.post(path + "/tasks", headers=admin, json=task_body(db)))
+    task_path = f"{path}/tasks/{item['id']}"
+    detail = data(client.get(path, headers=member))
+    assert [u["id"] for u in detail["team"]] == [fields["owner_id"], person]
+    assert not detail["can_manage"] and not detail["can_delete"]
+    assert detail["money"] is None and detail["financials"] is None and "budget_amount" not in detail
+    assert [t["id"] for t in detail["tasks"]] == [item["id"]]
+    assert not data(client.get(task_path, headers=member))["can_feedback"]
+    assert client.get(f"/api/v1/record-followups/key-task/{item['id']}", headers=member).status_code == 200
+    assert client.post(task_path + "/feedback", headers=member, json={"content": "无权代填", "expected_revision": item["revision"]}).status_code == 403
+    data(client.post(task_path + "/feedback", headers=login("xuhao"), json={"content": "接口需求已核对", "expected_revision": item["revision"]}))
+    assert any("接口需求已核对" in note["content"] for note in data(client.get(path, headers=member))["feedbacks"])
+
+    titles = {"你已加入重点项目团队", "重点项目新增任务", "重点项目有新进展"}
+    cards = [msg for msg in read_outbox(200) if msg["type"] == "textcard" and "chenjing" in msg["to"] and link in (msg["url"] or "")]
+    assert len(cards) == 3 and {msg["title"] for msg in cards} == titles
+    notices = data(client.get("/api/v1/notifications", headers=member, params={"page_size": 100}))["items"]
+    assert {n["title"] for n in notices if link in (n["link"] or "")} == titles
+
+    pending = keys.queue_team_notice(db, db.get(BizProject, project["id"]), "等待投递的进展")
+    db.commit()
+    assert client.request("DELETE", f"{path}/team/{person}", headers=admin, json=deletion_password()).status_code == 200
+    assert notify_service.deliver_pending(db, pending) == 1
+    db.commit()
+    assert db.get(SysNotify, pending[0]).send_status == 2
+    assert not data(client.get("/api/v1/auth/me", headers=member))["key_project_team"]
+    assert client.get(task_path, headers=member).status_code == 403
+    assert client.get(f"/api/v1/record-followups/key-task/{item['id']}", headers=member).status_code == 403
+    assert not any(link in (n["link"] or "") for n in data(client.get("/api/v1/notifications", headers=member))["items"])
+
+
+def test_initial_team_member_can_be_assigned_own_task_and_receive_feedback_reminder(client, login, db, key_project, monkeypatch):
+    from app.integration.wecom.mock import read_outbox
+    from app.services import notify_service
+
+    _, _, fields = key_project
+    admin, member = login("admin"), login("yangyue")
+    member_id = ident(db, "yangyue")
+    result = data(client.post(BASE + "/projects", headers=admin, json={**fields, "name": "团队执行验收",
+        "team_member_ids": [member_id], "tasks": [task_body(db, owner_id=member_id, nodes=[], feedback_due_at="2026-11-20T10:00:00+08:00")]}))
+    path = BASE + f"/projects/{result['project_code']}"
+    task = data(client.get(path, headers=member))["tasks"][0]
+    task_path = f"{path}/tasks/{task['id']}"
+    assert task["can_feedback"]
+    assert client.request("DELETE", f"{path}/team/{member_id}", headers=admin, json=deletion_password()).status_code == 409
+    assert any(msg["to"] == ["yangyue"] and msg["title"] == "收到重点项目任务" and
+        (msg["url"] or "").endswith(f"/market/projects/{result['project_code']}?task={task['id']}") for msg in read_outbox(100))
+    monkeypatch.setenv("FAKE_TODAY", "2026-11-21")
+    queued = keys.scan_feedback_deadlines(db, datetime(2026, 11, 21, 12, tzinfo=TZ))
+    pending = [n.id for n in queued if n.channel == "wecom_app" and n.ref_id.startswith(f"{task['id']}:")]
+    db.commit()
+    assert len(pending) == 1 and notify_service.deliver_pending(db, pending) == 1
+    db.commit()
+    assert db.get(SysNotify, pending[0]).send_status == 1
+    task = data(client.get(task_path, headers=member))
+    data(client.post(f"{task_path}/feedback", headers=member, json={"content": "已完成本人任务", "status": 3,
+        "expected_revision": task["revision"]}))
+    assert client.request("DELETE", f"{path}/team/{member_id}", headers=admin, json=deletion_password()).status_code == 200
+    assert client.get(path, headers=member).status_code == 403
+
+
 def test_delete_key_project_hides_board_details_events_reports_and_reminders_but_keeps_history(client, login, db, key_project):
     path, project, body = key_project
     headers = login("admin")

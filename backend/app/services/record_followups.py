@@ -180,7 +180,7 @@ def _notify(db, user, entry, title):
                             link=f"/record-followups/{entry.id}", ref_type="record_followup", ref_id=str(entry.id), wecom=False)
 
 
-def _mirror_progress(db, p, record, body):
+def _mirror_progress(db, p, record, body, *, notice_ids=None):
     if record.legacy is None:
         return
     kind, ident = record.legacy
@@ -195,7 +195,8 @@ def _mirror_progress(db, p, record, body):
         from app.services.market_service import add_feedback
         row = db.get(BizProject, ident)
         feedback = add_feedback(db, row, {"content": body.content, "kind": "risk" if body.status == "blocked" else "progress",
-                                         "problems": body.problems, "next_step": body.next_step, "next_due_on": body.next_due_on}, p.id)
+                                         "problems": body.problems, "next_step": body.next_step, "next_due_on": body.next_due_on}, p.id,
+                                notice_ids=notice_ids)
         return f"{kind}-{feedback.id}"
 
 
@@ -222,7 +223,7 @@ def archive(db, p, record, body):
     return view(db, p, record)
 
 
-def write(db, p, record, body):
+def write(db, p, record, body, *, notice_ids=None):
     client_id = str(body.client_id)
     _lock(db, f"record-followup-submission:{p.id}:{client_id}")
     _lock(db, f"record-followup:{record.kind}:{record.key}")
@@ -262,7 +263,7 @@ def write(db, p, record, body):
     db.add(row)
     if body.action == "progress":
         # The last entry in the timeline remains the submitted wording even if the domain adds a summary.
-        row.legacy_key = _mirror_progress(db, p, record, body)
+        row.legacy_key = _mirror_progress(db, p, record, body, notice_ids=notice_ids)
         row.created_at = now()
     db.flush()
     if recipient:

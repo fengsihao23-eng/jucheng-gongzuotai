@@ -27,8 +27,8 @@ const pages = [
   { path: 'journal', name: 'journal', component: () => import('@/views/FinanceLedgerWorkspace.vue'), meta: { menu: 'journal', title: '出纳日记账' } },
   { path: 'profit', name: 'profit', component: () => import('@/views/Profit.vue'), meta: { menu: 'profit', title: '项目利润' } },
   { path: 'finance-data', name: 'finance-data', component: () => import('@/views/FinanceData.vue'), meta: { menu: 'finance_data', title: '财务数据' } },
-  { path: 'market', name: 'market', component: () => import('@/views/MarketFollow.vue'), meta: { menu: 'market', title: '重点项目' } },
-  { path: 'market/projects/:code', name: 'key-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), meta: { anyMenu: ['market', 'projects'], title: '重点项目详情' } },
+  { path: 'market', name: 'market', component: () => import('@/views/MarketFollow.vue'), meta: { keyProjects: true, title: '重点项目' } },
+  { path: 'market/projects/:code', name: 'key-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), meta: { keyProjects: true, title: '重点项目详情' } },
   { path: 'operations', name: 'operations', component: () => import('@/views/Operations.vue'), meta: { menu: 'operations', title: '运营项目' } },
   { path: 'operations/:id', name: 'operation-detail', component: () => import('@/views/OperationDetail.vue'), meta: { menu: 'operations', title: '运营项目跟进' } },
   { path: 'tender-projects', name: 'tender-projects', component: () => import('@/views/TenderWorkbook.vue'), meta: { menu: 'projects', workbookView: 'tender', title: '招标与在建' } },
@@ -88,6 +88,9 @@ router.beforeEach(async (to) => {
   }
   if (auth.profile?.workbench_enabled === false && to.name !== 'forbidden') return { name: 'forbidden' }
   if (to.meta.adminOnly && !auth.profile?.is_admin) return { name: 'forbidden' }
+  if (to.meta.keyProjects && !auth.canAccessKeyProjects && !(to.name === 'key-project-detail' && auth.hasMenu('projects'))) {
+    return { name: 'forbidden' }
+  }
   if ((to.meta.menu && !auth.hasMenu(to.meta.menu)) || (to.meta.anyMenu && !to.meta.anyMenu.some(k => auth.hasMenu(k)))) return { name: 'forbidden' }
   return true
 })

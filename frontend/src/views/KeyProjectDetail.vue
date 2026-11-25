@@ -1,6 +1,6 @@
 <template>
   <div class="jc-page" v-loading="loading">
-    <el-button link @click="router.push(auth.hasMenu('market') ? '/market' : '/projects')">← 重点项目</el-button>
+    <el-button link @click="router.push(auth.canAccessKeyProjects ? '/market' : '/projects')">← 重点项目</el-button>
     <template v-if="project">
       <PageHeader v-record-delete="projectRemoval" eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
@@ -10,13 +10,16 @@
           progress-hint="说明关键事项、节点进展或需要协调的问题。" />
       </PageHeader>
       <div class="project-meta jc-small jc-muted"><span>负责人 {{ project.owner_name || '未登记' }}</span><span>准备 {{ project.start_date || '未登记' }}</span><span>完成节点 {{ project.plan_end_date || '未登记' }}</span><StatusPill :text="project.paused?'已暂停跟进':project.status_text" :tone="project.paused?'warn':'brand'" /></div>
-      <div class="jc-grid c4 mt-16"><Kpi label="项目任务" :value="project.tasks.length" :hint="`已完成 ${project.done_nodes} 项`" /><Kpi label="需要关注" :value="project.tasks.filter(t=>t.alert&&t.status!==3).length" hint="逾期、问题或待填写进展" /><Kpi label="合同金额" :value="wanNum(project.money.contract_total)" unit="万" /><Kpi label="累计回款" :value="wanNum(project.money.received)" unit="万" :hint="`未收 ${wan(project.money.receivable)}`" /></div>
+      <div class="jc-grid mt-16" :class="project.money ? 'c4' : 'c2'"><Kpi label="项目任务" :value="project.tasks.length" :hint="`已完成 ${project.done_nodes} 项`" /><Kpi label="需要关注" :value="project.tasks.filter(t=>t.alert&&t.status!==3).length" hint="逾期、问题或待填写进展" /><Kpi v-if="project.money" label="合同金额" :value="wanNum(project.money.contract_total)" unit="万" /><Kpi v-if="project.money" label="累计回款" :value="wanNum(project.money.received)" unit="万" :hint="`未收 ${wan(project.money.receivable)}`" /></div>
       <Panel class="mt-16">
         <el-tabs v-model="tab">
           <el-tab-pane label="任务情况" name="tasks">
             <KeyTaskBoard :key="project.project_code" ref="taskBoard" v-model:task-id="taskId" :project="project" @refresh="load()" />
           </el-tab-pane>
-          <el-tab-pane label="开票回款" name="financials">
+          <el-tab-pane label="项目团队" name="team" lazy>
+            <KeyProjectTeam :key="project.project_code" :project="project" @saved="load()" />
+          </el-tab-pane>
+          <el-tab-pane v-if="project.financials" label="开票回款" name="financials">
             <div class="financial-period"><el-date-picker v-model="period" type="month" value-format="YYYY-MM" :clearable="false" aria-label="项目开票回款月份" @change="load()" /><span class="jc-small jc-muted">{{ project.financials.note }}</span></div>
             <div class="jc-grid c2"><Kpi :label="period===currentMonth?'当月开票':`${period} 开票`" :value="money(project.financials.invoiced)" unit="元" /><Kpi :label="period===currentMonth?'当月到账':`${period} 到账`" :value="money(project.financials.received)" unit="元" /></div>
             <h3 class="mt-16">开票清单</h3><el-table :data="project.financials.invoices" empty-text="此月份没有已确认的开票记录"><el-table-column prop="invoice_no" label="发票号码" min-width="150" /><el-table-column prop="issued_on" label="开票日期" width="115" /><el-table-column prop="contract_no" label="合同编号" min-width="145" /><el-table-column prop="customer" label="客户" min-width="160" /><el-table-column label="有效开票金额（元）" min-width="150" align="right"><template #default="{row}">{{ money(row.amount) }}</template></el-table-column></el-table>
@@ -41,6 +44,7 @@ import { money, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
+import KeyProjectTeam from './market/KeyProjectTeam.vue'
 import KeyTaskBoard from './market/KeyTaskBoard.vue'
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const project = ref(null), loading = ref(false), projectForm = ref(false), taskBoard = ref(null), tab = ref('tasks')
@@ -54,8 +58,9 @@ let version=0
 async function load(quiet=false){const v=++version;if(!quiet&&!project.value)loading.value=true;try{const r=await api.get(`/market/projects/${route.params.code}`,{period:period.value},{silent:quiet});if(v===version)project.value=r}catch(e){if(v===version&&(!quiet||[40301,40401].includes(e.code)))project.value=null}finally{if(v===version)loading.value=false}}
 const projectRemoval = computed(() => project.value?.can_delete && {
   endpoint: '/market/projects/' + project.value.project_code, title: '删除重点项目', name: project.value.name,
-  onDeleted: () => router.push(auth.hasMenu('market') ? '/market' : '/projects'),
+  onDeleted: () => router.push(auth.canAccessKeyProjects ? '/market' : '/projects'),
 })
+watch(() => project.value?.financials, value => { if (!value && tab.value === 'financials') tab.value = 'tasks' })
 watch(()=>route.params.code,()=>{project.value=null;tab.value='tasks';load()},{immediate:true})
 useBusinessRefresh(()=>load(true),{interval:12000,enabled:()=>!projectForm.value})
 </script>

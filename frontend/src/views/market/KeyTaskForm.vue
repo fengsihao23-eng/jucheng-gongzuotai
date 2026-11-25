@@ -28,7 +28,7 @@ const completed = computed(() => new Set((props.initial?.nodes || []).filter(nod
 watch(visible, async open => {
   if (!open) return
   Object.assign(form, taskPlan(props.project, props.initial))
-  try { users.value = (await api.get('/market/key-options')).users }
+  try { users.value = (await api.get('/market/key-options', { project_code: props.project.project_code })).users }
   catch { /* 请求错误由接口提示统一显示。 */ }
 })
 

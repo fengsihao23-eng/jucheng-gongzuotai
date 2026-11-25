@@ -22,7 +22,7 @@ from app.models.ext_operation_audit import AuditEvent, AuditChange, AuditSetting
 from app.models.ext_operations_features import OpsProjectFeatures  # noqa: F401
 from app.models.ext_operations_assets import OpsAssetMovement, OpsMaintenanceRecord, OpsMaintenanceUpdate  # noqa: F401
 from app.models.ext_collection_reminder import WorkbookCollectionReminder  # noqa: F401
-from app.models.ext_key_projects import KeyProjectTaskPlan, KeyProjectTaskNode, KeyProjectTaskUpdate  # noqa: F401
+from app.models.ext_key_projects import KeyProjectMember, KeyProjectTaskPlan, KeyProjectTaskNode, KeyProjectTaskUpdate  # noqa: F401
 from app.models.ext_workbook_project_feedback import WorkbookProjectFeedback  # noqa: F401
 from app.models.ext_record_followups import RecordFollowup  # noqa: F401
 from app.models.ext_finance_ledgers import FinLedgerEntry, FinLedgerImport  # noqa: F401

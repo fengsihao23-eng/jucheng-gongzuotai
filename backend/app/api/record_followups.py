@@ -1,12 +1,13 @@
 """Comments, progress updates and process history for business records."""
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok
+from app.services import notify_service
 from app.services import record_followup_targets as targets, record_followups as service
 from app.services.workbook_project_feedback import ProjectArchiveIn
 
@@ -41,9 +42,12 @@ def recipients(record: Record, p: Actor, db: DB, keyword: Annotated[str, Query(m
 
 
 @router.post("/{kind}/{ident}")
-def add(record: Record, body: service.FollowupIn, p: Actor, db: DB):
-    result = service.write(db, p, record, body)
+def add(record: Record, body: service.FollowupIn, background: BackgroundTasks, p: Actor, db: DB):
+    notices = []
+    result = service.write(db, p, record, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(result, headers=HEADERS)
 
 
