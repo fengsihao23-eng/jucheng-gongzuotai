@@ -44,6 +44,7 @@ class OpsMaintenanceRecord(TimestampMixin, Base):
     problems: Mapped[str] = mapped_column(Text, default="")
     next_step: Mapped[str] = mapped_column(Text, default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    workbook_row: Mapped[dict | None] = mapped_column(JSON)
 
 
 class OpsMaintenanceUpdate(TimestampMixin, Base):

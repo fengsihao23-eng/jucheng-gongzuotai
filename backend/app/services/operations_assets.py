@@ -170,13 +170,17 @@ def approved_stock_out(db, approval, fields):
 def records(db, p, project_id, kind):
     project = ops.get_project(db, p, project_id)
     scope.require(db, p, project, kind)
-    users = {m["user_id"]: m["name"] for m in ops.members(db, project)}
+    role = ops.role(db, p, project)
+    active = project.status == "active"
+    members = ops.members(db, project)
+    users = {m["user_id"]: m["name"] for m in members}
     rows = db.scalars(select(Record).where(Record.project_id == project_id, Record.kind == kind).order_by(Record.id.desc())).all()
     return {"items": [{"id": r.id, **snapshot(r, FIELDS), "revision": r.revision, "owner_name": users.get(r.owner_id, "历史成员"),
-                       "updated_at": r.updated_at, "can_edit": project.status == "active" and (ops.role(db, p, project) == "manager" or
-                       (r.owner_id == p.id and ops.role(db, p, project) in ops.EXECUTION_ROLES))} for r in rows],
-            "members": [m for m in ops.members(db, project) if m["active"] and m["role"] != "viewer"],
-            "can_manage": project.status == "active" and ops.role(db, p, project) == "manager"}
+                       **({"workbook_row": r.workbook_row} if r.workbook_row else {}),
+                       "updated_at": r.updated_at, "can_edit": active and (role == "manager" or
+                       (r.owner_id == p.id and role in ops.EXECUTION_ROLES))} for r in rows],
+            "members": [m for m in members if m["active"] and m["role"] != "viewer"],
+            "can_manage": active and role == "manager"}
 
 
 def record_history(db, p, project_id, record_id):

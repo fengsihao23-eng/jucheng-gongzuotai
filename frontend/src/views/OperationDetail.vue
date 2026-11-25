@@ -29,7 +29,9 @@
               <CompetitorInfo :key="project.id" :project-id="project.id" :active="tab === 'competitors'" />
             </el-tab-pane>
           </template>
-          <el-tab-pane v-for="section in maintenanceSections.filter(s => canSection(s.key))" :key="section.key" :label="section.label" :name="section.key" lazy><OperationsMaintenance :project="project" :kind="section.key" :active="tab === section.key" /></el-tab-pane>
+          <el-tab-pane v-for="section in maintenanceSections.filter(s => canSection(s.key))" :key="section.key" :label="section.label" :name="section.key" lazy>
+            <OperationsMaintenance :project="project" :kind="section.key" :label="section.label" :active="tab === section.key" />
+          </el-tab-pane>
           <el-tab-pane v-if="canSection('warehouse')" label="仓库物料" name="warehouse" lazy><OperationsWarehouse :project="project" :active="tab === 'warehouse'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('scrap')" label="设备报废" name="scrap" lazy><OperationsWarehouse :project="project" :active="tab === 'scrap'" scrap-only /></el-tab-pane>
           <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
@@ -73,7 +75,12 @@ const taskId = computed({
 const hasSchools = computed(() => project.value?.feature_settings?.configured || project.value?.category.includes('校园') || project.value?.schools.length)
 const legacyCampusIncome = computed(() => project.value?.feature_settings?.legacy_campus_income ?? project.value?.name === '智慧校园')
 const canSection = section => (project.value?.visible_sections || []).includes(section)
-const maintenanceSections = [{key:'device_maintenance',label:'设备运维'},{key:'arrears',label:'欠费维护'},{key:'collection_maintenance',label:'回款维护'},{key:'customers',label:'客户资料维护'}]
+const maintenanceSections = computed(() => [
+  { key: 'device_maintenance', label: '设备运维' },
+  { key: 'arrears', label: project.value?.name.trim() === '一键报警' ? '欠款维护' : '欠费维护' },
+  { key: 'collection_maintenance', label: '回款维护' },
+  { key: 'customers', label: '客户资料维护' },
+])
 watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
 watch(project, value => {
   if (!value) return
