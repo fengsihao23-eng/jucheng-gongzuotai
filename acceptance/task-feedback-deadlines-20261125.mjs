@@ -52,7 +52,7 @@ try {
     preparation_on: '2026-11-20', due_on: '2026-12-10' })
   const keyPath = `/market/projects/${key.project_code}`
 
-  await step('FEEDBACK-01', '运营任务可设置反馈时间，项目与市场看板都能筛选逾期未反馈', async () => {
+  await step('FEEDBACK-01', '运营任务可设置反馈时间并在运营项目筛选逾期未反馈', async () => {
     const future = '登记首轮学校巡检结果'
     const overdue = await call('admin', 'POST', `${operationPath}/tasks`, { title: '反馈教室网络初检结果', owner_id: operator.id,
       cadence: 'node', due_date: '2026-12-05', feedback_due_at: passed })
@@ -74,9 +74,7 @@ try {
     notices.push({ pagePath: operationPath, detail: `/operations/tasks/${overdue.id}`, title: overdue.title, recipient: 'xiekai',
       link: `${operationPath}?task=${overdue.id}`, assignment: '收到运营项目任务', reminder: '运营任务逾期未反馈', dialog: '任务详情' })
     await checkFilters(future, overdue.title)
-    await page.goto(WEB + '/market')
-    await checkFilters(future, overdue.title)
-    await capture('02-市场看板逾期未反馈')
+    await capture('02-运营项目逾期未反馈')
     return screenshot
   })
 
@@ -101,7 +99,12 @@ try {
     notices.push({ pagePath: keyPath, detail: `${keyPath}/tasks/${overdue.id}`, title: overdue.title, recipient: 'xuhao',
       link: `${keyPath}?task=${overdue.id}`, assignment: '收到重点项目任务', reminder: '重点项目任务逾期未反馈', dialog: '任务情况' })
     await checkFilters(future, overdue.title)
-    return capture('03-重点项目逾期未反馈')
+    const screenshot = await capture('03-重点项目逾期未反馈')
+    await page.goto(WEB + '/market')
+    await page.locator('.el-select').filter({ has: page.getByRole('combobox', { name: '选择重点项目' }) }).click()
+    await page.getByRole('option', { name: '校园设备交付', exact: true }).click()
+    await checkFilters(future, overdue.title)
+    return screenshot
   })
 
   await step('FEEDBACK-03', '发给本人的是企微文字卡片，重复扫描与提交反馈后均无重复提醒', async () => {

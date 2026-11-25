@@ -74,6 +74,9 @@
             <section v-if="$slots.progress" class="record-section"><slot name="progress" /></section>
             <section v-else-if="data" class="record-section" aria-label="进展反馈">
               <h3>{{ feedbackTitle || '进展反馈' }}</h3>
+              <p v-if="archiveRequested && !data.archive && !data.can_archive" class="jc-small jc-muted">
+                {{ !data.can_feedback ? '当前账号没有归档权限。' : 'can_archive' in data ? '提交完成结果后即可选择归档类别。' : '请先核对原表中的项目标识。' }}
+              </p>
               <el-form v-if="data.can_feedback" id="record-progress-form" label-position="top" @submit.prevent="sendProgress">
                 <el-form-item label="完成情况" class="record-outcome">
                   <el-radio-group v-model="outcome" aria-label="完成情况">
@@ -100,7 +103,7 @@
                 <p v-if="latest.next_step" class="record-text">下一步 · {{ latest.next_step }}</p>
               </template>
               <p v-else class="jc-muted jc-small">暂无进展反馈。</p>
-              <WorkbookProjectArchive v-if="data.archive || data.can_archive || (data.can_feedback && 'can_archive' in data && outcome === 'done')"
+              <WorkbookProjectArchive v-if="data.archive || data.can_archive || (data.can_feedback && 'can_archive' in data && outcome === 'done')" ref="archiveAction"
                 :target="data.target" :title="data.record.title" :archive="data.archive" :feedback-id="data.archive_feedback_id"
                 :disabled="!!progress.content.trim() || !!saving"
                 @archived="updateArchivedRecord" @stale="load()" />
@@ -155,7 +158,7 @@ import WorkbookProjectArchive from '@/components/WorkbookProjectArchive.vue'
 const props = defineProps({ modelValue: Boolean, title: String, dialogTitle: String, heading: String, subtitle: String,
   status: String, statusTone: { type: String, default: 'brand' }, facts: Array, historyEntries: Array,
   target: Object, initial: Object, linked: Boolean, progressHint: String, feedbackTitle: String, contextTitle: String,
-  closeLocked: Boolean, fullWidthContent: Boolean })
+  closeLocked: Boolean, fullWidthContent: Boolean, archiveOnOpen: Boolean })
 const emit = defineEmits(['update:modelValue', 'close', 'closed', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const router = useRouter()
@@ -168,6 +171,7 @@ const previous = ref([]), previousBefore = ref(null), finding = ref(false), peop
 const discussion = reactive({ kind: 'note', recipient: null, content: '' })
 const progress = reactive({ content: '', problems: '', next_step: '', next_due_on: '' })
 const outcome = ref('pending'), blocked = ref(false)
+const archiveRequested = ref(false), archiveAction = ref(null)
 const progressLabels = { doing: '推进中', blocked: '遇到阻碍', done: '已完成' }
 const progressTones = { doing: 'brand', blocked: 'down', done: 'up' }
 const actionLabels = { note: '留言', request: '办理要求', reply: '回复', progress: '进展反馈' }
@@ -207,7 +211,8 @@ function reset() {
   people.value = []
   Object.assign(discussion, { kind: 'note', recipient: null, content: '' })
   Object.assign(progress, { content: '', problems: '', next_step: '', next_due_on: '' })
-  outcome.value = 'pending'
+  archiveRequested.value = visible.value && props.archiveOnOpen
+  outcome.value = archiveRequested.value ? 'done' : 'pending'
   blocked.value = false
   retry.discussion = retry.progress = null
   draftRevision = null
@@ -234,6 +239,11 @@ watch(() => [visible.value, identity.value], () => {
   reset()
   load()
 }, { immediate: true })
+watch([archiveRequested, archiveAction, () => data.value?.can_archive, saving, () => progress.content], () => {
+  if (!archiveRequested.value || !archiveAction.value || !data.value?.can_archive || saving.value || progress.content.trim()) return
+  archiveRequested.value = false
+  archiveAction.value.openDialog()
+}, { flush: 'post' })
 useBusinessRefresh(() => load(true), { interval: 20000, enabled: () => visible.value && !!endpoint.value })
 
 async function older() {

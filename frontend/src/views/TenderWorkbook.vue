@@ -1,13 +1,15 @@
 <template>
   <div v-if="selected" class="jc-page tender-page">
     <PageHeader eyebrow="招标与在建" :title="selected.name">
-      <template v-if="selected.progress" #meta>
-        <div class="jc-small jc-muted">{{ selected.progress }}</div>
+      <template v-if="selected.progress || selected.archiveCategory" #meta>
+        <div class="jc-row wrap">
+          <span v-if="selected.progress" class="jc-small jc-muted">{{ selected.progress }}</span>
+          <StatusPill v-if="selected.archiveCategory" :text="`已归档 · ${ARCHIVE_CATEGORIES[selected.archiveCategory]}`" tone="up" />
+        </div>
       </template>
       <el-button @click="closeProject">返回项目列表</el-button>
-      <RecordFeedbackButton v-if="detail" :heading="selected.name"
-        :target="{ kind: 'workbook-tender', id: selected.group, sheet: data.sheet.id, revision: detail.revision }"
-        :progress-hint="isTender ? '记录招标准备、开标节点、中标进展或待协调事项。' : '记录工程、验收、签约或交付进展。'" />
+      <el-button v-if="!selected.archiveCategory" aria-haspopup="dialog" @click="showFeedback(selected, true)">归档</el-button>
+      <el-button plain type="primary" aria-haspopup="dialog" @click="showFeedback(selected)">互动反馈</el-button>
     </PageHeader>
     <div class="jc-stack project-detail" v-loading="detailLoading">
       <Panel :title="isTender ? '招标安排' : '项目安排'">
@@ -30,7 +32,6 @@
           </template>
         </dl>
       </Panel>
-      <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" :title="selected.name" />
     </div>
   </div>
   <div v-else class="jc-page tender-page">
@@ -112,8 +113,11 @@
             <el-table-column v-if="hasAmounts" :label="isTender ? '预计金额（元）' : '合同金额（元）'" min-width="145" align="right">
               <template #default="{ row }"><span v-if="row.lots.length === 1 && row.amount != null" class="jc-num">{{ moneyText(row.amount) }}</span><span v-else class="jc-muted">{{ row.lots.length > 1 ? '见标段' : '—' }}</span></template>
             </el-table-column>
-            <el-table-column label="操作" width="100">
-              <template #default="{ row }"><el-button link type="primary" @click.stop="openProject(row)">{{ row.lots.length > 1 ? '查看标段' : '查看详情' }}</el-button></template>
+            <el-table-column label="操作" width="140">
+              <template #default="{ row }">
+                <el-button link type="primary" @click.stop="openProject(row)">{{ row.lots.length > 1 ? '查看标段' : '查看详情' }}</el-button>
+                <el-button v-if="!row.archiveCategory" link type="primary" aria-haspopup="dialog" @click.stop="showFeedback(row, true)">归档</el-button>
+              </template>
             </el-table-column>
           </el-table>
           <el-empty v-else description="暂无符合条件的项目" :image-size="80" />
@@ -129,13 +133,13 @@
     <el-empty v-else-if="data" description="暂无已同步的项目数据" />
 
   </div>
+  <WorkbookFeedbackDialog ref="feedbackDialog" />
 </template>
 
 <script setup>
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
-import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import WorkbookArchiveFilter from '@/components/WorkbookArchiveFilter.vue'
-import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
+import WorkbookFeedbackDialog from '@/components/WorkbookFeedbackDialog.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -155,6 +159,7 @@ const sourceMenu = rowDeletion(row => auth.canDelete('project:key', 'milestone:w
     description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
   }))
 const data = ref(null), loading = ref(false), syncing = ref(false), error = ref('')
+const feedbackDialog = ref(null)
 const keyword = ref(''), progress = ref(''), year = ref(''), archiveCategory = ref(''), page = ref(1)
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null)
 const canSync = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
@@ -221,6 +226,10 @@ function openProject(project) {
   return router.push({ name: 'tender-projects', query: {
     ...route.query, row: project.group, revision: data.value.source.revision,
   } })
+}
+function showFeedback(project, archive = false) {
+  feedbackDialog.value?.show({ kind: 'workbook-tender', id: project.group, sheet: data.value.sheet.id, revision: data.value.source.revision },
+    project.name, isTender.value ? '记录招标准备、开标节点、中标进展或待协调事项。' : '记录工程、验收、签约或交付进展。', archive)
 }
 function closeProject() {
   const { row, revision, ...query } = route.query

@@ -1,13 +1,15 @@
 <template>
   <div v-if="detail" class="jc-page opportunity-detail">
     <PageHeader eyebrow="商机信息" :title="detail.name" :desc="detail.sequence">
-      <template v-if="detail.progress" #meta>
-        <StatusPill :text="detail.progress" tone="info" class="detail-status" />
+      <template v-if="detail.progress || detail.archive_category" #meta>
+        <div class="jc-row wrap detail-status">
+          <StatusPill v-if="detail.progress" :text="detail.progress" tone="info" />
+          <StatusPill v-if="detail.archive_category" :text="`已归档 · ${ARCHIVE_CATEGORIES[detail.archive_category]}`" tone="up" />
+        </div>
       </template>
       <el-button @click="closeDetail">返回商机列表</el-button>
-      <RecordFeedbackButton :heading="detail.name"
-        :target="{ kind: 'workbook-opportunities', id: detail.row, sheet: detail.sheet_id, revision: data.source.revision }"
-        progress-hint="说明客户沟通、方案确认或转化的最新进展。" />
+      <el-button v-if="!detail.archive_category" aria-haspopup="dialog" @click="showFeedback(detail, true)">归档</el-button>
+      <el-button plain type="primary" aria-haspopup="dialog" @click="showFeedback(detail)">互动反馈</el-button>
     </PageHeader>
     <Panel title="工单详情">
       <dl class="detail-fields">
@@ -21,7 +23,6 @@
     <Panel v-if="detail.note" class="mt-16" title="描述">
       <p class="detail-note">{{ detail.note }}</p>
     </Panel>
-    <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" :title="detail.name" />
   </div>
   <div v-else class="jc-page opportunity-page">
     <PageHeader eyebrow="营销管控部 · 台账中心" title="商机信息"
@@ -115,8 +116,11 @@
           <el-table-column prop="date" label="发起时间" min-width="168" show-overflow-tooltip>
             <template #default="{ row }">{{ row.date || '—' }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="96">
-            <template #default="{ row }"><el-button link type="primary" @click.stop="openDetail(row)">查看详情</el-button></template>
+          <el-table-column label="操作" width="140">
+            <template #default="{ row }">
+              <el-button link type="primary" @click.stop="openDetail(row)">查看详情</el-button>
+              <el-button v-if="!row.archive_category" link type="primary" aria-haspopup="dialog" @click.stop="showFeedback(row, true)">归档</el-button>
+            </template>
           </el-table-column>
         </el-table>
         <div class="pager">
@@ -129,13 +133,13 @@
     <el-skeleton v-else-if="loading" :rows="8" animated />
 
   </div>
+  <WorkbookFeedbackDialog ref="feedbackDialog" />
 </template>
 
 <script setup>
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
-import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import WorkbookArchiveFilter from '@/components/WorkbookArchiveFilter.vue'
-import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
+import WorkbookFeedbackDialog from '@/components/WorkbookFeedbackDialog.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -153,6 +157,7 @@ const opportunityMenu = rowDeletion(row => auth.canDelete('opp:write') && record
   description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
 }))
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), exporting = ref(false)
+const feedbackDialog = ref(null)
 const page = ref(1), size = ref(30), range = ref(null)
 const detailItem = ref(null)
 const detailRow = computed(() => typeof route.query.row === 'string' && /^[1-9]\d*$/.test(route.query.row) ? Number(route.query.row) : null)
@@ -185,8 +190,12 @@ async function load(quiet = false) {
         !result.items.some(entry => entry.row === row)) {
       // A direct link can point outside the current page or archive filter.
       try {
-        const record = await api.get(`${ENDPOINT}/rows/${encodeURIComponent(result.sheet.id)}/${row}`, { revision }, { silent: true })
-        item = record.item
+        const path = `${ENDPOINT}/rows/${encodeURIComponent(result.sheet.id)}/${row}`
+        const [record, feedback] = await Promise.all([
+          api.get(path, { revision }, { silent: true }),
+          api.get(`${path}/feedback`, { revision }, { silent: true }).catch(() => null),
+        ])
+        item = { ...record.item, archive_category: feedback?.archive?.category }
       } catch (e) {
         if (![40301, 40401].includes(e.code)) throw e
       }
@@ -226,6 +235,10 @@ function openDetail(row) {
   return router.push({ name: 'opportunities', query: {
     ...route.query, row: row.row, revision: data.value.source.revision,
   }, state: { opportunityPage: page.value, opportunitySize: size.value } })
+}
+function showFeedback(row, archive = false) {
+  feedbackDialog.value?.show({ kind: 'workbook-opportunities', id: row.row, sheet: row.sheet_id, revision: data.value.source.revision },
+    row.name, '说明客户沟通、方案确认或转化的最新进展。', archive)
 }
 function closeDetail() {
   const { row, revision, ...query } = route.query

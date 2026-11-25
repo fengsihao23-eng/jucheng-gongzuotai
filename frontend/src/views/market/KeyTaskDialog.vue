@@ -49,8 +49,12 @@ const canFeedback = computed(() => item.value?.can_feedback && item.value.status
 const cadenceLabel = { daily: '每天反馈', weekly: '每周反馈', node: '按节点反馈' }
 let version=0
 async function load(){if(!visible.value||!props.taskId)return;const v=++version;loading.value=true;try{const r=await api.get(`/market/projects/${props.project.project_code}/tasks/${props.taskId}`);if(v!==version||!visible.value)return;item.value=r;Object.assign(form,{content:'',problems:r.problems||'',next_step:r.next_step||'',status:2,completed_on:props.project.today,completed_node_ids:[]});await nextTick();formRef.value?.clearValidate()}catch{if(v===version)item.value=null}finally{if(v===version)loading.value=false}}
-async function submit(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;if(form.status===3&&item.value.nodes.some(n=>!n.completed_on&&!form.completed_node_ids.includes(n.id)))return ElMessage.warning('请先确认所有阶段节点完成');saving.value=true;try{await api.post(`/market/projects/${props.project.project_code}/tasks/${props.taskId}/feedback`,{...form,completed_on:form.status===3?form.completed_on:null,expected_revision:item.value.revision});ElMessage.success('进展已保存');await load();announceBusinessChange();emit('saved')}catch{}finally{saving.value=false}}
-watch(()=>[visible.value,props.taskId,props.project.project_code],()=>{if(visible.value)load();else version++},{immediate:true})
+async function submit(){if(saving.value||!item.value||!await formRef.value?.validate().catch(()=>false))return;if(form.status===3&&item.value.nodes.some(n=>!n.completed_on&&!form.completed_node_ids.includes(n.id)))return ElMessage.warning('请先确认所有阶段节点完成');saving.value=true;try{await api.post(`/market/projects/${props.project.project_code}/tasks/${props.taskId}/feedback`,{...form,completed_on:form.status===3?form.completed_on:null,expected_revision:item.value.revision});ElMessage.success('进展已保存');await load();announceBusinessChange();emit('saved')}catch{}finally{saving.value=false}}
+watch([visible, () => props.taskId, () => props.project.project_code], ([open]) => {
+  version++
+  item.value = null
+  if (open) load()
+}, { immediate: true })
 </script>
 <style scoped>
 .plain { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }

@@ -8,7 +8,7 @@
     <el-tabs v-model="tab">
       <el-tab-pane label="跟进看板" name="board">
         <div class="layout">
-          <MarketOperationTasks v-if="tab === 'board'" />
+          <MarketKeyTasks v-if="tab === 'board'" :projects="board?.projects || []" :ready="!!board" :loading="loading" />
 
           <Panel title="重点事件" sub="近 60 天事件与风险">
             <el-timeline v-if="board?.events?.length" class="tl">
@@ -143,7 +143,7 @@ import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
-import MarketOperationTasks from './market/MarketOperationTasks.vue'
+import MarketKeyTasks from './market/MarketKeyTasks.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
 const auth = useAuth()

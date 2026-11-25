@@ -35,6 +35,7 @@ const open = ref(false), category = ref(''), saving = ref(false)
 let expectedLatestId
 
 function openDialog() {
+  if (!props.feedbackId || props.disabled) return
   expectedLatestId = props.feedbackId
   category.value = ''
   open.value = true
@@ -60,6 +61,8 @@ async function save() {
     }
   } finally { saving.value = false }
 }
+
+defineExpose({ openDialog })
 </script>
 
 <style scoped>
