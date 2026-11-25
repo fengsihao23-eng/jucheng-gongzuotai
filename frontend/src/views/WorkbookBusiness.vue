@@ -2,6 +2,7 @@
   <component :is="legacy" v-if="data?.active === false" />
   <div v-else class="jc-page workbook-page">
     <PageHeader eyebrow="经营数据 · 固定表格" :title="titles[view]" :desc="view === 'contracts' ? '查看项目合同、签约与回款情况，点击项目查看完整内容。' : '以指定企微表格为唯一来源，每条明细可查看原表单元格。'">
+      <WecomAuthorizationAction v-if="canManageSource" :source="data?.source" compact />
       <el-button v-if="canManageSource && data?.source?.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canManageSource" :loading="syncing" @click="syncNow">检查表格更新</el-button>
       <el-button :loading="loading" @click="load()">刷新页面</el-button>
@@ -17,7 +18,9 @@
           · 每 {{ data.source.poll_minutes }} 分钟检查，页面每 30 秒刷新</div>
       </div>
       <el-alert v-if="canManageSource && data.source.stale" type="warning" :closable="false" show-icon class="mb-16"
-                :title="data.source.last_error || (data.source.enabled ? '尚未确认最新版本，当前显示最近一次完整数据。' : '自动同步已暂停，当前显示最近一次完整数据。')" />
+                :title="data.source.last_error || (data.source.enabled ? '尚未确认最新版本，当前显示最近一次完整数据。' : '自动同步已暂停，当前显示最近一次完整数据。')">
+        <WecomAuthorizationAction v-if="data.source.authorization_required" :source="data.source" urgent show-retry :loading="syncing" @retry="syncNow" />
+      </el-alert>
 
       <template v-if="view === 'board'">
         <Panel v-if="sales" :title="sales.name" sub="仅汇总本子表的明细；金额单位为元。">

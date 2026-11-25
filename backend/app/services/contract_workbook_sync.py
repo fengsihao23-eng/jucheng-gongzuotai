@@ -7,6 +7,7 @@ import zlib
 from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 from sqlalchemy import func, select, text as sql
 from sqlalchemy.orm import defer, load_only
@@ -34,6 +35,26 @@ LABELS = {"name": "名称", "customer_name": "客户", "amount": "金额", "sign
           "project_code": "关联项目"}
 PROFILE_NAMES = {key: name for key, name in match.SHEET_LABELS.items()}
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]{0,47}")
+AUTHORIZATION_HOSTS = frozenset({"work.weixin.qq.com", "open.work.weixin.qq.com"})
+
+
+def _authorization_action(exc):
+    """Return a safe official authorization action carried by a WeCom error."""
+    data = exc.data if isinstance(exc, BizError) and isinstance(exc.data, dict) else {}
+    url = data.get("authorization_url")
+    if not isinstance(url, str):
+        return None
+    try:
+        target = urlsplit(url)
+        if (target.scheme != "https" or target.hostname not in AUTHORIZATION_HOSTS
+                or target.username or target.password or target.port not in (None, 443)):
+            return None
+    except ValueError:
+        return None
+    label = data.get("authorization_label")
+    if not isinstance(label, str) or not label.strip():
+        label = "重新授权企业微信功能"
+    return url, label.strip()[:120]
 
 
 def profile_for(name):
@@ -87,12 +108,17 @@ def configure(db, key, *, title, url, reader_id, view_department_ids=(), view_us
         if (row.config.get("format"), row.config.get("docid"), row.config.get("file_id")) != (
                 config.get("format"), config.get("docid"), config.get("file_id")):
             raise bad_request("固定来源已经绑定；更换文档时请使用新来源")
+        binding_changed = any(row.config.get(field) != config.get(field) for field in ("reader_id", "binding_id"))
         if row.config.get("presentation_only"):
             config.update(presentation_only=True, auto_apply=False, auto_receipts=False)
         if "collection_amount_selection" in row.config:
             config["collection_amount_selection"] = row.config["collection_amount_selection"]
         if any(row.config.get(f) != config[f] for f in ("auto_apply", "auto_receipts", "profiles", "reader_id", "binding_id")):
             row.revision = None
+        if binding_changed:
+            row.authorization_url = row.authorization_label = None
+            row.authorization_required = False
+            row.checked_at, row.last_error = None, None
         row.config = config
     else:
         row = ContractWorkbook(source_key=key, config=config)
@@ -422,7 +448,7 @@ def sync(db, key, *, force=False, preview=False, allow_create=True, expected_rev
         raise not_found("固定来源")
     if not wb.config["enabled"] and not force:
         raise bad_request("该固定来源未启用")
-    cfg = wb.config
+    workbook_id, cfg = wb.id, wb.config
     checked_at = utcnow()
     try:
         p = reader(db, cfg)
@@ -430,7 +456,7 @@ def sync(db, key, *, force=False, preview=False, allow_create=True, expected_rev
         if expected_revision is not None and revision != expected_revision:
             raise BizError(40901, "企微表在预览后已更新，请重新预览最新版本")
         if sheets is None:
-            wb.checked_at, wb.last_error = checked_at, None
+            wb.checked_at, wb.last_error, wb.authorization_required = checked_at, None, False
             db.commit()
             return {"changed": False, "revision": wb.revision, "summary": wb.summary}
         if cfg.get("presentation_only"):
@@ -450,6 +476,7 @@ def sync(db, key, *, force=False, preview=False, allow_create=True, expected_rev
             return {"revision": revision, "summary": summary, "sheets": sheets}
         wb.sheets, wb.revision, wb.summary = sheets, revision, summary
         wb.synced_at, wb.checked_at, wb.last_error = utcnow(), checked_at, None
+        wb.authorization_required = False
         log_op(db, p.id, "contract.workbook.sync", "contract_workbook", key,
                after={"revision": revision, "sheets": summary["sheets"], "rows": summary.get("rows", 0),
                       "created": created, "updated": updated, "review": summary.get("review", 0)})
@@ -461,11 +488,16 @@ def sync(db, key, *, force=False, preview=False, allow_create=True, expected_rev
         db.rollback()
         if not preview:
             message = exc.message if isinstance(exc, BizError) else "同步没有完成，请查看服务器日志"
-            # A queued run may have published after rollback. Leave its newer
-            # status alone instead of replacing it with an older failure.
-            wb = db.scalar(select(ContractWorkbook).where(ContractWorkbook.source_key == key).with_for_update())
-            if wb and (not wb.checked_at or wb.checked_at <= checked_at):
+            authorization = _authorization_action(exc)
+            # Rollback releases the sync lock. Keep newer status and never
+            # attach an authorization link issued for a replaced binding.
+            wb = db.scalar(select(ContractWorkbook).where(ContractWorkbook.id == workbook_id)
+                           .options(defer(ContractWorkbook.sheets)).with_for_update())
+            if wb and wb.config == cfg and (not wb.checked_at or wb.checked_at <= checked_at):
                 wb.checked_at, wb.last_error = checked_at, message[:500]
+                wb.authorization_required = bool(authorization)
+                if authorization:
+                    wb.authorization_url, wb.authorization_label = authorization
                 db.commit()
         raise
 
@@ -535,13 +567,17 @@ def has_source(db, p):
 
 def describe(wb, p):
     config = wb.config
-    return {"key": wb.source_key, "title": config["title"], "url": config.get("url"),
+    can_run = p.id == config["reader_id"] and p.can("contracts:write")
+    result = {"key": wb.source_key, "title": config["title"], "url": config.get("url"),
             "enabled": config["enabled"], "auto_apply": config["auto_apply"], "poll_minutes": POLL_MINUTES,
             "auto_receipts": config.get("auto_receipts", False),
             "revision": wb.revision, "summary": wb.summary, "checked_at": wb.checked_at,
             "synced_at": wb.synced_at, "last_error": wb.last_error,
             "can_export": p.can("contracts:export"),
-            "can_run": p.id == config["reader_id"] and p.can("contracts:write")}
+            "can_run": can_run, "authorization_required": bool(wb.authorization_required)}
+    if can_run and wb.authorization_url:
+        result.update(authorization_url=wb.authorization_url, authorization_label=wb.authorization_label)
+    return result
 
 
 def for_view(db, p, key):

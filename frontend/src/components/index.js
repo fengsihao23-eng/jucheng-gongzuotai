@@ -7,10 +7,11 @@ import FileLink from './FileLink.vue'
 import UploadBox from './UploadBox.vue'
 import StatusPill from './StatusPill.vue'
 import JcLogo from './JcLogo.vue'
+import WecomAuthorizationAction from './WecomAuthorizationAction.vue'
 
 export default {
   install(app) {
-    Object.entries({ PageHeader, Panel, Kpi, Chart, FileLink, UploadBox, StatusPill, JcLogo }).forEach(([n, c]) =>
+    Object.entries({ PageHeader, Panel, Kpi, Chart, FileLink, UploadBox, StatusPill, JcLogo, WecomAuthorizationAction }).forEach(([n, c]) =>
       app.component(n, c),
     )
   },

@@ -37,7 +37,9 @@
           <span class="jc-muted jc-small">最近检查 {{ datetime(data.source.checked_at) }}</span>
           <span class="jc-muted jc-small">最近更新 {{ datetime(data.source.synced_at) }}</span>
           <span v-if="data.source.last_error" class="jc-warn jc-small">{{ data.source.last_error }}</span>
+          <WecomAuthorizationAction v-if="data.source.authorization_required" :source="data.source" urgent show-retry :loading="syncing" @retry="syncNow" />
           <div class="jc-row wrap">
+            <WecomAuthorizationAction :source="data.source" compact />
             <el-button v-if="data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
             <el-button :loading="syncing" @click="syncNow">检查表格更新</el-button>
           </div>

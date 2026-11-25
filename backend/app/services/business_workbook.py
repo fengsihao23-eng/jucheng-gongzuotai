@@ -309,11 +309,16 @@ def source_info(wb, p):
     from app.services.contract_workbook_sync import POLL_MINUTES
 
     age = (utcnow() - wb.checked_at).total_seconds() if wb.checked_at else None
-    return {"key": wb.source_key, "title": wb.config["title"], "url": wb.config.get("url"),
+    can_sync = bool(p and p.id == wb.config["reader_id"] and p.can("contracts:write"))
+    result = {"key": wb.source_key, "title": wb.config["title"], "url": wb.config.get("url"),
             "revision": wb.revision, "checked_at": wb.checked_at, "synced_at": wb.synced_at,
             "last_error": wb.last_error, "enabled": wb.config.get("enabled", False),
             "stale": bool(wb.last_error or age is None or age > 300 or not wb.config.get("enabled")),
-            "poll_minutes": POLL_MINUTES, "can_sync": bool(p and p.id == wb.config["reader_id"] and p.can("contracts:write"))}
+            "poll_minutes": POLL_MINUTES, "can_sync": can_sync,
+            "authorization_required": bool(wb.authorization_required)}
+    if can_sync and wb.authorization_url:
+        result.update(authorization_url=wb.authorization_url, authorization_label=wb.authorization_label)
+    return result
 
 
 def projected_sheets(wb):

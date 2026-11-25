@@ -36,6 +36,7 @@
   </div>
   <div v-else class="jc-page tender-page">
     <PageHeader eyebrow="项目管理" title="招标与在建" desc="按项目查看招标进度和已建设或已中标待签的项目。">
+      <WecomAuthorizationAction v-if="canSync" :source="data?.source" compact />
       <el-button v-if="canSync && data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canSync" :loading="syncing" @click="syncNow">检查表格更新</el-button>
       <el-button :loading="loading" @click="load()">刷新页面</el-button>
@@ -48,7 +49,9 @@
           <StatusPill :text="data.source.stale ? '需检查同步' : '自动同步中'" :tone="data.source.stale ? 'warn' : 'up'" />
         </div>
         <p class="jc-muted jc-small">最近检查 {{ datetime(data.source.checked_at) }} · 最近更新 {{ datetime(data.source.synced_at) }}</p>
-        <el-alert v-if="data.source.stale" :title="data.source.last_error || '当前显示最近一次完整数据。'" type="warning" :closable="false" />
+        <el-alert v-if="data.source.stale" :title="data.source.last_error || '当前显示最近一次完整数据。'" type="warning" :closable="false">
+          <WecomAuthorizationAction v-if="data.source.authorization_required" :source="data.source" urgent show-retry :loading="syncing" @retry="syncNow" />
+        </el-alert>
       </div>
 
       <div class="jc-grid c2 project-modules" role="group" aria-label="项目分类">

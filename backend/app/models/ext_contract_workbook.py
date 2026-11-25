@@ -17,6 +17,9 @@ class ContractWorkbook(TimestampMixin, Base):
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    authorization_url: Mapped[str | None] = mapped_column(Text)
+    authorization_label: Mapped[str | None] = mapped_column(String(120))
+    authorization_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class ContractWorkbookLink(TimestampMixin, Base):

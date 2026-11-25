@@ -8,11 +8,12 @@ import pytest
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import delete, func, select
 
+from app.core.db import SessionLocal
 from app.core.deps import build_principal
 from app.core.response import BizError
 from app.jobs.contracts import sync_workbooks
 from app.models import BizContract, BizOpportunity, BizPayment, ContractWorkbook, ContractWorkbookLink, FinReceipt, SysUser
-from app.services import (contract_workbook_layout as layout, contract_workbook_source as source,
+from app.services import (business_workbook, contract_workbook_layout as layout, contract_workbook_source as source,
                           contract_workbook_sync as sync)
 from tests.conftest import data
 
@@ -150,6 +151,86 @@ def test_failed_read_keeps_previous_snapshot_and_manual_changes(db, fixed, monke
     db.refresh(fixed)
     assert fixed.revision == "2" and fixed.sheets[0]["rows"][-1]["record"]["amount"] == "77.00"
     assert fixed.last_error == "企微授权已过期"
+
+
+def test_official_authorization_channel_is_retained_and_scoped(db, fixed, monkeypatch):
+    current = changing_source(monkeypatch, [sales(sales_row(3, "授权入口测试", "示例客户", 66))])
+    sync.sync(db, KEY)
+    official = "https://work.weixin.qq.com/ai/aiHelper/authorizationList?from=workbench&a=2"
+
+    def expired(*args):
+        raise BizError(40301, "企业微信机器人「文档」使用权限已过期", data={
+            "authorization_url": official, "authorization_label": "重新授权文档",
+        })
+
+    monkeypatch.setattr(source, "fetch_workbook", expired)
+    with pytest.raises(BizError, match="使用权限已过期"):
+        sync.sync(db, KEY)
+    db.refresh(fixed)
+    assert (fixed.authorization_url, fixed.authorization_label, fixed.authorization_required) == (
+        official, "重新授权文档", True,
+    )
+
+    owner = build_principal(db.scalar(select(SysUser).where(SysUser.wecom_userid == "admin")))
+    viewer = build_principal(db.scalar(select(SysUser).where(SysUser.wecom_userid == "zhangzhenhua")))
+    assert business_workbook.source_info(fixed, owner)["authorization_url"] == official
+    assert sync.describe(fixed, owner)["authorization_url"] == official
+    assert "authorization_url" not in business_workbook.source_info(fixed, viewer)
+    assert "authorization_url" not in sync.describe(fixed, viewer)
+
+    monkeypatch.setattr(source, "fetch_workbook", lambda *args: (current[0], None))
+    assert sync.sync(db, KEY)["changed"] is False
+    db.refresh(fixed)
+    assert fixed.last_error is None and fixed.authorization_required is False
+    assert fixed.authorization_url == official  # Keep the channel available for the next seven-day renewal.
+
+    monkeypatch.setattr(sync.cli, "_owned", lambda *args: {"binding_id": "b" * 32})
+    sync.configure(db, KEY, title=fixed.config["title"], url=fixed.config["url"], reader_id=owner.id,
+                   view_department_ids=fixed.config["view_department_ids"], auto_apply=True)
+    db.commit()
+    assert fixed.authorization_url is None and fixed.authorization_required is False and fixed.last_error is None
+
+
+def test_non_official_authorization_url_is_never_saved(db, fixed, monkeypatch):
+    def denied(*args):
+        raise BizError(40301, "企微授权已过期", data={
+            "authorization_url": "https://work.weixin.qq.com.evil.example/steal",
+            "authorization_label": "重新授权",
+        })
+
+    monkeypatch.setattr(source, "fetch_workbook", denied)
+    with pytest.raises(BizError, match="企微授权已过期"):
+        sync.sync(db, KEY)
+    db.refresh(fixed)
+    assert fixed.authorization_url is None and fixed.authorization_required is False
+
+
+def test_failed_sync_cannot_publish_authorization_after_rebinding(db, fixed, monkeypatch):
+    config = fixed.config
+
+    def expired(*args):
+        raise BizError(40301, "企微授权已过期", data={
+            "authorization_url": "https://work.weixin.qq.com/ai/aiHelper/authorizationList?from=chat&a=2",
+        })
+
+    rollback = db.rollback
+
+    def rebind_after_rollback():
+        rollback()
+        with SessionLocal() as edit:
+            sync.configure(edit, KEY, title=config["title"], url=config["url"],
+                           reader_id=config["reader_id"], auto_apply=True)
+            edit.commit()
+
+    monkeypatch.setattr(source, "fetch_workbook", expired)
+    monkeypatch.setattr(sync.cli, "_owned", lambda *args: {"binding_id": "b" * 32})
+    with monkeypatch.context() as during_sync:
+        during_sync.setattr(db, "rollback", rebind_after_rollback)
+        with pytest.raises(BizError, match="企微授权已过期"):
+            sync.sync(db, KEY)
+    db.refresh(fixed)
+    assert fixed.config["binding_id"] == "b" * 32
+    assert fixed.last_error is None and fixed.authorization_url is None
 
 
 def test_missing_source_identity_does_not_create_duplicate(db, fixed, monkeypatch):

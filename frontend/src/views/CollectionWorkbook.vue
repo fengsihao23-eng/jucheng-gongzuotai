@@ -3,6 +3,7 @@
   <div v-else class="jc-page collection-page">
     <PageHeader eyebrow="经营数据 · 回款" title="回款情况" desc="按到账月份核对实际回款，查看合同未收余额、预计回款和跟进情况。">
       <CollectionHeaderActions />
+      <WecomAuthorizationAction v-if="canManageSource" :source="data?.source" compact />
       <el-button v-if="canManageSource && data.source.url" tag="a" :href="data.source.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
       <el-button v-if="canManageSource" :loading="syncing" @click="syncNow">检查表格更新</el-button>
       <el-button :loading="loading" @click="load()">刷新页面</el-button>
@@ -16,7 +17,9 @@
         </div>
         <p class="jc-small jc-muted">最近检查 {{ datetime(data.source.checked_at) }} · 最近更新 {{ datetime(data.source.synced_at) }}
           · 每 {{ data.source.poll_minutes }} 分钟检查</p>
-        <el-alert v-if="data.source.stale" :title="data.source.last_error || '显示最近一次完整数据。'" type="warning" :closable="false" />
+        <el-alert v-if="data.source.stale" :title="data.source.last_error || '显示最近一次完整数据。'" type="warning" :closable="false">
+          <WecomAuthorizationAction v-if="data.source.authorization_required" :source="data.source" urgent show-retry :loading="syncing" @retry="syncNow" />
+        </el-alert>
       </div>
 
       <div class="collection-kpis mb-16">

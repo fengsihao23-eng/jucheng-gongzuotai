@@ -12,13 +12,17 @@
             <el-select v-if="sources.length > 1" v-model="sourceKey" style="width: 180px" @change="loadDetail()">
               <el-option v-for="item in sources" :key="item.key" :label="item.title" :value="item.key" />
             </el-select>
+            <WecomAuthorizationAction :source="detail" compact />
             <el-button v-if="detail.url" tag="a" :href="detail.url" target="_blank" rel="noopener noreferrer">打开企微原表</el-button>
             <el-button v-if="detail.can_export && detail.sheets.length" :loading="exporting" @click="download">下载工作台快照</el-button>
             <el-button v-if="detail.can_run" type="primary" :loading="syncing" @click="run">立即同步</el-button>
           </div>
         </div>
         <el-alert v-if="detail.last_error" class="mt-16" type="warning" :closable="false" show-icon
-          :title="detail.last_error" description="当前仍显示上次完整同步的数据。" />
+          :title="detail.last_error">
+          <span>当前仍显示上次完整同步的数据。</span>
+          <WecomAuthorizationAction v-if="detail.authorization_required" :source="detail" urgent show-retry :loading="syncing" @retry="run" />
+        </el-alert>
         <div v-if="detail.sheets.length" class="workbook-counts mt-16">
           <span><b>{{ detail.summary.sheets }}</b> 个子表</span>
           <span><b>{{ detail.summary.rows }}</b> 行原始内容</span>
