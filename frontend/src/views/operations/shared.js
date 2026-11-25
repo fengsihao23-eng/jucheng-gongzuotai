@@ -44,3 +44,5 @@ export function taskSummary(rows) {
 
 export { announceBusinessChange as announceChange } from '@/composables/useBusinessRefresh'
 export const CADENCES = { daily: '每天反馈', every_2_days: '每 2 天反馈', every_3_days: '每 3 天反馈', weekly: '每周反馈', node: '按节点反馈' }
+
+export const projectProgressPrompt = project => `请查询运营项目「${project.name}」（运营项目 ID：${project.id}）的实际记录，分负责人计划和公司安排，说明当前进展、逾期受阻事项和下一步；如有自行安排另列。请标明尚未反馈或缺少信息的部分。`

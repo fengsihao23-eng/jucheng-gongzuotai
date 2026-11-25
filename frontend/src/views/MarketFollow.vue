@@ -8,19 +8,7 @@
     <el-tabs v-model="tab">
       <el-tab-pane label="跟进看板" name="board">
         <div class="layout">
-          <Panel title="运营项目" :loading="operationsLoading && !operations.today">
-            <template v-if="auth.hasMenu('operations')" #extra>
-              <el-button v-if="operations.can_create" type="primary" @click="operationsCreateOpen = true">新建运营项目</el-button>
-              <el-button @click="router.push({ name: 'operations' })">进入运营项目</el-button>
-            </template>
-            <ProjectOverview v-if="auth.hasMenu('operations')" v-model:keyword="operationsQuery.keyword"
-              v-model:category="operationsQuery.category" v-model:key-only="operationsQuery.key_only"
-              :data="operations" :loading="operationsLoading" :show-task-list="auth.hasSection('operations', 'tasks')"
-              @filter="loadOperations()" @create="operationsCreateOpen = true"
-              @open-task="task => router.push({ name: 'operations', query: { task: task.id } })"
-              @show-todos="filter => router.push({ name: 'operations', query: { view: 'todos', filter } })" />
-            <el-empty v-else description="当前账号暂无运营项目访问权限" :image-size="80" />
-          </Panel>
+          <MarketOperationTasks v-if="tab === 'board'" />
 
           <Panel title="重点事件" sub="近 60 天事件与风险">
             <el-timeline v-if="board?.events?.length" class="tl">
@@ -118,8 +106,6 @@
       </el-tab-pane>
     </el-tabs>
     <KeyProjectForm v-model="createOpen" @saved="p=>router.push(`/market/projects/${p.project_code}`)" />
-    <ProjectForm v-if="operations.can_create" v-model="operationsCreateOpen"
-      @saved="project => router.push({ name: 'operation-detail', params: { id: project.id } })" />
     <PasswordDeleteDialog v-model="deleteOpen" title="删除重点项目" :name="menu.project?.name" :endpoint="`/market/projects/${menu.project?.project_code}`" @deleted="load" />
     <Teleport to="body">
       <div v-if="menu.open" class="ctx-mask" @click.self="closeMenu" @contextmenu.prevent="closeMenu" @keydown.esc.prevent.stop="closeMenu" @keydown.tab="closeMenu">
@@ -157,10 +143,8 @@ import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
+import MarketOperationTasks from './market/MarketOperationTasks.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
-import ProjectForm from './operations/ProjectForm.vue'
-import ProjectOverview from './operations/ProjectOverview.vue'
-import { useProjectOverview } from './operations/useProjectOverview'
 
 const auth = useAuth()
 const route = useRoute()
@@ -169,9 +153,6 @@ const tab = computed({
   get: () => ['key', 'reports'].includes(route.query.tab) ? route.query.tab : 'board',
   set: (value) => router.replace({ query: { ...route.query, tab: value === 'board' ? undefined : value } }),
 })
-const operationsCreateOpen = ref(false)
-const canLoadOperations = () => tab.value === 'board' && auth.hasMenu('operations')
-const { query: operationsQuery, data: operations, loading: operationsLoading, load: loadOperations } = useProjectOverview(canLoadOperations)
 const board = ref(null)
 const loading = ref(false)
 const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
@@ -215,10 +196,7 @@ async function loadReports() {
   reports.value = r.items
   rtotal.value = r.total
 }
-watch(tab, (t) => {
-  if (t === 'reports') loadReports()
-  if (canLoadOperations()) loadOperations()
-})
+watch(tab, (t) => t === 'reports' && loadReports())
 
 const genLoading = ref('')
 async function gen(type) {
