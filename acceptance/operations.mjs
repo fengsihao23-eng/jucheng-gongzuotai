@@ -116,7 +116,7 @@ try {
   const doneGroup = statusGroup.getByRole('button', { name: /已完成/ })
   await ongoingGroup.getByText('3', { exact: true }).waitFor()
   await doneGroup.getByText('0', { exact: true }).waitFor()
-  assert.equal(await statusGroup.getByRole('button').count(), 2)
+  assert.equal(await statusGroup.getByRole('button').count(), 4)
   assert.equal(await ongoingGroup.getAttribute('aria-pressed'), 'true')
   const card = taskPane.getByRole('button', { name: /完成试点学校需求确认/ })
   await card.getByText('节点 0 / 3', { exact: true }).waitFor()
@@ -124,7 +124,7 @@ try {
   await admin.getByRole('dialog', { name: '任务详情' }).getByRole('heading', { name: '完成试点学校需求确认', exact: true }).waitFor()
   await admin.keyboard.press('Escape')
   await admin.getByRole('dialog', { name: '任务详情' }).waitFor({ state: 'hidden' })
-  check('任务情况只显示进行中和已完成，待开始任务仍可打开')
+  check('任务情况提供完成及反馈四种筛选，待开始任务仍可打开')
 
   const member = await loginPage(browser, 'xiekai')
   member.setDefaultTimeout(10000)

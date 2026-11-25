@@ -10,16 +10,16 @@ from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsOutreachGoal, OpsProduct, OpsProject, OpsProjectIncome,
                         OpsProjectProgress, OpsSchool, OpsSchoolRegion, OpsSchoolVisit,
                         OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
-from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy
+from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy, task_feedback_deadlines
 from app.services import operations_followup as followups
 from app.services import operations_scope as content_scope
-from app.services.operations_notifications import PROJECT_ASSIGNMENT
+from app.services.operations_notifications import PROJECT_ASSIGNMENT, TASK_ASSIGNMENT
 
 PROJECT_FIELDS = ["name", "category", "owner_id", "objective", "target_date", "status", "is_key"]
 PROJECT_PROGRESS_FIELDS = ["progress", "problems", "next_plan", "next_due_date", "task_id"]
 SCHOOL_FIELDS = ["name", "stage", "potential", "next_action", "next_contact_date", "labor_cost", "other_cost", "note"]
 PRODUCT_FIELDS = ["name", "brand", "model", "unit", "reference_price", "note"]
-TASK_FIELDS = ["title", "description", "owner_id", "school_id", "due_date", "priority", "cadence", "status", "progress", "next_step"]
+TASK_FIELDS = ["title", "description", "owner_id", "school_id", "due_date", "priority", "cadence", "feedback_due_at", "status", "progress", "next_step"]
 TASK_FIELDS += ["plan_month", "source", "approval_status", "department_reviewer_id", "company_reviewer_id", "revision", "completed_at", "incomplete_reason", "original_due_date"]
 STATUS_LABELS = {"todo": "待开始", "doing": "进行中", "blocked": "遇到阻碍", "done": "已完成"}
 SOURCE_LABELS = {"project_plan": "负责人计划", "company": "公司安排", "self": "自行安排"}
@@ -463,10 +463,11 @@ def _notify(db, recipients, project, task, title, content, *, assignment=False):
     db.flush()
     users = [u for u in db.scalars(select(SysUser).where(SysUser.id.in_(set(recipients))))
              if db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(u))))]
-    notify_service.send(db, users, "operations_assignment" if assignment else "operations_task", title, content,
-                        link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id),
-                        wecom=assignment and content_scope.controls(db, project.id)["wecom_reminders"], defer=assignment,
-                        wecom_content="你有一项新的运营任务安排，请进入工作台查看。")
+    notices = notify_service.send(db, users, TASK_ASSIGNMENT if assignment else "operations_task", title, content,
+        link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id),
+        wecom=assignment and content_scope.controls(db, project.id)["wecom_reminders"], defer=assignment,
+        wecom_content="你有一项新的运营任务安排，请打开工作台查看任务要求和反馈时间。")
+    return [notice.id for notice in notices if notice.channel == "wecom_app"]
 
 
 def _create_project_plan(db, p, project, entry):
@@ -484,7 +485,7 @@ def _create_project_plan(db, p, project, entry):
     return task
 
 
-def create_task(db, p, project_id, body):
+def create_task(db, p, project_id, body, *, notice_ids=None):
     from app.services import operations_plans as plans
     project = get_project(db, p, project_id, lock=True)
     content_scope.require(db, p, project, "tasks")
@@ -498,7 +499,7 @@ def create_task(db, p, project_id, body):
     assigned = assignee(db, project, body.owner_id)
     if body.school_id:
         school(db, project.id, body.school_id)
-    values = body.model_dump(exclude={"nodes", *POLICY_FIELDS})
+    values = body.model_dump(exclude={"nodes", "feedback_due_at", *POLICY_FIELDS})
     values["plan_month"] = body.plan_month or body.due_date.strftime("%Y-%m")
     values["approval_status"] = "approved" if body.source == "company" else "department_pending"
     if body.source == "self":
@@ -507,6 +508,7 @@ def create_task(db, p, project_id, body):
         values["department_reviewer_id"] = values["company_reviewer_id"] = None
         values["original_due_date"] = body.due_date
     task = OpsTask(project_id=project.id, creator_id=p.id, created_at=now(), **values)
+    task_feedback_deadlines.set_deadline(task, body.feedback_due_at)
     db.add(task)
     db.flush()
     task.nodes = [OpsTaskNode(task_id=task.id, seq=i, **node.model_dump()) for i, node in enumerate(body.nodes, 1)]
@@ -518,13 +520,16 @@ def create_task(db, p, project_id, body):
            f"{'公司安排' if body.source == 'company' else '自行安排，提交部门审核'}：{assigned.name}，计划月份 {task.plan_month}，要求 {task.due_date} 前完成。")
     log_op(db, p.id, "operations.task.create", "ops_task", task.id, after=snapshot(task, TASK_FIELDS))
     target = assigned.id if body.source == "company" else task.department_reviewer_id
-    _notify(db, [target], project, task, "收到运营项目任务" if body.source == "company" else "任务等待部门审核",
-            f"{project.name}：{task.title}，计划月份 {task.plan_month}，截止 {task.due_date}。", assignment=body.source == "company")
+    pending = _notify(db, [target], project, task, "收到运营项目任务" if body.source == "company" else "任务等待部门审核",
+        f"{project.name}：{task.title}，计划月份 {task.plan_month}，截止 {task.due_date}。",
+        assignment=body.source == "company")
+    if notice_ids is not None:
+        notice_ids.extend(pending)
     db.flush()
     return task
 
 
-def edit_task(db, p, task_id, body):
+def edit_task(db, p, task_id, body, *, notice_ids=None):
     from app.services import operations_plans as plans
     task = get_task(db, p, task_id, lock=True)
     project = get_project(db, p, task.project_id, lock=True)
@@ -537,7 +542,7 @@ def edit_task(db, p, task_id, body):
     expected_revision = values.pop("expected_revision", None)
     if expected_revision is not None and expected_revision != task.revision:
         raise conflict("任务安排已更新，请刷新后核对再保存")
-    if not values or any(v is None for v in values.values()):
+    if not values or any(v is None for k, v in values.items() if k != "feedback_due_at"):
         raise bad_request("请提供有效的任务修改内容")
     policy_values = {k: values.pop(k) for k in tuple(values) if k in POLICY_FIELDS}
     if task.source == "self" and policy_values.keys() & {"visibility", "viewer_ids"}:
@@ -559,10 +564,13 @@ def edit_task(db, p, task_id, body):
         raise bad_request("此任务无需指定两级审核人")
     if "due_date" in values and task.approval_status == "approved" and task.original_due_date is None:
         task.original_due_date = task.due_date
+    due_at = values.pop("feedback_due_at", task.feedback_due_at)
     _write(db, p, task, values, TASK_FIELDS)
+    task_feedback_deadlines.set_deadline(task, due_at, reassigned=previous != task.owner_id)
     policy.update_policy(db, p, project, task, policy_values)
-    labels = {"school_id": "学校", "title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率", "plan_month": "计划月份", "department_reviewer_id": "部门审核人", "company_reviewer_id": "公司审核人"}
-    changed = "；".join(f"{labels[k]}：{before[k]} → {snapshot(task, TASK_FIELDS)[k]}" for k in values if before[k] != snapshot(task, TASK_FIELDS)[k])
+    labels = {"school_id": "学校", "title": "任务", "description": "要求", "owner_id": "负责人", "due_date": "截止日期", "priority": "重点程度", "cadence": "反馈频率", "feedback_due_at": "反馈截止时间", "plan_month": "计划月份", "department_reviewer_id": "部门审核人", "company_reviewer_id": "公司审核人"}
+    after = snapshot(task, TASK_FIELDS)
+    changed = "；".join(f"{labels[k]}：{before[k]} → {after[k]}" for k in (*values, "feedback_due_at") if before[k] != after[k])
     _event(db, p, task, "changed", changed or "核对任务安排。")
     task.revision += 1
     if task.source == "self":
@@ -571,7 +579,9 @@ def edit_task(db, p, task_id, body):
         _notify(db, [task.department_reviewer_id], project, task, "任务重新提交审核", f"{task.title}已修改，请核对最新安排。")
     log_op(db, p.id, "operations.task.revised", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     if previous != task.owner_id:
-        _notify(db, [task.owner_id], project, task, "运营任务已转交给你", f"{project.name}：{task.title}，截止 {task.due_date}。", assignment=True)
+        pending = _notify(db, [task.owner_id], project, task, "运营任务已转交给你", f"{project.name}：{task.title}，截止 {task.due_date}。", assignment=True)
+        if notice_ids is not None:
+            notice_ids.extend(pending)
     return task
 
 
@@ -654,7 +664,10 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
     day = today()
     overdue = not finished and (task.due_date < day or any(not n.completed_at and n.due_date < day for n in task.nodes))
     cadence = followups.cadence_view(task)
-    stale = not finished and task.cadence != "node" and cadence["next_feedback_on"] <= day
+    schedule = task_feedback_deadlines.view(task, task.last_feedback_at,
+        cadence["next_feedback_on"] if task.cadence != "node" else None, active=not finished)
+    if schedule["feedback_deadline_pending"]:
+        cadence["next_feedback_on"] = schedule["feedback_due_on"]
     my_role = viewer_role or role(db, p, project)
     stage = plans.review_stage(db, p, project, task)
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
@@ -663,7 +676,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
             "can_archive": (is_superuser(p) or p.is_admin or p.can("operations:archive")) and my_role == "manager",
             "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
-            "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": stale, **cadence,
+            "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": schedule["needs_feedback"], **cadence, **schedule,
             "can_feedback": project.status == "active" and not finished and (my_role == "manager" or (my_role in {"member", "reviewer"} and task.owner_id == p.id)),
             "can_edit": not archived and project.status == "active" and task.status != "done" and (my_role == "manager" or (task.source == "self" and task.creator_id == p.id and my_role in {"member", "reviewer"})),
             "can_review": not archived and project.status == "active" and stage is not None, "review_stage": stage,

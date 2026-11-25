@@ -1,7 +1,7 @@
 """运营项目跟进：任务、学校基础资料、产品库及手工收入。"""
 from typing import Literal
 from decimal import Decimal
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.core.response import forbidden, ok
 from app.models import LogOperation, OpsProduct, OpsProject, SysUser
 from app.schemas.operations import (ArchiveIn, BatchMembersIn, CompetitorEditIn, CompetitorIn, DelayReasonIn, DelayReviewIn, DraftIn, EquipmentIn, FeedbackIn, IncomeIn, MemberIn, Month, ProductIn,
                                     ProjectIn, ProjectProgressEntriesIn, ProjectProgressIn, ReviewIn, SchoolIn, TaskIn, TaskPatch, TaskSource)
+from app.services import notify_service
 from app.services import operations_deadlines as deadlines
 from app.services import operations_service as ops
 from app.services import operations_plans as plans
@@ -169,9 +170,12 @@ def operation_task(task_id: int, archived: bool = False, p: Principal = Menu, db
 
 
 @router.put("/tasks/{task_id}")
-def edit_operation_task(task_id: int, body: TaskPatch, p: Principal = Menu, db: Session = Depends(get_db)):
-    ops.edit_task(db, p, task_id, body)
+def edit_operation_task(task_id: int, body: TaskPatch, background: BackgroundTasks, p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    ops.edit_task(db, p, task_id, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(ops.task_detail(db, p, task_id))
 
 
@@ -208,10 +212,13 @@ def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: 
 
 
 @router.post("/tasks/{task_id}/review")
-def review_operation_task(task_id: int, body: ReviewIn, p: Principal = Menu, db: Session = Depends(get_db)):
+def review_operation_task(task_id: int, body: ReviewIn, background: BackgroundTasks, p: Principal = Menu, db: Session = Depends(get_db)):
     """指定审核人对最新任务版本完成当前级别审核；部门通过后才能进入公司审核。"""
-    plans.review_task(db, p, task_id, body)
+    notices = []
+    plans.review_task(db, p, task_id, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(ops.task_detail(db, p, task_id))
 
 
@@ -343,9 +350,12 @@ def remove_operation_member(project_id: int, user_id: int, body: DeletionIn, tra
 
 
 @router.post("/{project_id}/tasks")
-def create_operation_task(project_id: int, body: TaskIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    task = ops.create_task(db, p, project_id, body)
+def create_operation_task(project_id: int, body: TaskIn, background: BackgroundTasks, p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    task = ops.create_task(db, p, project_id, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(ops.task_detail(db, p, task.id))
 
 

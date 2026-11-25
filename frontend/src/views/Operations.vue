@@ -15,7 +15,7 @@
         </el-tab-pane>
         <el-tab-pane v-if="auth.hasSection('operations', 'tasks')" label="当前需要做什么" name="todos">
           <div class="filters">
-            <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button><el-radio-button v-if="data.delay_review_inbox.length || todoFilter === 'delay_review'" value="delay_review">待我复核延期</el-radio-button></el-radio-group>
+            <el-radio-group v-model="todoFilter"><el-radio-button value="all">全部待办</el-radio-button><el-radio-button value="overdue">逾期</el-radio-button><el-radio-button value="blocked">受阻</el-radio-button><el-radio-button value="needs_update">今日待反馈</el-radio-button><el-radio-button value="feedback_overdue">逾期未反馈</el-radio-button><el-radio-button v-if="data.delay_review_inbox.length || todoFilter === 'delay_review'" value="delay_review">待我复核延期</el-radio-button></el-radio-group>
             <el-button :type="todoFilter === 'pending_replies' ? 'primary' : 'default'" @click="todoFilter = todoFilter === 'pending_replies' ? 'all' : 'pending_replies'">待我回复（{{ data.todos.filter(t => t.pending_replies).length }}）</el-button>
             <el-checkbox v-if="!['delay_review', 'pending_replies'].includes(todoFilter)" v-model="mine">只看我负责的</el-checkbox>
           </div>
@@ -73,7 +73,7 @@ const todos = computed(() => {
   if (filter === 'pending_replies') return data.todos.filter(t => t.pending_replies)
   const tasks = filter === 'all' ? [...new Map([...data.todos, ...data.delay_review_inbox].map(task => [task.id, task])).values()] : data.todos
   return tasks.filter(t => (!mine.value || t.owner_id === auth.profile?.id) &&
-    (filter === 'all' || (filter === 'blocked' ? t.status === 'blocked' : t[filter])))
+    (filter === 'all' || (filter === 'blocked' ? t.status === 'blocked' : filter === 'feedback_overdue' ? t.feedback_status === 'overdue' : t[filter])))
 })
 function openTask(t) { router.replace({ query: { ...route.query, task: t.id } }) }
 function openMenu(event, project) {

@@ -4,7 +4,7 @@ import json
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.core.audit import log_op, snapshot
 from app.core.deps import build_principal
@@ -13,11 +13,12 @@ from app.core.timeutil import TZ, day_bounds, month_range, now, today
 from app.models import (BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting, BizProjectMilestone,
                         FinSalesInvoice, KeyProjectTaskNode as Node, KeyProjectTaskPlan as Plan,
                         KeyProjectTaskUpdate as Update, SysNotify, SysUser)
-from app.services import codes, market_service as market, notify_service, project_service as ps
+from app.services import codes, market_service as market, notify_service, project_service as ps, task_feedback_deadlines
 
 PROJECT_FIELDS = ["name", "remark", "customer_name", "business_line", "owner_id", "start_date", "plan_end_date", "status", "is_key"]
 NOTICE = "key_project_feedback_due"
 ASSIGNMENT_NOTICE = "key_project_assignment"
+TASK_ASSIGNMENT_NOTICE = "key_task_assignment"
 REF = "key_project_task"
 PAUSE_USERIDS = {"ken", "SZGLY"}
 ZERO = Decimal(0)
@@ -184,22 +185,28 @@ def task_data(db, p, row, item, *, history=False):
     if plan and cadence != "node":
         base = last.feedback_date if last else plan.created_at.astimezone(TZ).date()
         due = max(preparation or base, base) + timedelta(days=1 if cadence == "daily" else 7)
+    paused = db.get(BizProjectFollowSetting, row.id)
+    schedule = task_feedback_deadlines.view(plan, updates[0][0].created_at if updates else None, due,
+        active=item.status != 3 and row.status != 5 and not (paused and paused.paused))
     result = {**ps.ms_dict(item), "title": item.node_name, "requirements": plan.requirements if plan else (item.duty or ""),
               "preparation_on": preparation, "cadence": cadence, "problems": plan.problems if plan else "",
-              "next_step": plan.next_step if plan else "", "feedback_due_on": due, "needs_feedback": bool(due and today() >= due and item.status != 3),
+              "next_step": plan.next_step if plan else "", **schedule,
               "nodes": [{"id": n.id, "name": n.name, "due_on": n.due_on, "completed_on": n.completed_on,
                           "overdue": not n.completed_on and n.due_on < today()} for n in nodes],
               "latest_feedback": ps.feedback_dict(last) if last else None,
               "can_manage": can_manage(p, row), "can_feedback": can_manage(p, row) or (p.can("feedback:write") and item.owner_id == p.id)}
     result["alert"] = result["alert"] or any(n["overdue"] for n in result["nodes"]) or bool(result["problems"]) or result["needs_feedback"]
-    result["revision"] = digest({"task": ps._snap(item), "plan": snapshot(plan, ["requirements", "preparation_on", "cadence", "problems", "next_step", "revision"]) if plan else None,
+    result["revision"] = digest({"task": ps._snap(item), "plan": snapshot(plan, ["requirements", "preparation_on", "cadence", "feedback_due_at", "problems", "next_step", "revision"]) if plan else None,
                                  "nodes": result["nodes"], "latest_feedback_id": last.id if last else None})
     if history:
         result["history"] = [{"id": u.id, "feedback": ps.feedback_dict(f), "values": u.values} for u, f in updates]
+        result["notification_deliveries"] = notify_service.delivery_status(db,
+            (SysNotify.ref_type == REF) & (func.split_part(SysNotify.ref_id, ":", 1) == str(item.id)),
+            user_id=None if result["can_manage"] else p.id)
     return result
 
 
-def save_task(db, p, code, body, task_id=None):
+def save_task(db, p, code, body, task_id=None, *, notice_ids=None):
     row = project(db, p, code, lock=True)
     active(db, row)
     if not can_manage(p, row):
@@ -214,12 +221,16 @@ def save_task(db, p, code, body, task_id=None):
         raise conflict("任务已变化，请重新打开后保存")
     if item and item.status == 3:
         raise conflict("任务已完成，保留原计划和完成记录")
+    previous_owner = item.owner_id if item else None
     if item:
         ps.edit_milestone(db, row, item, {"node_name": body.title, "owner_id": body.owner_id, "plan_date": body.due_on}, p.id)
     else:
         item = ps.add_milestone(db, row, {"node_name": body.title, "owner_id": body.owner_id, "plan_date": body.due_on}, p.id)
     plan = db.get(Plan, item.id) or Plan(milestone_id=item.id, revision=0, created_at=now())
     plan.requirements, plan.preparation_on, plan.cadence = body.requirements, body.preparation_on, body.cadence
+    task_feedback_deadlines.set_deadline(plan,
+        body.feedback_due_at if "feedback_due_at" in body.model_fields_set else plan.feedback_due_at,
+        reassigned=previous_owner != item.owner_id)
     plan.revision += 1
     db.add(plan)
     existing = {n.id: n for n in db.scalars(select(Node).where(Node.milestone_id == item.id))}
@@ -239,6 +250,14 @@ def save_task(db, p, code, body, task_id=None):
     db.flush()
     log_op(db, p.id, "market.key_task.plan", "biz_project_milestone", item.id,
            after=body.model_dump(mode="json", exclude={"expected_revision"}))
+    if previous_owner != item.owner_id:
+        notices = notify_service.send(db, [assignee.user], TASK_ASSIGNMENT_NOTICE,
+            "收到重点项目任务" if not previous_owner else "重点项目任务已转交给你",
+            f"{row.name} · {item.node_name}，任务完成节点 {item.plan_date}。",
+            link=f"/market/projects/{row.project_code}?task={item.id}", ref_type=REF, ref_id=str(item.id), defer=True,
+            wecom_content="你有一项新的重点项目任务安排，请打开工作台查看任务要求和反馈时间。")
+        if notice_ids is not None:
+            notice_ids.extend(notice.id for notice in notices if notice.channel == "wecom_app")
     return task_data(db, p, row, item, history=True)
 
 
@@ -327,28 +346,79 @@ def reminder_reasons(data):
     for node in data["nodes"]:
         if not node["completed_on"] and node["due_on"] <= day + timedelta(days=3):
             reasons.append(f"阶段「{node['name']}」应于 {node['due_on']} 完成")
-    if data["needs_feedback"]:
+    if data["needs_feedback"] and not data["feedback_deadline_pending"]:
         reasons.append(f"应于 {data['feedback_due_on']} 填写进展")
     return reasons
 
 
-def eligible_notice(db, notice):
+def _notice_task(db, notice):
     try:
         mid = int(str(notice.ref_id).split(":")[0])
     except (TypeError, ValueError):
-        return False
+        return None
     item, u = db.get(BizProjectMilestone, mid), db.get(SysUser, notice.user_id)
     if not item or not u or u.is_deleted or u.status != 1:
-        return False
+        return None
     row = db.get(BizProject, item.project_id)
     if not row or row.is_deleted or not row.is_key or row.status == 5 or item.status == 3:
-        return False
+        return None
     paused = db.get(BizProjectFollowSetting, row.id)
     p = build_principal(u)
     if (paused and paused.paused) or not any(p.has_menu(m) for m in ("market", "projects")) or not ps.can_view(db, p, row):
+        return None
+    return row, item, p
+
+
+def eligible_notice(db, notice):
+    target = _notice_task(db, notice)
+    if not target:
         return False
+    row, item, p = target
     data = task_data(db, p, row, item)
     return notice.user_id in {item.owner_id, row.owner_id} and bool(reminder_reasons(data))
+
+
+def eligible_task_assignment(db, notice):
+    target = _notice_task(db, notice)
+    if not target:
+        return False
+    row, item, p = target
+    return item.owner_id == p.id and (can_manage(p, row) or p.can("feedback:write"))
+
+
+def eligible_feedback_deadline(db, notice):
+    target = _notice_task(db, notice)
+    if not target:
+        return False
+    row, item, p = target
+    if item.owner_id != p.id or not (can_manage(p, row) or p.can("feedback:write")):
+        return False
+    plan = db.get(Plan, item.id)
+    latest = db.scalar(select(func.max(Update.created_at)).where(Update.milestone_id == item.id))
+    return task_feedback_deadlines.overdue(plan, latest) and notice.ref_id == task_feedback_deadlines.reference(item.id, plan)
+
+
+def scan_feedback_deadlines(db, at):
+    has_feedback = select(Update.id).where(Update.milestone_id == Plan.milestone_id,
+        Update.created_at >= Plan.feedback_requested_at).exists()
+    tasks = db.execute(select(Plan, BizProjectMilestone, BizProject).join(BizProjectMilestone, Plan.milestone_id == BizProjectMilestone.id)
+        .join(BizProject, BizProject.id == BizProjectMilestone.project_id).outerjoin(BizProjectFollowSetting, BizProjectFollowSetting.project_id == BizProject.id)
+        .where(BizProject.is_key.is_(True), BizProject.is_deleted.is_(False), BizProject.status != 5,
+            BizProjectFollowSetting.paused.is_not(True), BizProjectMilestone.status != 3, BizProjectMilestone.owner_id.is_not(None),
+            Plan.feedback_due_at < at, Plan.feedback_requested_at.is_not(None), ~has_feedback))
+    notices = []
+    for plan, item, row in tasks:
+        owner = db.get(SysUser, item.owner_id)
+        if not owner or owner.is_deleted or owner.status != 1:
+            continue
+        principal = build_principal(owner)
+        if not (any(principal.has_menu(m) for m in ("market", "projects")) and ps.can_view(db, principal, row)
+                and (can_manage(principal, row) or principal.can("feedback:write"))):
+            continue
+        notices.extend(task_feedback_deadlines.queue_overdue(db, owner, kind=task_feedback_deadlines.KEY_OVERDUE, ref_type=REF,
+            task_id=item.id, row=plan, title="重点项目任务逾期未反馈", task_title=f"{row.name} · {item.node_name}",
+            link=f"/market/projects/{row.project_code}?task={item.id}"))
+    return notices
 
 
 def scan_reminders(db):

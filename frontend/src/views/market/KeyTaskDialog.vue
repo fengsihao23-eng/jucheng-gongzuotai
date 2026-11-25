@@ -3,7 +3,7 @@
     :status="item?.is_delayed ? '逾期未完成' : item?.status_text" :status-tone="item?.is_delayed ? 'down' : item?.status === 3 ? 'up' : 'brand'"
     :target="{ kind: 'key-task', id: item?.id }"
     :facts="item ? [{ label: '负责人', value: item.owner_name || '—' }, { label: '截止日期', value: item.plan_date || '—' },
-      { label: '反馈频率', value: cadenceLabel[item.cadence] || '按节点反馈', hint: item.feedback_due_on ? `下次反馈 ${item.feedback_due_on}` : '' }] : []">
+      { label: '反馈频率', value: cadenceLabel[item.cadence] || '按节点反馈', hint: item.feedback_deadline_pending ? `反馈截止 ${feedbackTime(item.feedback_due_at)}` : item.feedback_due_on ? `下次反馈 ${item.feedback_due_on}` : '' }] : []">
     <template v-if="item?.can_manage && item.status !== 3 && !project.paused && project.status !== 5" #actions>
       <el-button plain @click="emit('edit', item); visible = false">调整安排</el-button>
     </template>
@@ -12,7 +12,7 @@
       <p v-if="item.requirements" class="plain">{{ item.requirements }}</p>
       <h4 v-if="item.nodes.length">阶段节点</h4><ul class="node-list"><li v-for="n in item.nodes" :key="n.id"><span>{{ n.name }}</span><small :class="n.overdue?'jc-down':'jc-muted'">{{ n.due_on }} · {{ n.completed_on ? `已完成 ${n.completed_on}` : n.overdue?'已逾期':'待完成' }}</small></li></ul>
       <p v-if="item.problems" class="plain jc-down">存在问题：{{ item.problems }}</p><p v-if="item.next_step" class="plain">下一步：{{ item.next_step }}</p>
-      <p v-if="item.feedback_due_on && item.status!==3" class="jc-small" :class="item.needs_feedback?'jc-warn':'jc-muted'">{{ item.cadence==='daily'?'每日':'每周' }}反馈 · 下次 {{ item.feedback_due_on }}</p>
+      <p v-if="item.feedback_status === 'overdue'" class="jc-small jc-down">逾期未反馈</p>
     </div>
     <el-empty v-else-if="!loading" description="无法读取任务，请检查权限或重新打开" />
     <template #progress>
@@ -30,6 +30,9 @@
     <template v-if="canFeedback" #footer>
       <el-button type="primary" :loading="saving" @click="submit">提交进展</el-button>
     </template>
+    <template v-if="item?.notification_deliveries?.length" #history>
+      <WecomDeliveryStatus :rows="item.notification_deliveries" />
+    </template>
   </RecordDetailDialog>
 </template>
 <script setup>
@@ -37,7 +40,9 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import WecomDeliveryStatus from '@/components/WecomDeliveryStatus.vue'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
+import { feedbackTime } from '@/utils/taskFeedback'
 const props=defineProps({modelValue:Boolean,taskId:Number,project:Object}),emit=defineEmits(['update:modelValue','saved','edit'])
 const visible=computed({get:()=>props.modelValue,set:v=>emit('update:modelValue',v)}),item=ref(null),loading=ref(false),saving=ref(false),form=reactive({}),formRef=ref()
 const canFeedback = computed(() => item.value?.can_feedback && item.value.status !== 3 && !props.project.paused && props.project.status !== 5)

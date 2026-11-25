@@ -46,7 +46,7 @@ def test_private_task_access_summary_archive_and_assignment(client, login, db):
     assert data(client.get(digest, params={"project_id": p["id"], "period": "2026-W43"}, headers=assignee))["items"][0]["id"] == t["id"]
     notice = db.scalar(select(SysNotify).where(SysNotify.ref_type == "ops_task", SysNotify.ref_id == str(t["id"]),
                                             SysNotify.channel == "wecom_app"))
-    assert notice.user_id == owner_id and notice.send_status == 0 and t["title"] not in notice.content
+    assert notice.user_id == owner_id and notice.send_status == 1 and t["title"] not in notice.content
     assert client.post(path + "/archive", json={"reason": "试用数据"}, headers=assignee).status_code == 403
     data(client.post(path + "/archive", json={"reason": "试用数据"}, headers=admin))
     assert client.get(path, headers=admin).status_code == 404

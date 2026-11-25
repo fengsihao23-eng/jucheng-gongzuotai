@@ -13,6 +13,8 @@ class KeyProjectTaskPlan(Base):
     preparation_on: Mapped[date | None] = mapped_column(Date)
     requirements: Mapped[str] = mapped_column(Text, default="")
     cadence: Mapped[str] = mapped_column(String(16), default="weekly")
+    feedback_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    feedback_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     problems: Mapped[str] = mapped_column(Text, default="")
     next_step: Mapped[str] = mapped_column(Text, default="")
     revision: Mapped[int] = mapped_column(Integer, default=1)

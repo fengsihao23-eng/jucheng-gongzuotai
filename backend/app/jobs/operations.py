@@ -85,6 +85,22 @@ def operations_task_reminder(db, params):
     return {"rows": sent, "message": f"已生成 {sent} 条站内提醒、{len(pending_ids)} 条企业微信通知"}
 
 
+@job("task_feedback_deadline_reminders", "运营与重点项目逾期未反馈提醒", {"minute": "*/5"}, "每 5 分钟")
+def task_feedback_deadline_reminders(db, params):
+    from app.services import key_projects, operations_notifications
+
+    at = now()
+    notices = operations_notifications.scan_feedback_deadlines(db, at) + key_projects.scan_feedback_deadlines(db, at)
+    pending = [notice.id for notice in notices if notice.channel == "wecom_app"]
+    db.commit()
+    if pending:
+        db.expire_all()
+        notify_service.deliver_pending(db, pending)
+        db.commit()
+    sent = len(notices) - len(pending)
+    return {"rows": sent, "message": f"已生成 {sent} 条逾期未反馈提醒、{len(pending)} 条企业微信通知"}
+
+
 def generate_period_reports(db, mode):
     from app.models import OpsDigestPreference, OpsDigestSnapshot
     from app.services import operations_reports as reports

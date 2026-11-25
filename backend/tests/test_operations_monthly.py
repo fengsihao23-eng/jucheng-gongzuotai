@@ -60,7 +60,8 @@ def test_two_stage_review_then_feedback_is_single_task(client, login, db, projec
     assert m["groups"][0]["self_tasks"][0]["latest_feedback"]=="现场需求清单已确认"
     notices=db.scalars(select(SysNotify).where(SysNotify.ref_type=="ops_task",SysNotify.ref_id==str(t["id"]))).all()
     assert {uid(db,"wujun"),uid(db,"zhangzhenhua"),uid(db,"xiekai")} <= {n.user_id for n in notices}
-    assert all(n.channel=="inapp" for n in notices)
+    assert [(n.user_id, n.send_status, n.title) for n in notices if n.channel == "wecom_app"] == [
+        (uid(db, "xiekai"), 1, "自行安排任务审核通过")]
 
 
 def test_rejection_edit_resubmission_and_stale_approval(client,login,db,project):

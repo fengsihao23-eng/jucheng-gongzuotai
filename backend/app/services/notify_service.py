@@ -69,8 +69,11 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     from app.services.collection_followups import NOTICE_TYPES as COLLECTION_TYPES, eligible_notice as collection_eligible
     from app.services.collection_reminders import NOTICE as REMINDER_TYPE, PAYMENT_NOTICE, eligible as reminder_eligible
     from app.services import key_projects
+    from app.services.task_feedback_deadlines import KEY_OVERDUE
     key_checks = {key_projects.NOTICE: key_projects.eligible_notice,
-                  key_projects.ASSIGNMENT_NOTICE: key_projects.eligible_assignment}
+                  key_projects.ASSIGNMENT_NOTICE: key_projects.eligible_assignment,
+                  key_projects.TASK_ASSIGNMENT_NOTICE: key_projects.eligible_task_assignment,
+                  KEY_OVERDUE: key_projects.eligible_feedback_deadline}
     pending_rows = []
     for r in rows:
         if r.msg_type in key_checks and not key_checks[r.msg_type](db, r):
@@ -168,6 +171,16 @@ def deliver_committed(ids: list[int]) -> None:
 
 def retry_failed(db: Session) -> int:
     return _deliver_queue(db, SysNotify.send_status.in_([0, 2]))
+
+
+def delivery_status(db, records, *, user_id=None):
+    q = select(SysNotify, SysUser.name).join(SysUser, SysUser.id == SysNotify.user_id).where(SysNotify.channel == "wecom_app", records)
+    if user_id is not None:
+        q = q.where(SysNotify.user_id == user_id)
+    labels = {0: "等待发送", 1: "企微已受理", 2: "投递失败/已停止"}
+    return [{"id": n.id, "recipient": name, "title": n.title, "status": labels.get(n.send_status),
+             "sent_at": n.sent_at, "retry_count": n.retry_count, "error": n.error_msg}
+            for n, name in db.execute(q.order_by(SysNotify.id.desc()).limit(20))]
 
 
 def users_by_roles(db: Session, role_codes: Iterable[str]) -> list[SysUser]:

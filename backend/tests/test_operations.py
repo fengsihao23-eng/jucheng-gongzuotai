@@ -145,7 +145,7 @@ def test_feedback_nodes_completion_history_and_notifications(client, login, db, 
     notices = db.scalars(select(SysNotify).where(SysNotify.ref_type == "ops_task", SysNotify.ref_id == str(t["id"]))).all()
     assert len([n for n in notices if n.channel == "inapp"]) >= 3
     outbound = [n for n in notices if n.channel == "wecom_app"]
-    assert len(outbound) == 1 and outbound[0].send_status == 0
+    assert len(outbound) == 1 and outbound[0].send_status == 1
     assert outbound[0].user_id == t["owner_id"]
     assert any(n.user_id == uid(db, "xiekai") for n in notices)
     assert any(n.user_id == uid(db, "wujun") for n in notices)

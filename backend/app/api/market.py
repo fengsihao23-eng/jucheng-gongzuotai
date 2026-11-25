@@ -83,9 +83,12 @@ def delete_key_project(project_code: str, body: DeletionIn, p: Principal = Marke
 
 
 @router.post("/projects/{project_code}/tasks")
-def create_key_task(project_code: str, body: KeyTaskIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    result = keys.save_task(db, p, project_code, body)
+def create_key_task(project_code: str, body: KeyTaskIn, background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    notices = []
+    result = keys.save_task(db, p, project_code, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(result)
 
 
@@ -96,9 +99,12 @@ def key_task_detail(project_code: str, task_id: int, p: Principal = MarketOrProj
 
 
 @router.put("/projects/{project_code}/tasks/{task_id}")
-def edit_key_task(project_code: str, task_id: int, body: KeyTaskIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    result = keys.save_task(db, p, project_code, body, task_id)
+def edit_key_task(project_code: str, task_id: int, body: KeyTaskIn, background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    notices = []
+    result = keys.save_task(db, p, project_code, body, task_id, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(result)
 
 

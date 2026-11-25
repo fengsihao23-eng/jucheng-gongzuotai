@@ -55,6 +55,8 @@ const attention = computed(() => {
   if (blocked) return { task: blocked, label: '受阻', tone: 'down' }
   const delay = props.data.delay_review_inbox.find(task => projectIds.has(task.project_id))
   if (delay) return { task: delay, label: '延期待认可', tone: 'warn', filter: 'delay_review' }
+  const missedFeedback = tasks.find(task => task.feedback_status === 'overdue')
+  if (missedFeedback) return { task: missedFeedback, label: '逾期未反馈', tone: 'down', filter: 'feedback_overdue' }
   const needsUpdate = tasks.find(task => task.needs_update)
   return needsUpdate ? { task: needsUpdate, label: '今日待反馈', tone: 'warn' } : null
 })

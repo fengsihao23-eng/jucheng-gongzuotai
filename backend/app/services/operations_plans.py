@@ -58,7 +58,7 @@ def options(db, p, project):
             "can_propose": ops.role(db, p, project) in {"manager", "member", "reviewer"}}
 
 
-def review_task(db, p, task_id, body):
+def review_task(db, p, task_id, body, *, notice_ids=None):
     from app.services import operations_service as ops
     task = ops.get_task(db, p, task_id, lock=True)
     project = ops.get_project(db, p, task.project_id, lock=True)
@@ -90,7 +90,10 @@ def review_task(db, p, task_id, body):
     task.revision += 1
     ops._event(db, p, task, "review", f"{label}{'通过' if body.decision == 'approve' else '退回'}：{body.comment}")
     log_op(db, p.id, "operations.task.review", "ops_task", task.id, before=before, after=snapshot(task, ops.TASK_FIELDS))
-    ops._notify(db, recipients, project, task, title, f"{task.title} · {task.plan_month}\n{label}：{body.comment}")
+    pending = ops._notify(db, recipients, project, task, title, f"{task.title} · {task.plan_month}\n{label}：{body.comment}",
+                         assignment=task.approval_status == "approved")
+    if notice_ids is not None:
+        notice_ids.extend(pending)
     db.flush()
     return task
 

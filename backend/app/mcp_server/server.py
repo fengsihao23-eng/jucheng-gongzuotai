@@ -480,12 +480,12 @@ def t_ops_feedback(db, p, task_id: int, content: str, status: str, progress: int
 def t_ops_create(db, p, project_id: int, title: str, owner_id: int, due_date: str,
                  source: str = "company", plan_month: str | None = None, description: str = "",
                  cadence: str = "daily", department_reviewer_id: int | None = None,
-                 company_reviewer_id: int | None = None, nodes: list[dict] | None = None):
+                 company_reviewer_id: int | None = None, nodes: list[dict] | None = None, feedback_due_at: str | None = None):
     from app.schemas.operations import TaskIn
     from app.services import operations_service as ops
     body = TaskIn(title=title, owner_id=owner_id, due_date=due_date, source=source, plan_month=plan_month,
                   description=description, cadence=cadence, department_reviewer_id=department_reviewer_id,
-                  company_reviewer_id=company_reviewer_id, nodes=nodes or [])
+                  company_reviewer_id=company_reviewer_id, nodes=nodes or [], feedback_due_at=feedback_due_at)
     task = ops.create_task(db, p, project_id, body)
     db.commit()
     return {"data": ops.task_detail(db, p, task.id), "summary": "公司任务已发布并进入月度表。" if source == "company" else "本人任务已提交，等待部门审核。"}
@@ -503,11 +503,13 @@ def _register():
     async def ops_task_create(ctx: Context, project_id: int, title: str, owner_id: int, due_date: str,
                               source: str = "company", plan_month: str | None = None, description: str = "",
                               cadence: str = "daily", department_reviewer_id: int | None = None,
-                              company_reviewer_id: int | None = None, nodes: list[dict] | None = None) -> str:
-        """用户明确要求安排任务后执行。先查询项目、团队与真实ID。source=company|self，due_date=YYYY-MM-DD，plan_month=YYYY-MM，cadence=daily|every_2_days|every_3_days|weekly|node，按自然日；self需两位不同审核人。节点格式{name,due_date}。"""
+                              company_reviewer_id: int | None = None, nodes: list[dict] | None = None,
+                              feedback_due_at: str | None = None) -> str:
+        """用户明确要求安排任务后执行。先查询项目、团队与真实ID。source=company|self，due_date=YYYY-MM-DD，plan_month=YYYY-MM，cadence=daily|every_2_days|every_3_days|weekly|node。feedback_due_at 可选，须携带时区，如 2026-11-25T16:00:00+08:00；self需两位不同审核人。节点格式{name,due_date}。"""
         params = {"project_id": project_id, "title": title, "owner_id": owner_id, "due_date": due_date, "source": source,
                   "plan_month": plan_month, "description": description, "cadence": cadence,
-                  "department_reviewer_id": department_reviewer_id, "company_reviewer_id": company_reviewer_id, "nodes": nodes}
+                  "department_reviewer_id": department_reviewer_id, "company_reviewer_id": company_reviewer_id, "nodes": nodes,
+                  "feedback_due_at": feedback_due_at}
         return await anyio.to_thread.run_sync(lambda: _run("ops.task_create", ctx, params, t_ops_create))
 
     async def ops_task_review(ctx: Context, task_id: int, decision: str, comment: str, expected_revision: int) -> str:

@@ -4,7 +4,8 @@
       <div class="card-top">
         <StatusPill :text="task.status === 'done' ? completionLabel(task) : statusLabel(task)" :tone="task.status === 'done' ? deadlineTone(task) : task.approval_status === 'approved' ? tone(task.status) : task.approval_status === 'rejected' ? 'down' : 'warn'" dot />
         <span v-if="task.priority === 'key'" class="key">重点</span>
-        <span v-if="task.overdue" class="jc-down flag">已逾期</span><span v-else-if="task.deadline_status === 'overdue'" class="jc-down flag">原定期限已过</span><span v-else-if="task.needs_update" class="flag">今日待反馈</span>
+        <span v-if="task.overdue" class="jc-down flag">已逾期</span><span v-else-if="task.deadline_status === 'overdue'" class="jc-down flag">原定期限已过</span>
+        <span v-if="task.feedback_status === 'overdue'" class="jc-down flag">逾期未反馈</span><span v-else-if="task.needs_update" class="flag">今日待反馈</span>
       </div>
       <strong class="title">{{ task.title }}</strong>
       <span class="context">{{ [TASK_SOURCES[task.source], showProject ? task.project_name : '', task.school_name].filter(Boolean).join(' · ') }}</span>
@@ -22,6 +23,7 @@
         下一节点：{{ task.nodes.find(n => !n.completed_at).name }}
         <span class="node-date">· {{ task.nodes.find(n => !n.completed_at).due_date }}</span>
       </span>
+      <span v-if="task.feedback_deadline_pending" class="node-caption" :class="{ 'jc-down': task.feedback_status === 'overdue' }">反馈截止 {{ feedbackTime(task.feedback_due_at) }}</span>
       <span class="node-caption">{{ task.last_feedback_at ? '反馈 ' + datetime(task.last_feedback_at) : '尚未反馈' }}</span>
       <span v-if="task.pending_replies" class="jc-down">{{ task.pending_replies }} 条要求待我回复</span>
       <span v-if="task.carryover" class="carryover">从 {{ task.plan_month }} 延续</span>
@@ -40,6 +42,7 @@
 
 <script setup>
 import { datetime } from '@/utils/format'
+import { feedbackTime } from '@/utils/taskFeedback'
 import { reactive, ref } from 'vue'
 import PasswordDeleteDialog from './PasswordDeleteDialog.vue'
 import { TASK_SOURCES, completionLabel, deadlineTone, statusLabel, taskProgress, taskStatus, tone } from './shared'

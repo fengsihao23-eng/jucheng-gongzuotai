@@ -17,7 +17,10 @@
         </header>
         <dl class="facts">
           <div><dt>负责人</dt><dd>{{ task.owner_name }}</dd></div><div><dt>截止日期</dt><dd>{{ task.due_date }}</dd><small v-if="task.deadline_basis && task.deadline_basis !== task.due_date">原定 {{ task.deadline_basis }}</small></div>
-          <div><dt>反馈频率</dt><dd>{{ task.cadence_label }}</dd><small v-if="task.can_feedback">下次反馈 {{ task.next_feedback_on }}</small></div>
+          <div><dt>反馈频率</dt><dd>{{ task.cadence_label }}</dd>
+            <small v-if="task.feedback_deadline_pending" :class="{ 'jc-down': task.feedback_status === 'overdue' }">反馈截止 {{ feedbackTime(task.feedback_due_at) }}</small>
+            <small v-else-if="task.can_feedback">下次反馈 {{ task.next_feedback_on }}</small>
+          </div>
           <div v-if="task.approval_status === 'approved'"><dt>任务进度</dt><dd aria-live="polite"><el-progress v-if="progress.percent !== null" aria-label="任务进度" :percentage="progress.percent" :color="task.status === 'blocked' ? 'var(--jc-down)' : task.status === 'done' ? 'var(--jc-up)' : 'var(--jc-brand)'" /><span v-else>{{ progress.label }}</span></dd></div>
           <div v-else><dt>任务审核</dt><dd>{{ statusLabel(task) }}</dd></div>
         </dl>
@@ -87,15 +90,7 @@
         </el-timeline-item>
       </el-timeline>
       <p v-else class="jc-muted">暂无过程记录</p>
-      <details v-if="task?.notification_deliveries?.length" class="section delivery-history">
-        <summary>企业微信提醒投递情况</summary>
-        <p class="jc-small jc-muted">企微已受理表示发送请求成功。请在企业微信「消息」里的「聚成工作台」会话查看。</p>
-        <div v-for="n in task.notification_deliveries" :key="n.id" class="node-entry">
-          <b>{{ n.recipient }} · {{ n.status }}</b>
-          <p class="jc-small">{{ n.title }} · {{ n.sent_at ? datetime(n.sent_at) : '待发送/已停止' }}</p>
-          <p v-if="n.error" class="jc-small jc-muted">{{ n.error }}</p>
-        </div>
-      </details>
+      <WecomDeliveryStatus :rows="task?.notification_deliveries" />
     </el-dialog>
     <template v-if="!archived && !unavailable && (task?.can_feedback || task?.can_review || task?.delay_status)" #footer>
       <div class="task-footer"><el-button @click="visible = false">关闭</el-button>
@@ -111,9 +106,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import WecomDeliveryStatus from '@/components/WecomDeliveryStatus.vue'
 import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
+import { feedbackTime } from '@/utils/taskFeedback'
 import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, taskProgress, tone, announceChange } from './shared'
 import TaskDelayPanel from './TaskDelayPanel.vue'
 import TaskDiscussion from './TaskDiscussion.vue'
@@ -255,7 +252,6 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 .history-count { font-size: 15px; margin: 0 0 14px; color: var(--jc-ink); }.history-count small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }
 :global(.task-history-dialog > .el-dialog__body) { max-height: 68dvh; overflow: auto; overscroll-behavior: contain; }
 .history-timeline { padding: 0 4px 0 2px; }.history-timeline :deep(.el-timeline-item:last-child) { padding-bottom: 0; }
-.delivery-history { margin-top: 14px; }.delivery-history summary { cursor: pointer; }.delivery-history > p { margin-top: 8px; }
 .feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
 .result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.result-choice :deep(.el-radio-button__inner) { width: 100%; }
 .node-hint { flex: 0 0 100%; color: var(--jc-ink-3); font-size: 12px; line-height: 1.5; }

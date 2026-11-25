@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from app.schemas.operations import Id, Input, Note
 
@@ -42,6 +42,7 @@ class KeyTaskIn(Input):
     preparation_on: date
     due_on: date
     cadence: Literal["daily", "weekly", "node"] = "weekly"
+    feedback_due_at: AwareDatetime | None = None
     nodes: list[KeyTaskNodeIn] = Field(default_factory=list, max_length=30)
     expected_revision: Revision | None = None
 

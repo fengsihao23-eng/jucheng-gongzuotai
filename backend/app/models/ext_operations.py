@@ -117,6 +117,8 @@ class OpsTask(TimestampMixin, Base):
     original_due_date: Mapped[date | None] = mapped_column(Date)
     priority: Mapped[str] = mapped_column(String(16), default="key")
     cadence: Mapped[str] = mapped_column(String(16), default="daily")
+    feedback_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    feedback_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     plan_month: Mapped[str] = mapped_column(String(7), index=True)
     source: Mapped[str] = mapped_column(String(16), default="company", server_default="company")
     approval_status: Mapped[str] = mapped_column(String(24), default="approved", server_default="approved")

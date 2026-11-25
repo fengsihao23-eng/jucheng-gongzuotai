@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=6000)]
@@ -135,6 +135,7 @@ class TaskIn(Input):
     due_date: date
     priority: Literal["key", "normal"] = "key"
     cadence: Cadence = "daily"
+    feedback_due_at: AwareDatetime | None = None
     plan_month: Month | None = None
     source: Literal["company", "self"] = "company"
     department_reviewer_id: Id | None = None
@@ -160,6 +161,7 @@ class TaskPatch(Input):
     due_date: date | None = None
     priority: Literal["key", "normal"] | None = None
     cadence: Cadence | None = None
+    feedback_due_at: AwareDatetime | None = None
     plan_month: Month | None = None
     department_reviewer_id: Id | None = None
     company_reviewer_id: Id | None = None

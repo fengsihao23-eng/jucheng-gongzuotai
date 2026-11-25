@@ -23,7 +23,7 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
 
     task_notice = ("ops_task", "ops_task_reminder")
     visible_key_task = exists(select(BizProjectMilestone.id).join(BizProject, BizProject.id == BizProjectMilestone.project_id).where(
-        cast(BizProjectMilestone.id, String) == SysNotify.ref_id,
+        cast(BizProjectMilestone.id, String) == func.split_part(SysNotify.ref_id, ":", 1),
         BizProject.id.in_(project_service.visible_query(p).with_only_columns(BizProject.id)))) & (p.has_menu("market") or p.has_menu("projects"))
     visible_project = exists(select(OpsProject.id).where(
         cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))

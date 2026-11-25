@@ -40,7 +40,8 @@
         <el-form-item label="重点程度"><el-radio-group v-model="form.priority"><el-radio-button value="key">重点任务</el-radio-button><el-radio-button value="normal">一般任务</el-radio-button></el-radio-group></el-form-item>
         <el-form-item label="反馈频率"><el-select v-model="form.cadence" aria-label="反馈频率"><el-option v-for="(label, value) in CADENCES" :key="value" :value="value" :label="label" /></el-select></el-form-item>
       </div>
-      <p class="jc-small jc-muted">按自然日计算，进展反馈后重新起算。每天 16:00 汇总到期、逾期及待回复事项；已读通知不结束任务。</p>
+      <FeedbackDeadlineField v-model="form.feedback_due_at" />
+      <p class="jc-small jc-muted">任务发布后通知负责人。超过反馈截止时间仍未提交进展时，企业微信提醒负责人填写。</p>
       <template v-if="!initial?.id">
         <div class="jc-row between"><b>阶段节点 <span class="jc-muted jc-small">可选，适合分阶段完成的任务</span></b><el-button link type="primary" :disabled="form.nodes.length >= 30" @click="form.nodes.push({ name: '', due_date: form.due_date })">添加节点</el-button></div>
         <div v-for="(n, i) in form.nodes" :key="i" class="node">
@@ -58,6 +59,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
+import FeedbackDeadlineField from '@/components/FeedbackDeadlineField.vue'
 import { announceChange, CADENCES } from './shared'
 const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, schoolPreset: Number, mode: {type:String,default:'company'} })
 const emit = defineEmits(['update:modelValue', 'saved', 'closed'])
@@ -73,7 +75,8 @@ watch(visible, async v => {
     owner_id: props.initial?.owner_id || (props.mode === 'self' ? auth.profile?.id : null), due_date: props.initial?.due_date || null, school_id: props.initial?.school_id || props.schoolPreset || null,
     kind: props.initial?.kind || (props.schoolPreset ? 'outreach' : 'general'), visibility: props.initial?.visibility || 'team',
     viewer_ids: [...(props.initial?.viewer_ids || [])],
-    priority: props.initial?.priority || 'key', cadence: props.initial?.cadence || 'daily', nodes: [], source:props.initial?.source || props.mode,
+    priority: props.initial?.priority || 'key', cadence: props.initial?.cadence || 'daily', feedback_due_at: props.initial?.feedback_due_at ?? null,
+    nodes: [], source:props.initial?.source || props.mode,
     plan_month:props.initial?.plan_month || props.project.today.slice(0,7), department_reviewer_id:props.initial?.department_reviewer_id || null,
     company_reviewer_id:props.initial?.company_reviewer_id || null })
   if(v) { try {options.value=await api.get('/operations/options',{project_id:props.project.id})} catch {} }
