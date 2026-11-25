@@ -208,6 +208,11 @@ def task_data(db, p, row, item, *, history=False):
 
 def save_task(db, p, code, body, task_id=None, *, notice_ids=None):
     row = project(db, p, code, lock=True)
+    item = _save_task(db, p, row, body, task_id, notice_ids=notice_ids)
+    return task_data(db, p, row, item, history=True)
+
+
+def _save_task(db, p, row, body, task_id=None, *, notice_ids=None):
     active(db, row)
     if not can_manage(p, row):
         raise forbidden("仅项目负责人或项目管理者可安排任务")
@@ -258,7 +263,15 @@ def save_task(db, p, code, body, task_id=None, *, notice_ids=None):
             wecom_content="你有一项新的重点项目任务安排，请打开工作台查看任务要求和反馈时间。")
         if notice_ids is not None:
             notice_ids.extend(notice.id for notice in notices if notice.channel == "wecom_app")
-    return task_data(db, p, row, item, history=True)
+    return item
+
+
+def create_project(db, p, body):
+    row = save_project(db, p, body)
+    notices = queue_assignment(db, row)
+    for fields in body.tasks:
+        _save_task(db, p, row, fields, notice_ids=notices)
+    return row, notices
 
 
 def feedback(db, p, code, task_id, body):

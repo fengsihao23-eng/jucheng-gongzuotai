@@ -99,12 +99,7 @@ try {
     notices.push({ pagePath: keyPath, detail: `${keyPath}/tasks/${overdue.id}`, title: overdue.title, recipient: 'xuhao',
       link: `${keyPath}?task=${overdue.id}`, assignment: '收到重点项目任务', reminder: '重点项目任务逾期未反馈', dialog: '任务情况' })
     await checkFilters(future, overdue.title)
-    const screenshot = await capture('03-重点项目逾期未反馈')
-    await page.goto(WEB + '/market')
-    await page.locator('.el-select').filter({ has: page.getByRole('combobox', { name: '选择重点项目' }) }).click()
-    await page.getByRole('option', { name: '校园设备交付', exact: true }).click()
-    await checkFilters(future, overdue.title)
-    return screenshot
+    return capture('03-重点项目逾期未反馈')
   })
 
   await step('FEEDBACK-03', '发给本人的是企微文字卡片，重复扫描与提交反馈后均无重复提醒', async () => {

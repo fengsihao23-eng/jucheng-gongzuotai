@@ -54,6 +54,8 @@ await step('PROJECT-01', '新建重点项目后按所选负责人发送带项目
   await admin.getByRole('option', { name: owner.name, exact: true }).click()
   await setDate(dialog, '项目完成日期', '2026-12-10')
   await dialog.getByRole('button', { name: '创建重点项目', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden' })
+  await admin.getByRole('button', { name: `查看重点项目：${keyName}`, exact: true }).click()
   await admin.waitForURL(/\/market\/projects\/JC-/)
   projectCode = new URL(admin.url()).pathname.split('/').pop()
   const messages = await call('admin', 'GET', '/dev/mock/outbox')

@@ -24,7 +24,7 @@ from app.services import market_service as ms
 from app.services import project_service as ps
 from app.services import key_projects as keys
 from app.services import notify_service
-from app.schemas.key_projects import KeyProjectIn, KeyProjectEditIn, KeyTaskIn, KeyTaskFeedbackIn
+from app.schemas.key_projects import KeyProjectCreateIn, KeyProjectEditIn, KeyTaskIn, KeyTaskFeedbackIn
 
 router = APIRouter(prefix="/market", tags=["market"])
 Market = Depends(require_menu("market"))
@@ -53,9 +53,8 @@ def key_project_options(p: Principal = MarketOrProject, db: Session = Depends(ge
 
 
 @router.post("/projects")
-def create_key_project(body: KeyProjectIn, background: BackgroundTasks, p: Principal = Market, db: Session = Depends(get_db)):
-    row = keys.save_project(db, p, body)
-    notices = keys.queue_assignment(db, row)
+def create_key_project(body: KeyProjectCreateIn, background: BackgroundTasks, p: Principal = Market, db: Session = Depends(get_db)):
+    row, notices = keys.create_project(db, p, body)
     db.commit()
     if notices:
         background.add_task(notify_service.deliver_committed, notices)

@@ -6,23 +6,7 @@
     </PageHeader>
 
     <el-tabs v-model="tab">
-      <el-tab-pane label="跟进看板" name="board">
-        <div class="layout">
-          <MarketKeyTasks v-if="tab === 'board'" :projects="board?.projects || []" :ready="!!board" :loading="loading" />
-
-          <Panel title="重点事件" sub="近 60 天事件与风险">
-            <el-timeline v-if="board?.events?.length" class="tl">
-              <el-timeline-item v-for="e in board.events" :key="e.id" :timestamp="date(e.feedback_date)" :color="e.kind === 'risk' ? '#a63d32' : '#a8741a'">
-                <div class="jc-small"><b>{{ e.project_name }}</b> <StatusPill :text="e.kind === 'risk' ? '风险' : '事件'" :tone="e.kind === 'risk' ? 'down' : 'warn'" /></div>
-                <div class="ev">{{ e.content }}</div>
-              </el-timeline-item>
-            </el-timeline>
-            <el-empty v-else :image-size="60" description="暂无重点事件" />
-          </Panel>
-        </div>
-      </el-tab-pane>
-
-      <el-tab-pane label="重点项目跟进" name="key" lazy>
+      <el-tab-pane label="重点项目总览" name="key">
         <div class="jc-grid c5 mb-16" v-if="board">
           <Kpi label="重点项目" :value="stats.count" unit="个" />
           <Kpi label="异常项目" :value="stats.alert_count" unit="个" hint="延期、风险或进展待反馈" />
@@ -51,6 +35,7 @@
                 <div class="bar"><i :style="{ width: p.progress * 100 + '%' }" /></div>
                 <span class="jc-num jc-small">{{ Math.round(p.progress * 100) }}%</span>
               </div>
+              <p v-if="p.is_key" class="jc-small jc-muted task-count">任务 {{ p.done_nodes }} / {{ p.total_nodes }} 项已完成</p>
               <div class="row2 jc-small">
                 <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b><span v-if="p.current_node_plan"> · {{ p.current_node_plan }}</span></span>
                 <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
@@ -105,7 +90,7 @@
         </Panel>
       </el-tab-pane>
     </el-tabs>
-    <KeyProjectForm v-model="createOpen" @saved="p=>router.push(`/market/projects/${p.project_code}`)" />
+    <KeyProjectForm v-model="createOpen" @saved="showCreatedProject" />
     <PasswordDeleteDialog v-model="deleteOpen" title="删除重点项目" :name="menu.project?.name" :endpoint="`/market/projects/${menu.project?.project_code}`" @deleted="load" />
     <Teleport to="body">
       <div v-if="menu.open" class="ctx-mask" @click.self="closeMenu" @contextmenu.prevent="closeMenu" @keydown.esc.prevent.stop="closeMenu" @keydown.tab="closeMenu">
@@ -139,25 +124,25 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
-import { BUSINESS_LINES, PROJECT_STATUS, date, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
+import { BUSINESS_LINES, PROJECT_STATUS, datetime, percent, shortDate, wan, wanNum } from '@/utils/format'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
-import MarketKeyTasks from './market/MarketKeyTasks.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
 const auth = useAuth()
 const route = useRoute()
 const router = useRouter(), createOpen = ref(false), keyword = ref(''), projectStatus = ref(null), attentionOnly = ref(false)
 const tab = computed({
-  get: () => ['key', 'reports'].includes(route.query.tab) ? route.query.tab : 'board',
-  set: (value) => router.replace({ query: { ...route.query, tab: value === 'board' ? undefined : value } }),
+  get: () => route.query.tab === 'reports' ? 'reports' : 'key',
+  set: (value) => router.replace({ query: { ...route.query, tab: value === 'key' ? undefined : value } }),
 })
 const board = ref(null)
 const loading = ref(false)
 const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
 const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = ref(false), menuAction = ref(null)
 let menuTrigger = null
+let loadVersion = 0
 const filteredProjects = computed(() => (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) && (!attentionOnly.value || p.alert) && `${p.name} ${p.customer_name} ${p.owner_name} ${p.market_owner_name}`.includes(keyword.value.trim())))
 const stats = computed(() => { const rows=filteredProjects.value,contract=rows.reduce((s,p)=>s+Number(p.contract_total||0),0),received=rows.reduce((s,p)=>s+Number(p.received||0),0);return {count:rows.length,alert_count:rows.filter(p=>p.alert).length,delayed_nodes:rows.reduce((s,p)=>s+p.delayed_nodes,0),contract_total:contract,received,payment_rate:contract?received/contract:null} })
 function openProject(p) { router.push(`/${p.is_key?'market/projects':'projects'}/${p.project_code}`) }
@@ -178,12 +163,21 @@ function closeMenu() {
   menuTrigger?.focus()
 }
 async function load() {
+  const current = ++loadVersion
   loading.value = true
   try {
-    board.value = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
+    const result = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
+    if (current === loadVersion) board.value = result
   } finally {
-    loading.value = false
+    if (current === loadVersion) loading.value = false
   }
+}
+function showCreatedProject() {
+  keyword.value = ''
+  projectStatus.value = null
+  attentionOnly.value = false
+  tab.value = 'key'
+  load()
 }
 
 // 报告
@@ -253,12 +247,9 @@ const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') &&
 </script>
 
 <style scoped>
-.layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
-.layout :deep(.hd), .layout :deep(.extra) { flex-wrap: wrap; }
-.layout :deep(.el-button + .el-button) { margin-left: 0; }
 .report-history :deep(.hd), .report-history :deep(.extra) { flex-wrap: wrap; }
 .report-history :deep(.el-button + .el-button) { margin-left: 0; }
-@media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+.panel :deep(.hd), .panel :deep(.extra) { flex-wrap: wrap; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%,260px), 1fr)); gap: 14px; }
 .project-filters { display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 18px; }.project-filters .el-input { width:240px; }.project-filters .el-select { width:140px; }
 .pcard { border: 1px solid var(--jc-line); border-radius: var(--jc-radius); padding: 14px 16px; cursor: pointer; background: var(--jc-surface); transition: border-color 0.15s, box-shadow 0.15s; }
@@ -273,11 +264,10 @@ const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') &&
 .prog { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; }
 .prog .bar { flex: 1; height: 4px; background: var(--jc-line-2); border-radius: 2px; overflow: hidden; }
 .prog .bar i { display: block; height: 100%; background: var(--jc-brand); }
+.task-count { margin: 0 0 8px; }
 .row2 { display: flex; justify-content: space-between; }
 .fb { margin-top: 8px; color: var(--jc-ink-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 37px; }
 .fb.risk { color: var(--jc-down); }
-.tl { padding-left: 2px; max-height: 520px; overflow: auto; }
-.ev { font-size: 13px; color: var(--jc-ink-2); margin-top: 4px; line-height: 1.55; }
 .md :deep(h2) { font-family: var(--jc-font-serif); font-size: 18px; margin: 0 0 12px; }
 .md :deep(h3) { font-size: 15px; margin: 18px 0 6px; padding-top: 12px; border-top: 1px solid var(--jc-line-2); }
 .md :deep(h3.alert) { color: var(--jc-down); }

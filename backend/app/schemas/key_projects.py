@@ -56,6 +56,10 @@ class KeyTaskIn(Input):
         return self
 
 
+class KeyProjectCreateIn(KeyProjectIn):
+    tasks: list[KeyTaskIn] = Field(default_factory=list)
+
+
 class KeyTaskFeedbackIn(Input):
     content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
     problems: Note = ""

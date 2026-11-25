@@ -22,17 +22,19 @@ await step('KEY-01','重点项目看板名称、三项报告操作及新建入�
   await desktop.getByRole('button',{name:'新建重点项目',exact:true}).waitFor()
   await desktop.getByRole('tab',{name:'周报 / 月报',exact:true}).click()
   for(const name of ['生成周报','生成月报','汇总本周周报'])await desktop.getByRole('button',{name,exact:true}).waitFor()
-  await desktop.getByRole('tab',{name:'跟进看板',exact:true}).click()
+  await desktop.getByRole('tab',{name:'重点项目总览',exact:true}).click()
   await shot(desktop,'key-board-desktop')
 })
 
-await step('KEY-02','从页面直接新建重点项目并打开独立管理详情',async()=>{
+await step('KEY-02','新建重点项目后留在总览，可打开项目详情',async()=>{
   await desktop.getByRole('button',{name:'新建重点项目',exact:true}).click()
   const dialog=desktop.getByRole('dialog',{name:'新建重点项目',exact:true})
   await dialog.getByRole('textbox',{name:'重点项目名称',exact:true}).fill(projectName)
   await dialog.getByRole('textbox',{name:'重点项目内容',exact:true}).fill('围绕现场核对、资料准备和方案确认完成本次合成交付。')
   await dateField(dialog,'项目完成日期','2026-11-30')
   await dialog.getByRole('button',{name:'创建重点项目',exact:true}).click()
+  await dialog.waitFor({state:'hidden'})
+  await desktop.getByRole('button',{name:`查看重点项目：${projectName}`,exact:true}).click()
   await desktop.waitForURL(/\/market\/projects\/JC-/)
   projectCode=new URL(desktop.url()).pathname.split('/').pop()
   await desktop.getByRole('heading',{name:projectName,exact:true}).waitFor()

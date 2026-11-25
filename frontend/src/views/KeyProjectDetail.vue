@@ -1,6 +1,6 @@
 <template>
   <div class="jc-page" v-loading="loading">
-    <el-button link @click="router.push(auth.hasMenu('market') ? '/market?tab=key' : '/projects')">← 重点项目</el-button>
+    <el-button link @click="router.push(auth.hasMenu('market') ? '/market' : '/projects')">← 重点项目</el-button>
     <template v-if="project">
       <PageHeader v-record-delete="projectRemoval" eyebrow="重点项目" :title="project.name" :desc="project.content || '按任务和节点推进项目，记录实际进展。'">
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
@@ -54,7 +54,7 @@ let version=0
 async function load(quiet=false){const v=++version;if(!quiet&&!project.value)loading.value=true;try{const r=await api.get(`/market/projects/${route.params.code}`,{period:period.value},{silent:quiet});if(v===version)project.value=r}catch(e){if(v===version&&(!quiet||[40301,40401].includes(e.code)))project.value=null}finally{if(v===version)loading.value=false}}
 const projectRemoval = computed(() => project.value?.can_delete && {
   endpoint: '/market/projects/' + project.value.project_code, title: '删除重点项目', name: project.value.name,
-  onDeleted: () => router.push(auth.hasMenu('market') ? '/market?tab=key' : '/projects'),
+  onDeleted: () => router.push(auth.hasMenu('market') ? '/market' : '/projects'),
 })
 watch(()=>route.params.code,()=>{project.value=null;tab.value='tasks';load()},{immediate:true})
 useBusinessRefresh(()=>load(true),{interval:12000,enabled:()=>!projectForm.value})

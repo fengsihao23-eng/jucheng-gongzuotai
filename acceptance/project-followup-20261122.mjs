@@ -56,7 +56,7 @@ async function postFeedback(page, text, screenshot) {
   return snap(page, screenshot)
 }
 try {
-  await step('01a', '重点项目可从看板直接新建', async () => {
+  await step('01a', '重点项目可从总览直接新建', async () => {
     await desktop.goto(WEB + '/market')
     await btn(desktop, '新建重点项目').click()
     const dialog = await opened(desktop, '新建重点项目')
@@ -66,6 +66,8 @@ try {
     await setDate(dialog, '项目完成日期', '2026-11-30')
     const result = await snap(desktop, '01a-重点项目新建')
     await btn(dialog, '创建重点项目').click()
+    await dialog.waitFor({ state: 'hidden' })
+    await btn(desktop, '查看重点项目：教学楼接入改造').click()
     await desktop.waitForURL(/\/market\/projects\/JC-/)
     return result
   })

@@ -68,6 +68,43 @@ def test_new_key_project_sends_assignment_to_selected_owner(client, login, db, k
         SysNotify.ref_id == str(regular["id"]), SysNotify.send_status == 1, SysNotify.channel == "wecom_app"))
 
 
+def test_create_project_with_tasks_and_notify_each_assignee(client, login, db, key_project):
+    from app.integration.wecom.mock import read_outbox
+
+    _, _, fields = key_project
+    plans = [
+        task_body(db, title="核对设备", feedback_due_at="2026-11-24T16:30:00+08:00"),
+        task_body(db, title="校方确认", owner_id=ident(db, "dingrui"), nodes=[]),
+    ]
+    result = data(client.post(BASE + "/projects", headers=login("admin"), json={**fields, "name": "一次创建项目和任务", "tasks": plans}))
+    route = f"/market/projects/{result['project_code']}"
+    project = data(client.get(f"/api/v1{route}", headers=login("admin")))
+    assert [task["title"] for task in project["tasks"]] == [plan["title"] for plan in plans]
+    first, second = project["tasks"]
+    assert first["feedback_deadline_pending"] and [(n["name"], n["due_on"]) for n in first["nodes"]] == [
+        (node["name"], node["due_on"]) for node in plans[0]["nodes"]]
+    assert second["owner_id"] == plans[1]["owner_id"] and second["nodes"] == []
+    for target, suffix in [("wujun", route), ("xuhao", f"{route}?task={first['id']}"), ("dingrui", f"{route}?task={second['id']}")]:
+        assert any(msg["to"] == [target] and msg["type"] == "textcard" and (msg["url"] or "").endswith(suffix)
+                   for msg in read_outbox())
+
+
+def test_invalid_initial_task_rolls_back_project_tasks_and_notices(client, login, db, key_project):
+    from app.integration.wecom.mock import read_outbox
+    from app.models import BizProjectMilestone
+
+    _, _, fields = key_project
+    models = (BizProject, BizProjectMilestone, KeyProjectTaskPlan, KeyProjectTaskNode, SysNotify)
+    before = [db.scalar(select(func.count()).select_from(model)) for model in models]
+    sent = read_outbox()
+    response = client.post(BASE + "/projects", headers=login("admin"), json={**fields, "name": "不得部分创建", "tasks": [
+        task_body(db), task_body(db, title="负责人无效", owner_id=999999999),
+    ]})
+    assert response.status_code == 400
+    assert [db.scalar(select(func.count()).select_from(model)) for model in models] == before
+    assert read_outbox() == sent
+
+
 def test_pending_assignment_stops_after_owner_changes(db, key_project, monkeypatch):
     from app.services import notify_service
 
