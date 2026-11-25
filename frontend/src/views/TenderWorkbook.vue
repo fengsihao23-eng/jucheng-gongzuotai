@@ -30,7 +30,7 @@
           </template>
         </dl>
       </Panel>
-      <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" />
+      <WorkbookProjectFeedback v-if="detail" view="tender" :sheet="data.sheet.id" :row="detail.row" :revision="detail.revision" :title="selected.name" />
     </div>
   </div>
   <div v-else class="jc-page tender-page">
@@ -76,6 +76,7 @@
                 <el-option v-for="opt in years" :key="opt" :label="opt + ' 年'" :value="opt" />
                 <el-option v-if="hasUndated" label="日期未注明" value="undated" />
               </el-select>
+              <WorkbookArchiveFilter v-model="archiveCategory" class="project-archive-filter" />
             </div>
           </template>
 
@@ -105,6 +106,9 @@
             <el-table-column :label="isTender ? '责任人' : '实际跟进人'" min-width="110">
               <template #default="{ row }">{{ row.owners || '—' }}</template>
             </el-table-column>
+            <el-table-column label="归档分类" min-width="125">
+              <template #default="{ row }"><StatusPill v-if="row.archiveCategory" :text="ARCHIVE_CATEGORIES[row.archiveCategory]" tone="info" /><span v-else class="jc-muted">—</span></template>
+            </el-table-column>
             <el-table-column v-if="hasAmounts" :label="isTender ? '预计金额（元）' : '合同金额（元）'" min-width="145" align="right">
               <template #default="{ row }"><span v-if="row.lots.length === 1 && row.amount != null" class="jc-num">{{ moneyText(row.amount) }}</span><span v-else class="jc-muted">{{ row.lots.length > 1 ? '见标段' : '—' }}</span></template>
             </el-table-column>
@@ -130,13 +134,16 @@
 <script setup>
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import WorkbookArchiveFilter from '@/components/WorkbookArchiveFilter.vue'
 import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
+import { ARCHIVE_CATEGORIES } from '@/utils/workbookArchive'
 
 const endpoint = '/business-workbook/tender'
 const categories = [{ key: 'tender', label: '招标项目' }, { key: 'pending', label: '在建项目' }]
@@ -148,13 +155,13 @@ const sourceMenu = rowDeletion(row => auth.canDelete('project:key', 'milestone:w
     description: `确认从工作台移除「${row.name}」？企微原表及历史记录保留供核对。`,
   }))
 const data = ref(null), loading = ref(false), syncing = ref(false), error = ref('')
-const keyword = ref(''), progress = ref(''), year = ref(''), page = ref(1)
+const keyword = ref(''), progress = ref(''), year = ref(''), archiveCategory = ref(''), page = ref(1)
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null)
 const canSync = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
 const modules = computed(() => categories.map(mod => ({ ...mod, sheet: data.value?.sheets?.find(s => s.profile === mod.key) })))
 const activeModule = computed(() => modules.value.find(mod => mod.sheet?.id && mod.sheet.id === data.value?.sheet?.id))
 const isTender = computed(() => activeModule.value?.key === 'tender')
-let request = 0, detailRequest = 0, timer
+let request = 0, detailRequest = 0
 
 function moduleCaption(mod) {
   return mod.key === 'tender' ? `${mod.sheet.summary.count} 条标段明细` : '已建设或已中标待签'
@@ -176,7 +183,7 @@ const projects = computed(() => {
     const lead = lots.find(row => row.row === group) || lots[0]
     return { group, lots, name: lead.name, sequence: lead.sequence, progress: joined(lots, 'progress'),
       amount: lead.amount, customers: joined(lots, 'customer'), owners: joined(lots, 'owner'),
-      parties: joined(lots, 'party'), dates: joined(lots, 'date') }
+      parties: joined(lots, 'party'), dates: joined(lots, 'date'), archiveCategory: lead.archive_category }
   })
 })
 const selected = computed(() => {
@@ -192,7 +199,7 @@ const years = computed(() => data.value?.years || [])
 const hasUndated = computed(() => data.value?.items.some(row => !row.date_value))
 const filtered = computed(() => {
   const wanted = matchText(keyword.value)
-  return projects.value.filter(project => project.lots.some(row =>
+  return projects.value.filter(project => (!archiveCategory.value || (project.archiveCategory || 'unarchived') === archiveCategory.value) && project.lots.some(row =>
     (!progress.value || row.progress === progress.value) &&
     (!year.value || (year.value === 'undated' ? !row.date_value : row.date_value?.startsWith(year.value + '-'))) &&
     (!wanted || matchText([row.name, row.sequence, row.customer, row.owner, row.progress, row.party, row.note].join(' ')).includes(wanted))))
@@ -201,7 +208,7 @@ const shown = computed(() => {
   const first = (page.value - 1) * perPage
   return filtered.value.slice(first, first + perPage)
 })
-watch([keyword, progress, year], () => { page.value = 1 })
+watch([keyword, progress, year, archiveCategory], () => { page.value = 1 })
 watch(() => filtered.value.length, count => { page.value = Math.min(page.value, Math.max(1, Math.ceil(count / perPage))) })
 
 function chooseModule(mod) {
@@ -276,15 +283,13 @@ async function syncNow() {
 }
 watch(() => route.query.sheet, () => {
   if (route.name !== 'tender-projects') return
-  keyword.value = progress.value = year.value = ''
+  keyword.value = progress.value = year.value = archiveCategory.value = ''
   page.value = 1
   load()
 }, { immediate: true })
 watch([() => selected.value?.group, () => data.value?.sheet?.id, () => data.value?.source?.revision], loadDetail)
-onMounted(() => {
-  timer = setInterval(() => { if (!document.hidden && !loading.value && !syncing.value && data.value?.active) load(true) }, 30000)
-})
-onBeforeUnmount(() => { clearInterval(timer); request++; detailRequest++ })
+useBusinessRefresh(() => load(true), { interval: 30000, enabled: () => !loading.value && !syncing.value && data.value?.active })
+onBeforeUnmount(() => { request++; detailRequest++ })
 </script>
 
 <style scoped>
@@ -308,6 +313,7 @@ onBeforeUnmount(() => { clearInterval(timer); request++; detailRequest++ })
 .project-search { width: 220px; max-width: 100%; }
 .project-progress-filter { width: 132px; }
 .project-year { width: 112px; }
+.project-archive-filter { width: 136px; }
 .project-table { width: 100%; }
 .project-table :deep(.el-table__row) { cursor: pointer; }
 .project-table :deep(.cell) { overflow-wrap: anywhere; }

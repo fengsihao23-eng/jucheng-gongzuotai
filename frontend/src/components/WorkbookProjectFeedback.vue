@@ -17,6 +17,9 @@
       <el-button type="primary" native-type="submit" :loading="saving" :disabled="!valid">提交反馈</el-button>
       <el-button @click="editing = false">收起</el-button>
     </el-form>
+    <WorkbookProjectArchive v-if="data?.archive || data?.can_archive || (editing && form.status === 'done' && data?.can_write)"
+      :target="target" :title="title" :archive="data.archive" :feedback-id="data.archive_feedback_id"
+      :disabled="editing || saving" @stale="load()" />
     <h4>过程记录</h4>
     <el-timeline v-if="data?.items.length">
       <el-timeline-item v-for="item in data.items" :key="item.id" :timestamp="`${datetime(item.created_at)} · ${item.author}`" placement="top">
@@ -33,9 +36,11 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { announceBusinessChange, useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
+import WorkbookProjectArchive from './WorkbookProjectArchive.vue'
 
-const props = defineProps({ view: String, sheet: String, row: Number, revision: String })
+const props = defineProps({ view: String, sheet: String, row: Number, revision: String, title: String })
 const states = { doing: '推进中', blocked: '受阻', done: '已完成' }, tones = { doing: 'brand', blocked: 'warn', done: 'up' }
 const data = ref(null), editing = ref(false), loading = ref(false), saving = ref(false), error = ref('')
 const blank = () => ({ status: 'doing', content: '', problems: '', next_step: '', next_due_on: null })
@@ -43,14 +48,24 @@ const form = reactive(blank())
 const latest = computed(() => data.value?.items[0])
 const valid = computed(() => form.content.trim() && (form.status !== 'blocked' || form.problems.trim()) && (!form.next_due_on || form.next_step.trim()))
 const endpoint = computed(() => `/business-workbook/${props.view}/rows/${encodeURIComponent(props.sheet)}/${props.row}/feedback`)
+const target = computed(() => ({ kind: `workbook-${props.view}`, id: props.row, sheet: props.sheet, revision: props.revision }))
 let version = 0
-async function load() {
+async function load(quiet = false) {
+  if (quiet && (loading.value || saving.value)) return
   const current = ++version
-  loading.value = true
+  if (!quiet) loading.value = true
   try {
     const result = await api.get(endpoint.value, { revision: props.revision }, { silent: true })
-    if (current === version) data.value = result
-  } catch (e) { if (current === version) { data.value = null; error.value = e.message } }
+    if (current === version) {
+      data.value = result
+      if (quiet) error.value = ''
+    }
+  } catch (e) {
+    if (current === version && (!quiet || !data.value || [40301, 40401, 40901].includes(e.code))) {
+      data.value = null
+      error.value = e.message
+    }
+  }
   finally { if (current === version) loading.value = false }
 }
 async function submit() {
@@ -62,6 +77,7 @@ async function submit() {
     if (current !== version) return
     data.value = result; editing.value = false; error.value = ''; Object.assign(form, blank())
     ElMessage.success('项目反馈已保存')
+    announceBusinessChange()
   } catch (e) {
     if (current === version && e.code === 40901) { error.value = e.message; await load() }
   } finally { saving.value = false }
@@ -69,6 +85,7 @@ async function submit() {
 watch(() => [endpoint.value, props.revision], () => {
   data.value = null; editing.value = false; error.value = ''; Object.assign(form, blank()); load()
 }, { immediate: true })
+useBusinessRefresh(() => load(true))
 </script>
 
 <style scoped>

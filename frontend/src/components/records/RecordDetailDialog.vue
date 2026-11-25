@@ -100,6 +100,10 @@
                 <p v-if="latest.next_step" class="record-text">下一步 · {{ latest.next_step }}</p>
               </template>
               <p v-else class="jc-muted jc-small">暂无进展反馈。</p>
+              <WorkbookProjectArchive v-if="data.archive || data.can_archive || (data.can_feedback && 'can_archive' in data && outcome === 'done')"
+                :target="data.target" :title="data.record.title" :archive="data.archive" :feedback-id="data.archive_feedback_id"
+                :disabled="!!progress.content.trim() || !!saving"
+                @archived="updateArchivedRecord" @stale="load()" />
             </section>
           </div>
         </div>
@@ -146,6 +150,7 @@ import { ElMessage } from 'element-plus'
 import api from '@/api/client'
 import { announceBusinessChange, useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
+import WorkbookProjectArchive from '@/components/WorkbookProjectArchive.vue'
 
 const props = defineProps({ modelValue: Boolean, title: String, dialogTitle: String, heading: String, subtitle: String,
   status: String, statusTone: { type: String, default: 'brand' }, facts: Array, historyEntries: Array,
@@ -310,6 +315,12 @@ async function sendProgress() {
     outcome.value = 'pending'
     blocked.value = false
   }
+}
+
+function updateArchivedRecord(result) {
+  version++
+  data.value = result
+  emit('saved', result)
 }
 
 defineExpose({ reload: load })

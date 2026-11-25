@@ -74,6 +74,10 @@ def visible_projects(p, *, members_only=False):
     return q
 
 
+def project_categories(db, p):
+    return list(db.scalars(visible_projects(p).with_only_columns(OpsProject.category).distinct().order_by(OpsProject.category)))
+
+
 def has_project_content(db, p, project):
     return can_view_all(p) or role(db, p, project) is not None
 
@@ -753,7 +757,7 @@ def list_projects(db, p, keyword="", category="", key_only=False):
              for r in db.scalars(q.order_by(OpsProject.is_key.desc(), OpsProject.id.desc()))]
     active_ids = {r.id for r in db.scalars(visible_projects(p).where(OpsProject.status == "active"))}
     active_tasks = [t for t in all_tasks if t["project_id"] in active_ids]
-    return {"items": items, "can_create": can_create(p), "can_delete": can_delete_project(p),
+    return {"items": items, "categories": project_categories(db, p), "can_create": can_create(p), "can_delete": can_delete_project(p),
             "stats": task_stats(active_tasks),
             "todos": [t for t in active_tasks if (t["status"] != "done" and t["approval_status"] == "approved") or t.get("pending_replies")],
             "delay_review_inbox": [t for t in all_tasks if t["can_review_delay"]], "today": today()}

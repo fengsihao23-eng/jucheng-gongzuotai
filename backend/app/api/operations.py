@@ -81,7 +81,7 @@ def options(project_id: int | None = None, p: Principal = Menu, db: Session = De
     if not manager:
         q = q.where(SysUser.id.in_([m["user_id"] for m in ops.members(db, project)] if project else [p.id]))
     return ok({"users": [{"id": u.id, "name": u.name, "dept": u.dept_code, "department": u.department.name if u.department else None} for u in db.scalars(q)],
-               "categories": sorted(set(db.scalars(ops.visible_projects(p).with_only_columns(OpsProject.category)))),
+               "categories": ops.project_categories(db, p),
                **content_scope.feature_options(),
                **(plans.options(db, p, project) if project else {})})
 

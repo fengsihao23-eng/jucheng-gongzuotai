@@ -383,7 +383,8 @@ def module_rows(wb, view):
 
 def page(db, p, view, *, sheet_id="", keyword="", year="", page=1, size=30, raw=False,
          start="", end="", basis="", period="", status="", region="", customer="", owner="",
-         business_line="", sign_month="", source_type="", collection_state="", period_kind="", contact="", unpaid_only=False):
+         business_line="", sign_month="", source_type="", collection_state="", period_kind="", contact="",
+         unpaid_only=False, archive_category=""):
     wb = active_source(db, p, view)
     if wb is None:
         return {"active": False}
@@ -408,8 +409,8 @@ def page(db, p, view, *, sheet_id="", keyword="", year="", page=1, size=30, raw=
                                period_kind=period_kind, basis=basis, period=period, unpaid_only=unpaid_only)
     if view == "opportunities":
         from app.services.opportunity_workbook import page as opportunity_page
-        return opportunity_page(wb, p, sheet_id=sheet_id, keyword=keyword, year=year, page=page, size=size, raw=raw,
-                                start=start, end=end, status=status, owner=owner, contact=contact)
+        return opportunity_page(db, wb, p, sheet_id=sheet_id, keyword=keyword, year=year, page=page, size=size, raw=raw,
+                                start=start, end=end, status=status, owner=owner, contact=contact, archive_category=archive_category)
     sheets = [s for s in projected_sheets(wb) if view == "board" or s.profile in VIEWS[view]]
     result = {"active": True, "source": source_info(wb, p), "sheets": [s.brief() for s in sheets]}
     if view == "board":
@@ -439,6 +440,9 @@ def page(db, p, view, *, sheet_id="", keyword="", year="", page=1, size=30, raw=
                  and (not end or r["date_value"] <= end)]
     if status:
         items = [r for r in items if r.get("progress") == status]
+    if view == "tender" and not raw:
+        from app.services.workbook_project_feedback import categorize
+        items = categorize(db, wb, view, sheets, items, archive_category)
     summary = selected.summary(items)
     if raw and sheet_id == "all":
         raise bad_request("逐格查看请先选择一张具体子表")
@@ -479,5 +483,8 @@ def detail(db, p, view, sheet_id, row_number, revision):
     if not sheet or row_number not in sheet.rows or row_number in sheet.removed_rows:
         raise not_found("源表行")
     children = [n for n, row in sheet.rows.items() if row.get("parent") == row_number]
-    return {"sheet_name": sheet.name, "row": row_number, "revision": revision,
-            "rows": [{"row": n, "cells": [sheet.cell(n, c) for c in sheet.columns]} for n in [row_number, *children]]}
+    result = {"sheet_name": sheet.name, "row": row_number, "revision": revision,
+              "rows": [{"row": n, "cells": [sheet.cell(n, c) for c in sheet.columns]} for n in [row_number, *children]]}
+    if view == "opportunities":
+        result["item"] = {key: value for key, value in sheet.project(sheet.rows[row_number]).items() if not key.startswith("_")}
+    return result

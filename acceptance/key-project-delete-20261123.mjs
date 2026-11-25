@@ -34,7 +34,7 @@ const deletedRequests = []
 desktop.on('request', request => { if (request.method() === 'DELETE') deletedRequests.push(request) })
 
 async function showProject(page) {
-  await page.goto(WEB + '/market')
+  await page.goto(WEB + '/market?tab=key')
   await page.getByRole('textbox', { name: '重点项目搜索' }).fill(name)
   await card(page).waitFor()
 }

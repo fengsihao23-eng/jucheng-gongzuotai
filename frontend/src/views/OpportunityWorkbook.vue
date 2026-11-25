@@ -21,7 +21,7 @@
     <Panel v-if="detail.note" class="mt-16" title="描述">
       <p class="detail-note">{{ detail.note }}</p>
     </Panel>
-    <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" />
+    <WorkbookProjectFeedback view="opportunities" :sheet="detail.sheet_id" :row="detail.row" :revision="data.source.revision" :title="detail.name" />
   </div>
   <div v-else class="jc-page opportunity-page">
     <PageHeader eyebrow="营销管控部 · 台账中心" title="商机信息"
@@ -87,6 +87,7 @@
             clearable filterable class="filter-select" @change="search">
             <el-option v-for="s in data.options.contact" :key="s" :label="s" :value="s" />
           </el-select>
+          <WorkbookArchiveFilter v-model="filters.archive_category" class="filter-select" @change="search" />
           <el-date-picker v-model="range" class="date-filter" type="daterange" value-format="YYYY-MM-DD"
             unlink-panels start-placeholder="发起日期（起）" end-placeholder="发起日期（止）" @change="search" />
           <el-button link @click="applyQuery({})">重置</el-button>
@@ -104,6 +105,9 @@
           </el-table-column>
           <el-table-column label="工单状态" min-width="112">
             <template #default="{ row }"><StatusPill v-if="row.progress" :text="row.progress" tone="info" /><span v-else>—</span></template>
+          </el-table-column>
+          <el-table-column label="归档分类" min-width="125">
+            <template #default="{ row }"><StatusPill v-if="row.archive_category" :text="ARCHIVE_CATEGORIES[row.archive_category]" tone="info" /><span v-else class="jc-muted">—</span></template>
           </el-table-column>
           <el-table-column prop="owner" label="责任人" min-width="110" show-overflow-tooltip>
             <template #default="{ row }">{{ row.owner || '—' }}</template>
@@ -130,16 +134,19 @@
 <script setup>
 import { recordRemoval, rowDeletion } from '@/composables/useRecordDeletion'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import WorkbookArchiveFilter from '@/components/WorkbookArchiveFilter.vue'
 import WorkbookProjectFeedback from '@/components/WorkbookProjectFeedback.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useAuth } from '@/store/auth'
 import { datetime } from '@/utils/format'
+import { ARCHIVE_CATEGORIES } from '@/utils/workbookArchive'
 
 const ENDPOINT = '/business-workbook/opportunities'
-const queryKeys = ['keyword', 'status', 'owner', 'contact', 'start', 'end', 'sheet', 'year']
+const queryKeys = ['keyword', 'status', 'owner', 'contact', 'start', 'end', 'sheet', 'year', 'archive_category']
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const opportunityMenu = rowDeletion(row => auth.canDelete('opp:write') && recordRemoval('workbook-opportunities', row.row, row.name, () => load(), {
   query: { sheet: row.sheet_id, revision: data.value?.source.revision }, title: '删除工作台商机',
@@ -147,14 +154,15 @@ const opportunityMenu = rowDeletion(row => auth.canDelete('opp:write') && record
 }))
 const data = ref(null), error = ref(''), loading = ref(false), syncing = ref(false), exporting = ref(false)
 const page = ref(1), size = ref(30), range = ref(null)
+const detailItem = ref(null)
+const detailRow = computed(() => typeof route.query.row === 'string' && /^[1-9]\d*$/.test(route.query.row) ? Number(route.query.row) : null)
 const detail = computed(() => {
   if (route.query.revision && route.query.revision !== data.value?.source?.revision) return null
-  const row = route.query.row
-  return typeof row === 'string' && /^[1-9]\d*$/.test(row)
-    ? data.value?.items.find(item => item.row === Number(row))
-    : null
+  const row = detailRow.value
+  if (!row || !data.value?.sheet) return null
+  return data.value.items.find(item => item.row === row) || (detailItem.value?.row === row ? detailItem.value : null)
 })
-const filters = reactive({ keyword: '', status: '', owner: '', contact: '' })
+const filters = reactive({ keyword: '', status: '', owner: '', contact: '', archive_category: '' })
 const canManageSource = computed(() => auth.profile?.is_admin === true && data.value?.source?.can_sync === true)
 const params = computed(() => Object.fromEntries(queryKeys.flatMap(k =>
   typeof route.query[k] === 'string' && route.query[k].trim() ? [[k, route.query[k]]] : [])))
@@ -162,7 +170,7 @@ const periods = computed(() => [
   { label: '本周新增', ...data.value.stats.week },
   { label: '本月新增', ...data.value.stats.month },
 ])
-let requestId = 0, timer
+let requestId = 0
 
 async function load(quiet = false) {
   if (quiet && loading.value) return
@@ -171,10 +179,24 @@ async function load(quiet = false) {
   try {
     const result = await api.get(ENDPOINT, { ...params.value, page: page.value, size: size.value }, { silent: true })
     if (id !== requestId) return
+    const row = detailRow.value, revision = result.source?.revision
+    let item = null
+    if (row && result.sheet && (!route.query.revision || route.query.revision === revision) &&
+        !result.items.some(entry => entry.row === row)) {
+      // A direct link can point outside the current page or archive filter.
+      try {
+        const record = await api.get(`${ENDPOINT}/rows/${encodeURIComponent(result.sheet.id)}/${row}`, { revision }, { silent: true })
+        item = record.item
+      } catch (e) {
+        if (![40301, 40401].includes(e.code)) throw e
+      }
+    }
+    if (id !== requestId) return
     if (detail.value && data.value.source.revision !== result.source?.revision) {
       ElMessage.info('原表已更新，请重新打开最新工单')
       closeDetail()
     }
+    detailItem.value = row === detailRow.value ? item : null
     data.value = result
     page.value = result.page || 1
     error.value = ''
@@ -196,6 +218,7 @@ function applyQuery(query) {
 function search() {
   const query = { sheet: params.value.sheet, year: params.value.year,
     keyword: filters.keyword.trim(), status: filters.status, owner: filters.owner, contact: filters.contact,
+    archive_category: filters.archive_category,
     start: range.value?.[0], end: range.value?.[1] }
   return applyQuery(Object.fromEntries(Object.entries(query).filter(([, value]) => value)))
 }
@@ -234,8 +257,12 @@ watch(queryKeys.map(key => () => route.query[key]), () => {
   if (route.query.row) size.value = Number(window.history.state?.opportunitySize) || 30
   load()
 }, { immediate: true })
-onMounted(() => { timer = setInterval(() => { if (!document.hidden && !syncing.value) load(true) }, 30_000) })
-onBeforeUnmount(() => { clearInterval(timer); requestId++ })
+watch(detailRow, row => {
+  if (row && !detail.value && !loading.value && route.name === 'opportunities') load()
+  if (!row) detailItem.value = null
+})
+useBusinessRefresh(() => load(true), { interval: 30000, enabled: () => !syncing.value })
+onBeforeUnmount(() => { requestId++ })
 </script>
 
 <style scoped>

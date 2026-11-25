@@ -12,6 +12,7 @@ from app.core.response import bad_request, conflict, forbidden, not_found
 from app.services import (business_workbook, collection_followups, collection_service, contract_service,
                           import_service, kb_service, key_projects, operations_scope, operations_service,
                           project_service, report_service, sporadic_collections)
+from app.services.workbook_project_feedback import tracking_key
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class Record:
     workbook: int | None = None
     identity: str = ""
     legacy: tuple[str, int | str] | None = None
+    archive_key: str | None = None
 
     @property
     def key(self):
@@ -184,7 +186,7 @@ def workbook_record(db, p, kind, ref):
     legacy = ("workbook", identity) if view in {"opportunities", "tender"} else None
     return Record(kind, ident, label, item["name"], section, member_ids, any(p.can(b) for b in buttons),
                   facts=values, context=sheet.name, path=path, sheet=sheet.id, revision=wb.revision,
-                  workbook=wb.id, identity=identity, legacy=legacy)
+                  workbook=wb.id, identity=identity, legacy=legacy, archive_key=tracking_key(view, row) if legacy else None)
 
 
 def resolve(db, p, kind, ref, *, lock=False):

@@ -86,7 +86,7 @@ await step('KEY-04','手机端负责人可填写进展、问题及本次完成�
 })
 
 await step('KEY-05','风险反馈联动看板、筛选和原周报汇总',async()=>{
-  await desktop.goto(WEB+'/market')
+  await desktop.goto(WEB+'/market?tab=key')
   await desktop.getByRole('textbox',{name:'重点项目搜索',exact:true}).fill(projectName)
   await desktop.locator('label.el-checkbox').filter({hasText:'需要关注'}).click()
   await desktop.getByRole('button',{name:`查看重点项目：${projectName}`,exact:true}).waitFor()

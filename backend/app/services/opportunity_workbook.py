@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 from app.core.response import bad_request, conflict, not_found
 from app.core.timeutil import month_range, today, week_range
 from app.services import business_workbook as source, workbook_metrics as metrics
+from app.services.workbook_project_feedback import categorize
 
 COLUMNS = (
     ("sequence", "工单编号", 24), ("template", "工单模板", 18), ("contact", "联系人", 20),
@@ -60,12 +61,14 @@ def status_counts(rows):
         counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
-def page(wb, p, *, sheet_id="", page=1, size=30, raw=False, **filters):
+def page(db, wb, p, *, sheet_id="", page=1, size=30, raw=False, archive_category="", **filters):
     if raw:
         raise bad_request("商机信息仅展示工单明细")
     sheet = _sheet(wb, sheet_id)
     rows = sheet.items if sheet else []
     displayed = _filtered(rows, **filters)
+    if sheet:
+        displayed = categorize(db, wb, "opportunities", [sheet], displayed, archive_category)
     total = len(displayed)
     page = min(page, max(1, (total + size - 1) // size))
 
@@ -87,7 +90,7 @@ def page(wb, p, *, sheet_id="", page=1, size=30, raw=False, **filters):
             "total": total, "page": page, "size": size}
 
 
-def export(wb, *, sheet_id="", revision="", **filters):
+def export(db, wb, *, sheet_id="", revision="", archive_category="", **filters):
     if not wb:
         raise not_found("市场商机子表")
     if revision != wb.revision:
@@ -96,6 +99,8 @@ def export(wb, *, sheet_id="", revision="", **filters):
     if not sheet:
         raise not_found("市场商机子表")
     rows = _filtered(sheet.items, **filters)
+    if archive_category:
+        rows = categorize(db, wb, "opportunities", [sheet], rows, archive_category)
     book = Workbook()
     out = book.active
     out.title = source.OPPORTUNITY_SHEET

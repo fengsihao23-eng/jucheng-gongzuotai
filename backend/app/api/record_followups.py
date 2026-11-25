@@ -8,6 +8,7 @@ from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok
 from app.services import record_followup_targets as targets, record_followups as service
+from app.services.workbook_project_feedback import ProjectArchiveIn
 
 router = APIRouter(prefix="/record-followups", tags=["业务跟进"])
 HEADERS = {"Cache-Control": "no-store"}
@@ -42,5 +43,12 @@ def recipients(record: Record, p: Actor, db: DB, keyword: Annotated[str, Query(m
 @router.post("/{kind}/{ident}")
 def add(record: Record, body: service.FollowupIn, p: Actor, db: DB):
     result = service.write(db, p, record, body)
+    db.commit()
+    return ok(result, headers=HEADERS)
+
+
+@router.put("/{kind}/{ident}/archive")
+def archive(record: Record, body: ProjectArchiveIn, p: Actor, db: DB):
+    result = service.archive(db, p, record, body)
     db.commit()
     return ok(result, headers=HEADERS)

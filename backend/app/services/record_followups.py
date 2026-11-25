@@ -13,7 +13,7 @@ from app.core.response import BizError, bad_request, conflict, forbidden, not_fo
 from app.core.timeutil import now
 from app.models import (BizProject, BizProjectFeedback, ContractWorkbook, KeyProjectTaskUpdate,
                         RecordFollowup as Entry, SysUser, WorkbookProjectFeedback)
-from app.services import notify_service, record_followup_targets as targets
+from app.services import notify_service, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
 
 
 class FollowupIn(BaseModel):
@@ -65,6 +65,11 @@ def _assigned(db, p, record):
 
 def _can_feedback(db, p, record):
     return record.writer or _can_request(p, record) or _assigned(db, p, record)
+
+
+def _archive_feedback(db, record):
+    if record.archive_key:
+        return workbook_feedback.latest_feedback(db, record.workbook, record.sheet, record.archive_key)
 
 
 def _legacy_rows(db, record):
@@ -130,13 +135,15 @@ def view(db, p, record, *, before=None):
     facts = list(record.facts)
     if owner_names and not any(f["label"] in {"负责人", "责任人"} for f in facts):
         facts.insert(0, {"label": "负责人", "value": "、".join(owner_names)})
+    can_feedback = _can_feedback(db, p, record)
+    archive = workbook_feedback.archive_state(_archive_feedback(db, record), can_feedback) if record.archive_key else {}
     return {"record": {"label": record.label, "title": record.title, "module": record.menu, "context": record.context,
                        "owner": "、".join(owner_names), "facts": facts, "path": record.path},
             "target": {"kind": record.kind, "id": record.ident, "sheet": record.sheet, "revision": record.revision},
             "items": history, "legacy": legacy if not before else [], "pending": outstanding,
             "my_requests": waiting, "latest": latest, "progress_revision": revision,
             "before": rows[99][0].id if len(rows) > 100 else None,
-            "can_request": _can_request(p, record), "can_feedback": _can_feedback(db, p, record)}
+            "can_request": _can_request(p, record), "can_feedback": can_feedback and not archive.get("archive"), **archive}
 
 
 def _recipient(db, actor, record, user_id):
@@ -197,15 +204,30 @@ def _lock(db, value):
         db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": value})
 
 
+def _lock_workbook(db, record):
+    wb = db.scalar(select(ContractWorkbook).where(ContractWorkbook.id == record.workbook)
+                   .with_for_update().execution_options(populate_existing=True))
+    if wb is None or wb.revision != record.revision:
+        raise conflict("原表已更新，请重新打开详情")
+
+
+def archive(db, p, record, body):
+    if not record.archive_key:
+        raise conflict("此记录缺少可持续跟踪的项目标识，无法归档")
+    _lock_workbook(db, record)
+    record = targets.resolve(db, p, record.kind, record.reference)
+    if not _can_feedback(db, p, record):
+        raise forbidden("无权归档此项目")
+    workbook_feedback.set_archive(db, p, _archive_feedback(db, record), body, record.title)
+    return view(db, p, record)
+
+
 def write(db, p, record, body):
     client_id = str(body.client_id)
     _lock(db, f"record-followup-submission:{p.id}:{client_id}")
     _lock(db, f"record-followup:{record.kind}:{record.key}")
     if record.workbook:
-        wb = db.scalar(select(ContractWorkbook).where(ContractWorkbook.id == record.workbook)
-                       .with_for_update().execution_options(populate_existing=True))
-        if wb is None or wb.revision != record.revision:
-            raise conflict("原表已更新，请重新打开详情")
+        _lock_workbook(db, record)
     record = targets.resolve(db, p, record.kind, record.reference, lock=True)
     duplicate = db.scalar(select(Entry).where(Entry.author_id == p.id, Entry.client_id == client_id))
     if duplicate is not None:
@@ -217,6 +239,9 @@ def write(db, p, record, body):
     if body.action == "progress":
         if not _can_feedback(db, p, record):
             raise forbidden("仅负责人、指定办理人和有管理权限的人员可以提交进展")
+        latest_feedback = _archive_feedback(db, record)
+        if latest_feedback and latest_feedback.archive_category:
+            raise conflict("项目已归档，历史反馈可在过程记录中查看")
         _, revision = _latest_progress(db, record, _legacy_rows(db, record))
         if body.expected_progress != revision:
             raise conflict("已有新进展，请查看过程记录后再提交")

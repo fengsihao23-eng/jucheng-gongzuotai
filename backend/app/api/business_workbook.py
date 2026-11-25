@@ -14,6 +14,7 @@ from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.response import forbidden, not_found, ok
 from app.core.timeutil import today
 from app.services import business_workbook as svc, collection_followups as followups, contract_workbook_sync as sync
+from app.services.workbook_project_feedback import ArchiveFilter
 
 router = APIRouter(prefix="/business-workbook", tags=["固定表格经营数据"])
 View = Literal["contracts", "collections", "opportunities", "tender", "board"]
@@ -64,11 +65,13 @@ def page(view: View, sheet: str = "", keyword: str = Query("", max_length=100), 
          start: str = "", end: str = "", basis: str = "", period: str = "", status: str = "",
          region: str = "", customer: str = "", owner: str = "", business_line: str = "", sign_month: str = "", source_type: str = "",
          collection_state: str = '', period_kind: str = '', contact: str = '', unpaid_only: bool = False,
+         archive_category: ArchiveFilter = "",
          p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     return ok(svc.page(db, p, view, sheet_id=sheet, keyword=keyword, year=year, page=page, size=size, raw=raw,
                        start=start, end=end, basis=basis, period=period, status=status, region=region, customer=customer,
                        owner=owner, business_line=business_line, sign_month=sign_month, source_type=source_type,
-                       collection_state=collection_state, period_kind=period_kind, contact=contact, unpaid_only=unpaid_only), headers=HEADERS)
+                       collection_state=collection_state, period_kind=period_kind, contact=contact, unpaid_only=unpaid_only,
+                       archive_category=archive_category), headers=HEADERS)
 
 
 @router.get('/collections/periods/{period}')
@@ -94,13 +97,13 @@ def collection_project_report(sheet: str, row_number: int, revision: str,
 @router.get('/opportunities/export', response_class=Response)
 def export_opportunities(request: Request, revision: str = Query(..., max_length=64), sheet: str = '',
                          keyword: str = Query('', max_length=100), status: str = '', owner: str = '', contact: str = '',
-                         start: str = '', end: str = '', year: str = '',
+                         start: str = '', end: str = '', year: str = '', archive_category: ArchiveFilter = '',
                          p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     from app.services.opportunity_workbook import export
 
     wb = svc.active_source(db, p, 'opportunities')
-    payload, count = export(wb, sheet_id=sheet, revision=revision, keyword=keyword, status=status,
-                            owner=owner, contact=contact, start=start, end=end, year=year)
+    payload, count = export(db, wb, sheet_id=sheet, revision=revision, keyword=keyword, status=status,
+                            owner=owner, contact=contact, start=start, end=end, year=year, archive_category=archive_category)
     log_op(db, p.id, 'opportunities.export_workbook', 'contract_workbook', wb.id,
            after={'revision': revision, 'rows': count}, ip=client_ip(request))
     db.commit()

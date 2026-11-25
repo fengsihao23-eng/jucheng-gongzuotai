@@ -7,6 +7,34 @@
 
     <el-tabs v-model="tab">
       <el-tab-pane label="跟进看板" name="board">
+        <div class="layout">
+          <Panel title="运营项目" :loading="operationsLoading && !operations.today">
+            <template v-if="auth.hasMenu('operations')" #extra>
+              <el-button v-if="operations.can_create" type="primary" @click="operationsCreateOpen = true">新建运营项目</el-button>
+              <el-button @click="router.push({ name: 'operations' })">进入运营项目</el-button>
+            </template>
+            <ProjectOverview v-if="auth.hasMenu('operations')" v-model:keyword="operationsQuery.keyword"
+              v-model:category="operationsQuery.category" v-model:key-only="operationsQuery.key_only"
+              :data="operations" :loading="operationsLoading" :show-task-list="auth.hasSection('operations', 'tasks')"
+              @filter="loadOperations()" @create="operationsCreateOpen = true"
+              @open-task="task => router.push({ name: 'operations', query: { task: task.id } })"
+              @show-todos="filter => router.push({ name: 'operations', query: { view: 'todos', filter } })" />
+            <el-empty v-else description="当前账号暂无运营项目访问权限" :image-size="80" />
+          </Panel>
+
+          <Panel title="重点事件" sub="近 60 天事件与风险">
+            <el-timeline v-if="board?.events?.length" class="tl">
+              <el-timeline-item v-for="e in board.events" :key="e.id" :timestamp="date(e.feedback_date)" :color="e.kind === 'risk' ? '#a63d32' : '#a8741a'">
+                <div class="jc-small"><b>{{ e.project_name }}</b> <StatusPill :text="e.kind === 'risk' ? '风险' : '事件'" :tone="e.kind === 'risk' ? 'down' : 'warn'" /></div>
+                <div class="ev">{{ e.content }}</div>
+              </el-timeline-item>
+            </el-timeline>
+            <el-empty v-else :image-size="60" description="暂无重点事件" />
+          </Panel>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="重点项目跟进" name="key" lazy>
         <div class="jc-grid c5 mb-16" v-if="board">
           <Kpi label="重点项目" :value="stats.count" unit="个" />
           <Kpi label="异常项目" :value="stats.alert_count" unit="个" hint="延期、风险或进展待反馈" />
@@ -15,62 +43,48 @@
           <Kpi label="累计回款" :value="wanNum(stats.received)" unit="万" :progress="Number(stats.payment_rate || 0)" :hint="`回款率 ${percent(stats.payment_rate)}`" />
         </div>
 
-        <div class="layout">
-          <Panel title="重点项目" :sub="`按异常优先排序`" :loading="loading">
-            <template #extra>
-              <el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox>
-              <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
-            </template>
-            <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
-            <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" aria-label="重点项目搜索" /><el-select v-model="projectStatus" clearable placeholder="全部状态" aria-label="重点项目筛选状态"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
-            <div class="cards">
-              <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" :aria-haspopup="p.can_delete ? 'menu' : undefined" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)" @contextmenu.prevent.stop="openMenu($event, p)" @keydown.shift.f10.prevent.stop="openMenu($event, p)">
-                <div class="jc-row between">
-                  <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
-                  <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
-                  <span v-else-if="p.alert" class="jc-down jc-small">有异常</span>
-                </div>
-                <h4 class="jc-serif">{{ p.name }}</h4>
-                <div class="jc-small jc-muted">{{ p.customer_name }}</div>
-                <div class="prog">
-                  <div class="bar"><i :style="{ width: p.progress * 100 + '%' }" /></div>
-                  <span class="jc-num jc-small">{{ Math.round(p.progress * 100) }}%</span>
-                </div>
-                <div class="row2 jc-small">
-                  <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b><span v-if="p.current_node_plan"> · {{ p.current_node_plan }}</span></span>
-                  <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
-                </div>
-                <div :class="p.reported_this_week ? 'jc-up' : 'jc-warn'" class="jc-small mt-8">{{ p.reported_this_week ? '本周已反馈' : '本周未反馈' }}</div>
-                <div v-if="p.needs_feedback" class="jc-small jc-warn">{{ p.needs_feedback }} 项任务待填写进展</div>
-                <div class="fb jc-small" :class="{ risk: p.latest_feedback?.risk_level >= 2 }">
-                  <template v-if="p.latest_feedback"><span class="jc-muted jc-num">{{ shortDate(p.latest_feedback.feedback_date) }}</span> {{ p.latest_feedback.content }}</template>
-                  <span v-else class="jc-muted">暂无进展反馈</span>
-                </div>
-                <div class="jc-divider" />
-                <div class="jc-row between jc-small">
-                  <span class="jc-muted">合同 <span class="jc-num">{{ wan(p.contract_total) }}</span></span>
-                  <span class="jc-muted">已回 <span class="jc-num">{{ wan(p.received) }}</span></span>
-                  <b class="jc-num" :class="{ 'jc-warn': p.payment_rate != null && p.payment_rate < 0.5 }">{{ percent(p.payment_rate) }}</b>
-                </div>
-                <div class="jc-small jc-muted mt-8">市场 {{ p.market_owner_name || '—' }} · 项目经理 {{ p.owner_name || '—' }}</div>
-                <KeyProjectPauseButton :project="p" compact @changed="load" />
+        <Panel title="重点项目" sub="按异常优先排序" :loading="loading">
+          <template #extra>
+            <el-checkbox v-model="includeAll" @change="load">含非重点项目</el-checkbox>
+            <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
+          </template>
+          <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
+          <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" aria-label="重点项目搜索" /><el-select v-model="projectStatus" clearable placeholder="全部状态" aria-label="重点项目筛选状态"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
+          <div class="cards">
+            <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" :aria-haspopup="p.can_delete ? 'menu' : undefined" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)" @contextmenu.prevent.stop="openMenu($event, p)" @keydown.shift.f10.prevent.stop="openMenu($event, p)">
+              <div class="jc-row between">
+                <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
+                <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
+                <span v-else-if="p.alert" class="jc-down jc-small">有异常</span>
               </div>
+              <h4 class="jc-serif">{{ p.name }}</h4>
+              <div class="jc-small jc-muted">{{ p.customer_name }}</div>
+              <div class="prog">
+                <div class="bar"><i :style="{ width: p.progress * 100 + '%' }" /></div>
+                <span class="jc-num jc-small">{{ Math.round(p.progress * 100) }}%</span>
+              </div>
+              <div class="row2 jc-small">
+                <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b><span v-if="p.current_node_plan"> · {{ p.current_node_plan }}</span></span>
+                <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
+              </div>
+              <div :class="p.reported_this_week ? 'jc-up' : 'jc-warn'" class="jc-small mt-8">{{ p.reported_this_week ? '本周已反馈' : '本周未反馈' }}</div>
+              <div v-if="p.needs_feedback" class="jc-small jc-warn">{{ p.needs_feedback }} 项任务待填写进展</div>
+              <div class="fb jc-small" :class="{ risk: p.latest_feedback?.risk_level >= 2 }">
+                <template v-if="p.latest_feedback"><span class="jc-muted jc-num">{{ shortDate(p.latest_feedback.feedback_date) }}</span> {{ p.latest_feedback.content }}</template>
+                <span v-else class="jc-muted">暂无进展反馈</span>
+              </div>
+              <div class="jc-divider" />
+              <div class="jc-row between jc-small">
+                <span class="jc-muted">合同 <span class="jc-num">{{ wan(p.contract_total) }}</span></span>
+                <span class="jc-muted">已回 <span class="jc-num">{{ wan(p.received) }}</span></span>
+                <b class="jc-num" :class="{ 'jc-warn': p.payment_rate != null && p.payment_rate < 0.5 }">{{ percent(p.payment_rate) }}</b>
+              </div>
+              <div class="jc-small jc-muted mt-8">市场 {{ p.market_owner_name || '—' }} · 项目经理 {{ p.owner_name || '—' }}</div>
+              <KeyProjectPauseButton :project="p" compact @changed="load" />
             </div>
-            <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="auth.can('project:key')&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
-          </Panel>
-
-          <div class="jc-stack">
-            <Panel title="重点事件" sub="近 60 天事件与风险">
-              <el-timeline v-if="board?.events?.length" class="tl">
-                <el-timeline-item v-for="e in board.events" :key="e.id" :timestamp="date(e.feedback_date)" :color="e.kind === 'risk' ? '#a63d32' : '#a8741a'">
-                  <div class="jc-small"><b>{{ e.project_name }}</b> <StatusPill :text="e.kind === 'risk' ? '风险' : '事件'" :tone="e.kind === 'risk' ? 'down' : 'warn'" /></div>
-                  <div class="ev">{{ e.content }}</div>
-                </el-timeline-item>
-              </el-timeline>
-              <el-empty v-else :image-size="60" description="暂无重点事件" />
-            </Panel>
           </div>
-        </div>
+          <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="auth.can('project:key')&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
+        </Panel>
       </el-tab-pane>
 
       <el-tab-pane label="周报 / 月报" name="reports">
@@ -104,6 +118,8 @@
       </el-tab-pane>
     </el-tabs>
     <KeyProjectForm v-model="createOpen" @saved="p=>router.push(`/market/projects/${p.project_code}`)" />
+    <ProjectForm v-if="operations.can_create" v-model="operationsCreateOpen"
+      @saved="project => router.push({ name: 'operation-detail', params: { id: project.id } })" />
     <PasswordDeleteDialog v-model="deleteOpen" title="删除重点项目" :name="menu.project?.name" :endpoint="`/market/projects/${menu.project?.project_code}`" @deleted="load" />
     <Teleport to="body">
       <div v-if="menu.open" class="ctx-mask" @click.self="closeMenu" @contextmenu.prevent="closeMenu" @keydown.esc.prevent.stop="closeMenu" @keydown.tab="closeMenu">
@@ -142,11 +158,20 @@ import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
+import ProjectForm from './operations/ProjectForm.vue'
+import ProjectOverview from './operations/ProjectOverview.vue'
+import { useProjectOverview } from './operations/useProjectOverview'
 
 const auth = useAuth()
 const route = useRoute()
 const router = useRouter(), createOpen = ref(false), keyword = ref(''), projectStatus = ref(null), attentionOnly = ref(false)
-const tab = ref(route.query.tab === 'reports' ? 'reports' : 'board')
+const tab = computed({
+  get: () => ['key', 'reports'].includes(route.query.tab) ? route.query.tab : 'board',
+  set: (value) => router.replace({ query: { ...route.query, tab: value === 'board' ? undefined : value } }),
+})
+const operationsCreateOpen = ref(false)
+const canLoadOperations = () => tab.value === 'board' && auth.hasMenu('operations')
+const { query: operationsQuery, data: operations, loading: operationsLoading, load: loadOperations } = useProjectOverview(canLoadOperations)
 const board = ref(null)
 const loading = ref(false)
 const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(false)
@@ -190,7 +215,10 @@ async function loadReports() {
   reports.value = r.items
   rtotal.value = r.total
 }
-watch(tab, (t) => t === 'reports' && loadReports())
+watch(tab, (t) => {
+  if (t === 'reports') loadReports()
+  if (canLoadOperations()) loadOperations()
+})
 
 const genLoading = ref('')
 async function gen(type) {
@@ -241,13 +269,15 @@ onMounted(() => {
   load()
   if (tab.value === 'reports') loadReports()
 })
-useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value === 'board' && !createOpen.value && !menu.open && !deleteOpen.value })
+useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value !== 'reports' && !createOpen.value && !menu.open && !deleteOpen.value })
 
 const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') && recordRemoval('market-report', row.id, row.title, loadReports, { title: '删除市场报告' }))
 </script>
 
 <style scoped>
 .layout { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.layout :deep(.hd), .layout :deep(.extra) { flex-wrap: wrap; }
+.layout :deep(.el-button + .el-button) { margin-left: 0; }
 .report-history :deep(.hd), .report-history :deep(.extra) { flex-wrap: wrap; }
 .report-history :deep(.el-button + .el-button) { margin-left: 0; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
