@@ -162,7 +162,7 @@ await step('B04', '学校入口与文件核对', async () => {
   await page.goto(WEB + '/operations/' + project.id)
   await page.getByRole('tab', { name: '学校采购' }).click()
   await waitFor(page.getByRole('button', { name: '查看采购' }))
-  await page.getByRole('tab', { name: '每日收入' }).click()
+  await page.getByRole('tab', { name: '收入情况', exact: true }).click()
   await page.getByRole('button', { name: '按校导入每日收入' }).click()
   await page.locator('input[type=file]').setInputFiles({
     name: '收入样表.csv', mimeType: 'text/csv', buffer: Buffer.from('学校,实际收款日期,收入金额,备注\n甲校,2026-10-19,21.25,验收\n'),

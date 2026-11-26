@@ -18,7 +18,7 @@
             <ProjectProgress :project="project" @saved="load" @open-task="openTask" />
           </el-tab-pane>
           <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
-          <el-tab-pane v-if="canSection('income')" :label="legacyCampusIncome ? '收入情况' : '每日收入'" name="income" lazy><CampusIncomeReport v-if="legacyCampusIncome" /><SchoolData v-else mode="income" :project="project" @saved="load" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('income')" label="收入情况" name="income" lazy><CampusIncomeReport v-if="legacyCampusIncome" /><SchoolData v-else mode="income" :project="project" @saved="load" /></el-tab-pane>
           <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
           <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
           <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
