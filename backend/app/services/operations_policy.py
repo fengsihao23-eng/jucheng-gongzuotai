@@ -22,17 +22,20 @@ def team_user_ids(project_id):
         select(OpsProject.owner_id).where(OpsProject.id == project_id))
 
 
-def task_access(p, *, archive=False):
+def task_access(p, *, archive=False, team_only=False):
     from app.services import operations_service as ops
 
     if not p.has_menu("operations") or (not p.has_section("operations", "tasks") and not ops.is_superuser(p)):
         from sqlalchemy import false
         return false()
     disabled_projects = select(OpsProjectFeatures.project_id).where(~cast(OpsProjectFeatures.sections, JSONB).has_key("tasks"))
+    projects = select(OpsProject.id).where(OpsProject.status != "deleted")
+    if team_only or not ops.can_view_all(p):
+        projects = projects.where(member_clause(p))
     base = ((archived() if archive else ~archived())
-            & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted", member_clause(p)))
+            & OpsTask.project_id.in_(projects)
             & OpsTask.project_id.not_in(disabled_projects))
-    if ops.is_superuser(p):
+    if ops.can_view_all(p):
         return base
     owner_project = select(OpsProject.id).where(OpsProject.owner_id == p.id)
     joined = select(OpsMember.project_id).where(OpsMember.user_id == p.id)

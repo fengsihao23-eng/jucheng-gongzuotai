@@ -1,6 +1,6 @@
 """项目部：项目台账 + 标准控制流程节点引擎（PRD 4.2.2 / 7.6）。
 
-- 项目读取范围由项目负责人和项目团队决定。
+- 项目台账按账号的数据范围显示，本人范围包括本人负责的项目及节点。
 - 节点编辑权限：项目负责人(owner) 或 有 milestone:write 按钮者（且项目在其可见范围内）。
 - 每次节点变更写 biz_milestone_log（操作人/时间/前后值/source web|mcp|system）。
 - 完成节点自动 status=3，finish_date>plan_date 置 alert_flag（延期完成标红）；进行中/未开始节点过计划日 → 延期标红。
@@ -12,7 +12,7 @@ import io
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import false, func, or_, select, text
+from sqlalchemy import exists, false, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found
@@ -29,13 +29,19 @@ STATUS_ALIASES = {"未开始": 1, "进行中": 2, "已完成": 3, "完成": 3, "
 
 # ------------------------------------------------------------------ 数据范围 / 权限
 def visible_filter(p):
-    """项目负责人及项目团队成员才可读取项目，内部定时作业用 None。"""
+    """台账原有的数据范围。有全量权的账号可查看全部项目。"""
     if p is None:
         return None
     if not p.workbench_enabled:
         return false()
-    return or_(BizProject.owner_id == p.id, BizProject.id.in_(
-        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id)))
+    if p.data_scope == "all":
+        return None
+    mine = or_(BizProject.owner_id == p.id,
+               exists().where(BizProjectMilestone.project_id == BizProject.id, BizProjectMilestone.owner_id == p.id).correlate(BizProject))
+    if p.data_scope == "dept" and p.user.department_id:
+        colleagues = select(SysUser.id).where(SysUser.department_id == p.user.department_id)
+        return or_(mine, BizProject.owner_id.in_(colleagues))
+    return mine
 
 
 def team_user_ids(project_id):
@@ -50,8 +56,12 @@ def visible_query(p):
 
 
 def can_view(db: Session, p, project: BizProject) -> bool:
-    return not project.is_deleted and (p is None or (p.workbench_enabled and
-        (project.owner_id == p.id or db.get(KeyProjectMember, (project.id, p.id)) is not None)))
+    if project.is_deleted:
+        return False
+    condition = visible_filter(p)
+    if condition is None:
+        return True
+    return db.scalar(select(BizProject.id).where(BizProject.id == project.id, condition)) is not None
 
 
 def can_edit(p, project: BizProject) -> bool:
@@ -72,7 +82,7 @@ def get_project(db: Session, code_or_id, p=None, *, lock=False) -> BizProject:
     if lock:
         db.expire(proj, ["milestones"])
     if p is not None and not can_view(db, p, proj):
-        raise forbidden("仅项目团队成员可查看该项目")
+        raise forbidden("该项目超出当前账号的数据范围")
     return proj
 
 

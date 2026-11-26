@@ -65,7 +65,7 @@ try {
   })
 
   for (const kind of ['operations', 'key', 'general']) {
-    await step(`TEAM-${kind}`, '验证任务提醒候选、实际通知与团队访问', async () => {
+    await step(`TEAM-${kind}`, '管理员保留原有查看权限，提醒候选和投递按项目团队判断', async () => {
       const isOps = kind === 'operations'
       const general = kind === 'general'
       let projectPath = operationPath, taskId = opsTask.id
@@ -101,8 +101,10 @@ try {
       const outbox = await call('admin', 'GET', '/dev/mock/outbox', { limit: 100 })
       assert.ok(outbox.some(row => row.title === title && row.to.join(',') === 'xuhao' && row.url?.endsWith(notice.link)))
       await outsider.goto(WEB + taskUrl)
-      await wait(outsider.getByText(isOps ? /无法打开|无法读取|无权/ : /无法打开|无权/).first())
-      assert.equal(await outsider.getByRole('heading', { name: taskTitle, exact: true }).count(), 0)
+      const adminTask = dialog(outsider, isOps ? '任务详情' : '任务情况')
+      await wait(adminTask.getByRole('heading', { name: taskTitle, exact: true }))
+      const adminInbox = await call('admin', 'GET', '/notifications', { page_size: 100 })
+      assert.ok(!adminInbox.items.some(item => item.title === title && item.link === notice.link))
       return evidence
     })
   }

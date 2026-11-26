@@ -1,17 +1,39 @@
-"""Team membership gates project data and both notification channels."""
+"""Project viewing permissions and team-specific reminders are checked independently."""
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 
 from app.integration.wecom.mock import read_outbox
-from app.models import SysNotify
+from app.models import BizProject, SysNotify
 from app.services import notify_service
 from tests.conftest import data, deletion_body
 
 
+def test_unassigned_existing_projects_stay_visible_to_authorized_accounts(client, login, db):
+    marker = uuid4().hex[:8]
+    general = BizProject(project_code=f"JC-XY-LEGACY-G-{marker}", name="存量一般项目", business_line="XY",
+                         customer_name="验收客户", status=2, is_key=False)
+    key = BizProject(project_code=f"JC-XY-LEGACY-K-{marker}", name="存量重点项目", business_line="XY",
+                     customer_name="验收客户", status=2, is_key=True)
+    history = BizProject(project_code=f"JC-XY-LEGACY-H-{marker}", name="存量历史项目", business_line="XY",
+                         customer_name="验收客户", status=5, is_key=False)
+    db.add_all([general, key, history])
+    db.commit()
+
+    manager = login("admin")
+    for row, scope in ((general, "general"), (key, "key")):
+        cards = data(client.get("/api/v1/market/board", params={"scope": scope}, headers=manager))["projects"]
+        assert row.project_code in {card["project_code"] for card in cards}
+        detail = data(client.get(f"/api/v1/market/projects/{row.project_code}", params={"scope": scope}, headers=manager))
+        assert detail["name"] == row.name
+    archived = data(client.get("/api/v1/projects", params={"scope": "history"}, headers=manager))["items"]
+    assert history.project_code in {row["project_code"] for row in archived}
+    assert client.get(f"/api/v1/projects/{general.project_code}", headers=login("xuhao")).status_code == 403
+
+
 @pytest.mark.parametrize("kind", ["operations", "key", "general"])
-def test_team_members_only_and_removal_revokes_queued_reminders(client, login, db, monkeypatch, kind):
+def test_existing_project_scope_does_not_grant_reminders(client, login, db, monkeypatch, kind):
     monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
     leader, teammate, outsider = (login(user) for user in ("wujun", "xuhao", "admin"))
     manager_id = data(client.get("/api/v1/auth/me", headers=leader))["id"]
@@ -51,11 +73,12 @@ def test_team_members_only_and_removal_revokes_queued_reminders(client, login, d
         identity_key, identity = "project_code", code
         notice_body = lambda user, content: {"action": "note", "recipient_id": user, "content": content, "client_id": str(uuid4())}
         assert [u["id"] for u in data(client.get(notice_path + "/recipients", headers=leader))] == [teammate_id]
-        assert client.get(prefix + f"/projects/{code}", headers=outsider).status_code == 403
+        assert client.get(prefix + f"/projects/{code}", headers=outsider).status_code == 200
 
-    assert client.get(project, headers=outsider).status_code in {403, 404}
-    assert client.get(path, headers=outsider).status_code in {403, 404}
-    assert identity not in {row[identity_key] for row in data(client.get(overview, headers=outsider))[overview_key]}
+    assert client.get(project, headers=outsider).status_code == 200
+    assert client.get(path, headers=outsider).status_code == 200
+    assert identity in {row[identity_key] for row in data(client.get(overview, headers=outsider))[overview_key]}
+    assert client.get(path, headers=login("caofang")).status_code in {403, 404}
     assert client.get(project, headers=teammate).status_code == 200
     assert client.post(notice_path, headers=leader, json=notice_body(outsider_id, "不得通知给外部成员")).status_code == 403
     accepted = data(client.post(notice_path, headers=leader, json=notice_body(teammate_id, "请核对本项目材料")))
@@ -65,7 +88,7 @@ def test_team_members_only_and_removal_revokes_queued_reminders(client, login, d
     else:
         notice_link = f"/record-followups/{accepted['items'][0]['id']}"
         assert client.get(prefix + notice_link.replace("/record-followups/", "/record-followups/entries/"),
-                          headers=outsider).status_code == 403
+                          headers=outsider).status_code == 200
     assert any(card["title"] == title and card["to"] == ["xuhao"] and card["url"].endswith(notice_link) for card in read_outbox(200))
     inbox = prefix + "/notifications?page_size=100"
     assert any(item["link"] == notice_link for item in data(client.get(inbox, headers=teammate))["items"])

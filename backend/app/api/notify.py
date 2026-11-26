@@ -16,14 +16,15 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     from app.services.collection_service import scoped
     from app.services.operations_notifications import project_assignment_access
-    from app.services.operations_policy import task_access
+    from app.services.operations_policy import member_clause, task_access
     from app.services import operations_scope as scope, operations_reports as reports
     from app.services import key_projects, market_service, record_followups
     from app.models import BizProject, BizProjectMilestone, RptReport
 
     task_notice = ("ops_task", "ops_task_reminder")
-    accessible_keys = key_projects.visible_projects(p).where(BizProject.is_key.is_(True)).with_only_columns(BizProject.id)
-    accessible_general = key_projects.visible_projects(p, is_key=False).where(BizProject.is_key.is_(False)).with_only_columns(BizProject.id)
+    projects = select(BizProject.id).where(BizProject.is_deleted.is_(False))
+    accessible_keys = projects.where(key_projects.membership_scope(p))
+    accessible_general = projects.where(key_projects.membership_scope(p, is_key=False))
     visible_project_task = exists(select(BizProjectMilestone.id).where(
         cast(BizProjectMilestone.id, String) == func.split_part(SysNotify.ref_id, ":", 1),
         or_((SysNotify.ref_type == key_projects.REF) & BizProjectMilestone.project_id.in_(accessible_keys),
@@ -35,22 +36,23 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
     report_refs = select(SysNotify.ref_id).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp", SysNotify.ref_type == "rpt_report")
     hidden_reports = [str(row.id) for row in db.scalars(select(RptReport).where(
         RptReport.report_type.in_(market_service.TEAM_SCOPED_REPORT_TYPES), cast(RptReport.id, String).in_(report_refs))
-        .execution_options(include_removed_records=True)) if not market_service.can_read_project_report(db, p, row)]
+        .execution_options(include_removed_records=True)) if not market_service.can_read_project_report(db, p, row, team_only=True)]
     scoped_refs = ("ops_project", *task_notice, "ops_discussion", "ops_request_reminder", "ops_digest", "collection_entry",
         key_projects.REF, key_projects.GENERAL_REF, key_projects.TEAM_REF, "biz_project", "milestone",
         "project_weekly", "morning_report", record_followups.NOTICE)
     visible_project = exists(select(OpsProject.id).where(
         cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))
     visible_task = exists(select(OpsTask.id).where(
-        cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p))) & p.has_menu("operations")
+        cast(OpsTask.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p, team_only=True)))
     discussion_types = ("ops_discussion", "ops_request_reminder")
     visible_discussion = exists(select(OpsTaskDiscussion.id).join(OpsTask, OpsTask.id == OpsTaskDiscussion.task_id).where(
-        cast(OpsTaskDiscussion.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p))) & p.has_menu("operations")
+        cast(OpsTaskDiscussion.id, String) == func.split_part(SysNotify.ref_id, ":", 1), task_access(p, team_only=True)))
     report_ids = []
     if p.has_menu("operations"):
         own_report_notices = select(SysNotify.ref_id).where(SysNotify.user_id == p.id, SysNotify.ref_type == "ops_digest")
         for report in db.scalars(select(OpsDigestSnapshot).where(cast(OpsDigestSnapshot.id, String).in_(own_report_notices),
-                OpsDigestSnapshot.project_id.in_(scope.content_project_ids(db, p, "reports")))):
+                OpsDigestSnapshot.project_id.in_(scope.content_project_ids(db, p, "reports")),
+                OpsDigestSnapshot.project_id.in_(select(OpsProject.id).where(member_clause(p))))):
             if reports.can_read(db, p, report):
                 report_ids.append(str(report.id))
     visible_collection = exists(select(BizCollectionEntry.id).join(BizCollectionFollowup).where(

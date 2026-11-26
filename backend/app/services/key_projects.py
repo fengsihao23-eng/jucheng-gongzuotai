@@ -55,7 +55,8 @@ def standard_scope(p, *, overview=False, is_key=True):
 def membership_scope(p, *, is_key=True):
     if p is None or not p.workbench_enabled:
         return false()
-    membership = ps.visible_filter(p)
+    membership = or_(BizProject.owner_id == p.id, BizProject.id.in_(
+        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id)))
     return membership if is_key is None else membership & BizProject.is_key.is_(is_key)
 
 
@@ -69,7 +70,8 @@ def has_team(db, p, *, is_key=True):
 
 
 def is_member(db, p, row):
-    return ps.can_view(db, p, row)
+    return not row.is_deleted and p.workbench_enabled and (
+        row.owner_id == p.id or db.get(KeyProjectMember, (row.id, p.id)) is not None)
 
 
 def standard_access(db, p, row):
@@ -629,7 +631,7 @@ def _notice_task(db, notice):
     if row.is_key != (notice.ref_type != GENERAL_REF):
         return None
     p = build_principal(u)
-    if is_paused(db, row) or not (standard_access(db, p, row) or is_member(db, p, row)):
+    if is_paused(db, row) or not is_member(db, p, row):
         return None
     return row, item, p
 
@@ -678,7 +680,7 @@ def scan_feedback_deadlines(db, at):
         if not owner or owner.is_deleted or owner.status != 1:
             continue
         principal = build_principal(owner)
-        if not ((standard_access(db, principal, row) or is_member(db, principal, row)) and can_feedback_task(db, principal, row, item)):
+        if not (is_member(db, principal, row) and can_feedback_task(db, principal, row, item)):
             continue
         kind = task_feedback_deadlines.KEY_OVERDUE if row.is_key else task_feedback_deadlines.PROJECT_OVERDUE
         notices.extend(task_feedback_deadlines.queue_overdue(db, owner, kind=kind, ref_type=REF if row.is_key else GENERAL_REF,

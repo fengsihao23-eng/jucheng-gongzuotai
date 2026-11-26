@@ -43,7 +43,7 @@ def operations_task_reminder(db, params):
             existing = set(db.scalars(select(SysNotify.user_id).where(SysNotify.ref_type == "ops_task_reminder", SysNotify.ref_id == reference)))
             users = [u for u in db.scalars(select(SysUser).where(SysUser.id.in_(targets - existing)))
                      if build_principal(u).has_menu("operations") and db.scalar(select(OpsTask.id).where(
-                         OpsTask.id == task.id, policy.task_access(build_principal(u))))]
+                         OpsTask.id == task.id, policy.task_access(build_principal(u), team_only=True)))]
             nodes = [f"· {n.name}（{n.due_date} 截止）" for n in task.nodes if not n.completed_at]
             details = [f"{project.name} · {task.title}",
                 f"{ops.STATUS_LABELS[task.status]}；负责人：{task.owner.name}；任务截止：{task.due_date}。"]
@@ -63,7 +63,7 @@ def operations_task_reminder(db, params):
                 continue
             principal = build_principal(recipient)
             if not principal.has_menu("operations") or not db.scalar(select(OpsTask.id).where(
-                    OpsTask.id == request.task_id, policy.task_access(principal))):
+                    OpsTask.id == request.task_id, policy.task_access(principal, team_only=True))):
                 continue
             reference = f"{request.id}:{day}"
             if db.scalar(select(SysNotify.id).where(SysNotify.ref_type == "ops_request_reminder", SysNotify.ref_id == reference,

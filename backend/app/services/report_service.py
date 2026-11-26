@@ -136,8 +136,8 @@ def caliber_lines(db: Session, report_type: str) -> list[str]:
 
 def allowed(p, report_type: str) -> bool:
     """报表可见性：报表中心菜单之外，还需具备该报表数据所属的任一菜单（财务敏感报表不对市场专员开放）。"""
-    from app.services.market_service import PROJECT_REPORT_TYPES
-    if report_type in PROJECT_REPORT_TYPES:
+    from app.services.market_service import GENERAL_REPORT_TYPES
+    if report_type in GENERAL_REPORT_TYPES:
         return False
     spec = REPORT_TYPES.get(report_type)
     if spec is None or p.is_admin:

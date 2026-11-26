@@ -94,7 +94,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
         if r.ref_type == "rpt_report":
             report = db.get(RptReport, int(r.ref_id)) if (r.ref_id or "").isdigit() else None
             if not report or (report.report_type in TEAM_SCOPED_REPORT_TYPES and
-                              not can_read_project_report(db, build_principal(by_user[r.user_id]), report)):
+                              not can_read_project_report(db, build_principal(by_user[r.user_id]), report, team_only=True)):
                 r.send_status, r.error_msg, r.retry_count = 2, "已无权查看项目报告", MAX_RETRY
                 continue
         if r.msg_type in project_checks and not project_checks[r.msg_type](db, r):

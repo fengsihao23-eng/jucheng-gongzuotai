@@ -328,8 +328,8 @@ def test_delete_key_project_requires_management_permission_and_visible_scope(cli
     if card:
         assert card["can_delete"] is granted
     else:
-        assert not owned
-    allowed = granted and owned
+        assert scope == "self" and not owned
+    allowed = granted and (scope == "all" or owned)
     response = client.request("DELETE", path, headers=headers, json=deletion_password())
     assert response.status_code == (200 if allowed else 403)
     db.expire_all()

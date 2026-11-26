@@ -60,7 +60,7 @@ def project_milestone_scan(db, params: dict) -> dict:
     sent = 0
     for m, proj in due_soon:
         u = users.get(m.owner_id)
-        if u and not proj.is_key and ps.can_view(db, build_principal(u), proj):
+        if u and not proj.is_key and key_projects.is_member(db, build_principal(u), proj):
             notify_service.send(db, [u], "milestone_due", "项目节点即将到期",
                                 f"**{proj.name}**\n节点「{m.node_name}」计划 {m.plan_date} 完成，"
                                 f"剩余 {(m.plan_date - T).days} 天。\n岗位职责：{m.duty or '—'}",
@@ -68,7 +68,7 @@ def project_milestone_scan(db, params: dict) -> dict:
             sent += 1
     for m, proj in newly_delayed:
         targets = {uid for uid in (m.owner_id, proj.owner_id) if uid}
-        us = [users[i] for i in targets if i in users and ps.can_view(db, build_principal(users[i]), proj)]
+        us = [users[i] for i in targets if i in users and key_projects.is_member(db, build_principal(users[i]), proj)]
         if us and not proj.is_key:
             notify_service.send(db, us, "milestone_delay", "项目节点延期",
                                 f"**{proj.name}**（{proj.project_code}）\n<font color=\"warning\">节点「{m.node_name}」"
@@ -110,7 +110,7 @@ def _push_report(db, res, title: str) -> int:
                f"延期节点 {t['delayed_nodes']} 个；本期新签 {market_service._wan(t['period_signed'])}，"
                f"本期回款 {market_service._wan(t['period_received'])}。\n初稿已生成，请润色后发布。")
     users = [u for u in notify_service.users_by_roles(db, ["SC-01", "SC-02", "ZB-01"])
-             if market_service.can_read_project_report(db, build_principal(u), res["report"])]
+             if market_service.can_read_project_report(db, build_principal(u), res["report"], team_only=True)]
     notify_service.send(db, users, "report", title, content, link="/market?tab=reports",
                         ref_type="rpt_report", ref_id=str(res["report"].id))
     return len(users)

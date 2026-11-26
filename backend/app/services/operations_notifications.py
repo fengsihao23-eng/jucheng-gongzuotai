@@ -36,7 +36,7 @@ def eligible(db, p, notice):
         if not discussion:
             return False
         ident = discussion.task_id
-    task = db.scalar(select(OpsTask).where(OpsTask.id == ident, policy.task_access(p)))
+    task = db.scalar(select(OpsTask).where(OpsTask.id == ident, policy.task_access(p, team_only=True)))
     if not task:
         return False
     project = db.get(OpsProject, task.project_id)
@@ -82,7 +82,7 @@ def scan_feedback_deadlines(db, at):
         principal = build_principal(owner)
         if not principal.has_menu("operations") or not can_feedback(db, principal, project, task):
             continue
-        if not db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(principal))):
+        if not db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(principal, team_only=True))):
             continue
         notices.extend(deadlines.queue_overdue(db, owner, kind=deadlines.OPS_OVERDUE, ref_type="ops_task_reminder",
             task_id=task.id, row=task, title="运营任务逾期未反馈", task_title=f"{project.name} · {task.title}",

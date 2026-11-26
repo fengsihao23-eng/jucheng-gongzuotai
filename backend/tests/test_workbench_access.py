@@ -141,7 +141,7 @@ def test_global_roles_buttons_scope_and_reviewer_assignment_do_not_bypass_member
 
 
 @pytest.mark.parametrize("userid,name", [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员")])
-def test_verified_admins_need_team_membership_for_project_access(db, own_project, userid, name):
+def test_verified_admins_keep_project_access_without_receiving_team_reminders(db, own_project, userid, name):
     target = user(db, userid)
     if target is None:
         target = SysUser(wecom_userid=userid, name=name, workbench_enabled=True)
@@ -149,8 +149,10 @@ def test_verified_admins_need_team_membership_for_project_access(db, own_project
         db.flush()
     principal = build_principal(target)
     assert ops.is_superuser(principal)
-    with pytest.raises(BizError):
-        ops.get_project(db, principal, own_project["id"])
+    assert ops.can_view_all(principal)
+    assert ops.get_project(db, principal, own_project["id"]).id == own_project["id"]
+    project = db.get(OpsProject, own_project["id"])
+    assert target.id not in set(db.scalars(ops.policy.team_user_ids(project.id)))
     db.add(OpsMember(project_id=own_project["id"], user_id=target.id, role="member"))
     db.flush()
     assert ops.get_project(db, principal, own_project["id"]).id == own_project["id"]
@@ -246,7 +248,7 @@ def test_project_delete_password_is_checked_on_server(client, login, db, own_pro
     db.commit()
     headers = {"Authorization": "Bearer " + create_jwt(target.id)[0]}
     endpoint = f"{BASE}/{own_project['id']}"
-    assert client.get(endpoint, headers=headers).status_code == 404
+    assert client.get(endpoint, headers=headers).status_code == 200
     db.add(OpsMember(project_id=own_project["id"], user_id=target.id, role="manager"))
     db.commit()
     assert client.delete(endpoint, headers=headers).status_code == 400

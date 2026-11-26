@@ -12,7 +12,7 @@ from app.core.deps import build_principal
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import now
 from app.models import (BizProject, BizProjectFeedback, ContractWorkbook, KeyProjectTaskUpdate,
-                        RecordFollowup as Entry, SysNotify, SysUser, WorkbookProjectFeedback)
+                        RecordFollowup as Entry, RptReport, SysNotify, SysUser, WorkbookProjectFeedback)
 from app.services import notify_service, operations_scope, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
 
 NOTICE = "record_followup"
@@ -155,8 +155,11 @@ def _recipient(db, actor, record, user_id):
     user = db.get(SysUser, user_id)
     if not user or user.id == actor.id or user.status != 1 or user.is_deleted or not user.workbench_enabled:
         return None
+    principal = build_principal(user)
+    if not _can_receive(db, principal, record):
+        return None
     try:
-        target = targets.resolve(db, build_principal(user), record.kind, record.reference)
+        target = targets.resolve(db, principal, record.kind, record.reference)
         return user if target.key == record.key else None
     except BizError:
         return None
@@ -182,6 +185,18 @@ def _team_user_ids(record):
     if record.biz_project_id is not None:
         from app.services.project_service import team_user_ids
         return team_user_ids(record.biz_project_id)
+
+
+def _can_receive(db, p, record):
+    team = _team_user_ids(record)
+    if team is not None:
+        return bool(db.scalar(select(SysUser.id).where(SysUser.id == p.id, SysUser.id.in_(team))))
+    if record.kind in {"report", "market-report", "general-report"}:
+        from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
+        report = db.get(RptReport, int(record.ident))
+        if report and report.report_type in TEAM_SCOPED_REPORT_TYPES:
+            return can_read_project_report(db, p, report, team_only=True)
+    return True
 
 
 def recipients(db, p, record, keyword, *, selected_id=None):
@@ -226,7 +241,7 @@ def _notice_record(db, p, entry):
         record = targets.resolve(db, p, entry.target_kind, entry.reference)
     except BizError:
         return None
-    return record if record.key == entry.target_key else None
+    return record if record.key == entry.target_key and _can_receive(db, p, record) else None
 
 
 def visible_notice_refs(db, p):

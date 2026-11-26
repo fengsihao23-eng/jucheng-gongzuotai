@@ -376,8 +376,8 @@ def build_market_report(db: Session, period_type: str = "weekly", period: str | 
     return out
 
 
-def can_read_project_report(db, p, report):
-    if report.report_type not in TEAM_SCOPED_REPORT_TYPES:
+def can_read_project_report(db, p, report, *, team_only=False):
+    if not p.workbench_enabled or report.report_type not in TEAM_SCOPED_REPORT_TYPES:
         return False
     if report.report_type in PROJECT_REPORT_TYPES:
         if not p.has_menu("market" if report.report_type in KEY_REPORT_TYPES else "projects"):
@@ -388,7 +388,9 @@ def can_read_project_report(db, p, report):
             return False
     metrics = report.metrics or {}
     if report.report_type == "morning_report":
-        return p.has_menu("board") and metrics.get("key_projects") == []
+        return p.has_menu("board") and (metrics.get("key_projects") == [] or (not team_only and p.data_scope == "all"))
+    if not team_only and p.data_scope == "all":
+        return True
     if report.report_type == "company_weekly":
         codes = {item["project_code"] for key in ("key_projects", "delays") for item in metrics.get(key, [])}
     elif "project_codes" in metrics:
@@ -398,13 +400,19 @@ def can_read_project_report(db, p, report):
     elif isinstance(metrics.get("rows"), list):
         codes = {code for item in metrics["rows"] for code in (item.get("group_codes") or [item.get("project_code")]) if code}
     else:
-        return False  # Older aggregate files without a project manifest cannot be authorized.
-    visible = db.scalars(ps.visible_query(p).with_only_columns(BizProject.project_code).where(BizProject.project_code.in_(codes)))
+        return False
+    if team_only:
+        from app.services.key_projects import membership_scope
+        query = select(BizProject.project_code).where(BizProject.is_deleted.is_(False), membership_scope(p, is_key=None))
+    else:
+        query = ps.visible_query(p).with_only_columns(BizProject.project_code)
+    visible = db.scalars(query.where(BizProject.project_code.in_(codes)))
     return codes.issubset(visible)
 
 
 def can_read_general_report(db, p, report):
-    return report.report_type in GENERAL_REPORT_TYPES and can_read_project_report(db, p, report)
+    return (report.report_type in GENERAL_REPORT_TYPES and (p.data_scope == "all" or report.created_by == p.id)
+            and can_read_project_report(db, p, report))
 
 
 def summarize_week_text(db: Session, user_scope=None, period: str | None = None) -> str:

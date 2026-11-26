@@ -28,8 +28,8 @@ ProfitMenu = Depends(require_menu("profit", "reports"))
 
 
 def _hidden_types(p: Principal) -> list[str]:
-    from app.services.market_service import PROJECT_REPORT_TYPES
-    return [*PROJECT_REPORT_TYPES, *(t for t in rs.REPORT_TYPES if not rs.allowed(p, t))]
+    from app.services.market_service import GENERAL_REPORT_TYPES
+    return [*GENERAL_REPORT_TYPES, *(t for t in rs.REPORT_TYPES if not rs.allowed(p, t))]
 
 
 def _check_type(p: Principal, report_type: str):

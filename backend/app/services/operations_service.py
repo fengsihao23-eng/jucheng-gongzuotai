@@ -63,8 +63,13 @@ def delete_project(db, p, project):
     return {"deleted": True, "id": project.id, "name": project.name}
 
 
+def can_view_all(p):
+    return p.has_menu("operations") and is_superuser(p)
+
+
 def visible_projects(p):
-    return select(OpsProject).where(OpsProject.status != "deleted", p.has_menu("operations"), policy.member_clause(p))
+    query = select(OpsProject).where(OpsProject.status != "deleted", p.has_menu("operations"))
+    return query if can_view_all(p) else query.where(policy.member_clause(p))
 
 
 def project_categories(db, p):
@@ -88,10 +93,10 @@ def get_project(db, p, project_id, *, lock=False):
 def role(db, p, project):
     if not p.has_menu("operations") or project.status == "deleted":
         return None
-    if project.owner_id == p.id:
+    if is_superuser(p) or project.owner_id == p.id:
         return "manager"
     raw = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
-    if raw and (is_superuser(p) or p.is_admin or p.can("operations:manage")):
+    if raw and (p.is_admin or p.can("operations:manage")):
         return "manager"
     return "manager" if raw == "co_owner" else raw  # 联合负责人与项目管理员同权
 
@@ -464,7 +469,7 @@ def _notify(db, recipients, project, task, title, content, *, assignment=False):
 
     db.flush()
     users = [u for u in db.scalars(select(SysUser).where(SysUser.id.in_(set(recipients))))
-             if db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(u))))]
+             if db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(u), team_only=True)))]
     notices = notify_service.send(db, users, TASK_ASSIGNMENT if assignment else "operations_task", title, content,
         link=f"/operations/{project.id}?task={task.id}", ref_type="ops_task", ref_id=str(task.id),
         wecom=assignment and content_scope.controls(db, project.id)["wecom_reminders"], defer=assignment,

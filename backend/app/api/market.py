@@ -449,7 +449,7 @@ class ReviewIn(BaseModel):
 def list_reviews(keyword: str | None = None, tag: str | None = None, status: int | None = None,
                  business_line: str | None = None, p: Principal = Reviews, db: Session = Depends(get_db)):
     scoped = select(BizProjectReview).join(BizProject, BizProject.id == BizProjectReview.project_id).where(
-        BizProject.is_deleted.is_(False), ps.visible_filter(p))
+        BizProject.id.in_(ps.visible_query(p).with_only_columns(BizProject.id)))
     q = scoped
     if keyword:
         kw = f"%{keyword}%"

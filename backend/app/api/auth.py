@@ -63,13 +63,14 @@ def visible_menus(db: Session, p: Principal) -> list[str]:
     menus = set(p.menus)
     if "operations" in menus:
         from app.models import OpsMember, OpsProject
+        from app.services.operations_service import can_view_all
         from app.core.permissions import ROLE_DEFS
         if p.user.permission_override is not None and not p.is_admin:
             explicit = "operations" in p.user.permission_override.menus
         else:
             explicit = any("operations" in {**ROLE_DEFS.get(role.role_code, {}), **(role.permissions or {})}.get("menus", [])
                            for role in p.user.roles)
-        joined = explicit or db.scalar(
+        joined = explicit or can_view_all(p) or db.scalar(
             select(OpsProject.id).where(OpsProject.owner_id == p.id, OpsProject.status != "deleted").limit(1)) is not None or db.scalar(
             select(OpsMember.id).join(OpsProject, OpsProject.id == OpsMember.project_id)
             .where(OpsMember.user_id == p.id, OpsProject.status != "deleted").limit(1)) is not None

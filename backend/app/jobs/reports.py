@@ -60,7 +60,7 @@ def run_report(db, report_type: str, params: dict) -> dict:
         users = recipients(db, report_type)
         from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
         if report_type in TEAM_SCOPED_REPORT_TYPES:
-            users = [user for user in users if can_read_project_report(db, build_principal(user), r)]
+            users = [user for user in users if can_read_project_report(db, build_principal(user), r, team_only=True)]
         lines = [f"> {s['label']}：**{_fmt(s)}**" for s in encode(r.metrics.get("summary", []))]
         link = f"/reports?id={r.id}"
         content = f"### {r.title}\n" + "\n".join(lines) + f"\n\n[查看报表与下载]({link})"
