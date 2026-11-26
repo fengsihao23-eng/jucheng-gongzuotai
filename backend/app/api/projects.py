@@ -16,6 +16,7 @@ from app.core.deps import Principal, client_ip, require_menu
 from app.core.response import bad_request, conflict, forbidden, not_found, ok
 from app.core.storage import file_brief, save_bytes
 from app.models import PROJECT_STATUS, BizOpportunity, BizProject, BizProjectMilestone, SysUser
+from app.schemas.key_projects import KeyTaskFeedbackIn, KeyTaskIn
 from app.services import key_projects, notify_service
 from app.services import project_service as ps
 
@@ -149,6 +150,54 @@ def detail(code: str, p: Principal = Menu, db: Session = Depends(get_db)):
     return ok(ps.project_detail(db, proj, p))
 
 
+@router.get("/{code}/tasks")
+def project_tasks(code: str, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = key_projects.project(db, p, code, is_key=False)
+    return ok(key_projects.task_workspace(db, p, row, standard=True))
+
+
+@router.get("/{code}/tasks/options")
+def project_task_options(code: str, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = key_projects.project(db, p, code, is_key=False)
+    return ok(key_projects.general_task_options(db, p, row))
+
+
+@router.get("/{code}/tasks/{task_id}")
+def project_task_detail(code: str, task_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+    row = key_projects.project(db, p, code, is_key=False)
+    return ok(key_projects.task_data(db, p, row, key_projects.task(db, row, task_id), history=True))
+
+
+def _commit_task(db, background, result, notices):
+    db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
+    return ok(result)
+
+
+@router.post("/{code}/tasks")
+def create_project_task(code: str, body: KeyTaskIn, background: BackgroundTasks, p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    result = key_projects.save_task(db, p, code, body, notice_ids=notices, is_key=False)
+    return _commit_task(db, background, result, notices)
+
+
+@router.put("/{code}/tasks/{task_id}")
+def update_project_task(code: str, task_id: int, body: KeyTaskIn, background: BackgroundTasks,
+                        p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    result = key_projects.save_task(db, p, code, body, task_id, notice_ids=notices, is_key=False)
+    return _commit_task(db, background, result, notices)
+
+
+@router.post("/{code}/tasks/{task_id}/feedback")
+def project_task_feedback(code: str, task_id: int, body: KeyTaskFeedbackIn, background: BackgroundTasks,
+                          p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    result = key_projects.feedback(db, p, code, task_id, body, notice_ids=notices, is_key=False)
+    return _commit_task(db, background, result, notices)
+
+
 class ProjectPatch(BaseModel):
     name: str | None = None
     customer_name: str | None = None
@@ -163,7 +212,7 @@ class ProjectPatch(BaseModel):
 
 @router.put("/{code}")
 def update(code: str, body: ProjectPatch, request: Request, p: Principal = Menu, db: Session = Depends(get_db)):
-    proj = ps.get_project(db, code, p)
+    proj = ps.get_project(db, code, p, lock=True)
     if not (ps.can_edit(p, proj) or p.can("project:key")):
         raise forbidden("仅项目负责人或具备节点维护权限者可修改项目")
     before, after = ps.update_project(db, proj, body.model_dump(exclude_unset=True), p)
@@ -177,7 +226,7 @@ def set_key(code: str, is_key: bool = Body(embed=True), request: Request = None,
             db: Session = Depends(get_db)):
     if not p.can("project:key"):
         raise forbidden("无重点项目标记权限")
-    proj = ps.get_project(db, code, p)
+    proj = ps.get_project(db, code, p, lock=True)
     log_op(db, p.id, "project.key", "project", proj.project_code, {"is_key": proj.is_key}, {"is_key": is_key},
            client_ip(request))
     proj.is_key = is_key
@@ -198,7 +247,7 @@ class MilestoneIn(BaseModel):
 
 
 def _editable(db, code, p) -> BizProject:
-    proj = ps.get_project(db, code, p)
+    proj = ps.get_project(db, code, p, lock=True)
     ps.ensure_edit(db, p, proj)
     return proj
 
@@ -234,7 +283,7 @@ def edit_ms(code: str, mid: int, body: MilestoneIn, p: Principal = Menu, db: Ses
 
 @router.delete("/{code}/milestones/{mid}")
 def del_ms(code: str, mid: int, body: DeletionIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    proj = ps.get_project(db, code, p) if p.has_delete_grant else _editable(db, code, p)
+    proj = ps.get_project(db, code, p, lock=True) if p.has_delete_grant else _editable(db, code, p)
     verify_deletion(db, body)
     ps.delete_milestone(db, proj, _ms(db, proj, mid), p.id)
     db.commit()

@@ -224,13 +224,11 @@ def resolve(db, p, kind, ref, *, lock=False):
                       legacy=("project", row.id))
     if kind == "key-task":
         item = get_or_404(db, m.BizProjectMilestone, number(ident), "项目任务")
-        project = get_or_404(db, m.BizProject, item.project_id, "重点项目")
-        project = key_projects.project(db, p, project.project_code, lock=lock)
-        record = Record(kind, str(item.id), "任务详情", item.node_name, "重点项目", owners(item.owner_id, project.owner_id),
-                        key_projects.can_feedback_task(db, p, project, item),
-                        facts=facts(item, (("截止日期", "plan_date"),)), context=project.name,
-                        path=f"/market/projects/{project.project_code}?task={item.id}", legacy=("key-task", item.id))
-        return record
+        project = key_projects.project(db, p, item.project_id, lock=lock, is_key=None)
+        return Record(kind, str(item.id), "任务详情", item.node_name, "重点项目" if project.is_key else "一般项目",
+                      owners(item.owner_id, project.owner_id), key_projects.can_feedback_task(db, p, project, item),
+                      facts=facts(item, (("截止日期", "plan_date"),)), context=project.name,
+                      path=key_projects.task_link(project, item.id), legacy=("key-task", item.id))
     if kind == "operation":
         row = operations_service.get_project(db, p, number(ident))
         operations_scope.require(db, p, row, "progress")

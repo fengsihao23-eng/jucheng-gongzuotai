@@ -15,10 +15,10 @@ from decimal import Decimal
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.response import BizError, bad_request, forbidden, not_found
+from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import today, utcnow, week_no, week_range
 from app.models import (MILESTONE_STATUS, PROJECT_STATUS, BizContract, BizMilestoneLog, BizPayment, BizProject,
-                        BizProjectFeedback, BizProjectMilestone, SysUser)
+                        BizProjectFeedback, BizProjectMilestone, KeyProjectTaskPlan, SysUser)
 from app.services import codes, dict_service
 
 ZERO = Decimal("0")
@@ -59,13 +59,17 @@ def can_edit(p, project: BizProject) -> bool:
     return p.is_admin or project.owner_id == p.id or p.can("milestone:write")
 
 
-def get_project(db: Session, code_or_id, p=None) -> BizProject:
-    if isinstance(code_or_id, int) or (isinstance(code_or_id, str) and code_or_id.isdigit()):
-        proj = db.get(BizProject, int(code_or_id))
-    else:
-        proj = db.scalar(select(BizProject).where(BizProject.project_code == code_or_id))
+def get_project(db: Session, code_or_id, p=None, *, lock=False) -> BizProject:
+    by_id = isinstance(code_or_id, int) or (isinstance(code_or_id, str) and code_or_id.isdigit())
+    match = BizProject.id == int(code_or_id) if by_id else BizProject.project_code == code_or_id
+    query = select(BizProject).where(match)
+    if lock:
+        query = query.with_for_update(of=BizProject).execution_options(populate_existing=True)
+    proj = db.scalar(query)
     if not proj or proj.is_deleted:
         raise not_found("项目")
+    if lock:
+        db.expire(proj, ["milestones"])
     if p is not None and not can_view(db, p, proj):
         raise forbidden("无权查看该项目（仅可查看本人负责的项目）")
     return proj
@@ -428,10 +432,17 @@ def add_milestone(db: Session, proj: BizProject, data: dict, operator_id, source
     return m
 
 
+def _ensure_workflow_node(db, proj, m):
+    if not proj.is_key and db.get(KeyProjectTaskPlan, m.id):
+        raise conflict("请在「任务情况」调整安排、提交进展或删除任务")
+
+
 def edit_milestone(db: Session, proj: BizProject, m: BizProjectMilestone, data: dict, operator_id,
-                   source="web") -> BizProjectMilestone:
+                   source="web", *, from_task=False) -> BizProjectMilestone:
     if m.project_id != proj.id:
         raise not_found("节点")
+    if not from_task:
+        _ensure_workflow_node(db, proj, m)
     before = _snap(m)
     if "node_name" in data and data["node_name"] is not None:
         if not str(data["node_name"]).strip():
@@ -461,6 +472,7 @@ def edit_milestone(db: Session, proj: BizProject, m: BizProjectMilestone, data: 
 def delete_milestone(db: Session, proj: BizProject, m: BizProjectMilestone, operator_id, source="web") -> None:
     if m.project_id != proj.id:
         raise not_found("节点")
+    _ensure_workflow_node(db, proj, m)
     before = _snap(m)
     proj.milestones.remove(m)
     db.flush()
@@ -569,6 +581,7 @@ def update_milestone(db: Session, project_code: str, node_name: str | None = Non
         raise bad_request("action 仅支持 query / update")
     if not node_name:
         raise bad_request("更新节点需提供 node_name")
+    proj = get_project(db, proj.id, operator, lock=True)
     if operator is not None and not can_edit(operator, proj):
         raise forbidden("仅项目负责人或具备节点维护权限者可修改流程节点")
     m = find_node(proj, node_name)

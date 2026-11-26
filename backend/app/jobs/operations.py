@@ -85,7 +85,7 @@ def operations_task_reminder(db, params):
     return {"rows": sent, "message": f"已生成 {sent} 条站内提醒、{len(pending_ids)} 条企业微信通知"}
 
 
-@job("task_feedback_deadline_reminders", "运营与重点项目逾期未反馈提醒", {"minute": "*/5"}, "每 5 分钟")
+@job("task_feedback_deadline_reminders", "项目任务逾期未反馈提醒", {"minute": "*/5"}, "每 5 分钟")
 def task_feedback_deadline_reminders(db, params):
     from app.services import key_projects, operations_notifications
 

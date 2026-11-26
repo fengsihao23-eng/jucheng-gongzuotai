@@ -18,10 +18,10 @@
     <template #progress>
       <div v-if="canFeedback" class="task-feedback">
       <h3>任务反馈</h3><el-form ref="formRef" :model="form" label-position="top">
-          <el-form-item label="当前进展" prop="content" :rules="[{required:true,whitespace:true,message:'填写实际进展'}]"><el-input v-model="form.content" aria-label="重点任务进展" type="textarea" :rows="3" maxlength="6000" placeholder="已完成什么、当前进度如何" /></el-form-item>
-          <el-form-item label="存在问题"><el-input v-model="form.problems" aria-label="重点任务问题" type="textarea" :rows="2" maxlength="6000" placeholder="没有问题可留空" /></el-form-item><el-form-item label="下一步"><el-input v-model="form.next_step" aria-label="重点任务下一步" type="textarea" :rows="2" maxlength="6000" /></el-form-item>
+          <el-form-item label="当前进展" prop="content" :rules="[{required:true,whitespace:true,message:'填写实际进展'}]"><el-input v-model="form.content" :aria-label="`${taskLabel}进展`" type="textarea" :rows="3" maxlength="6000" placeholder="已完成什么、当前进度如何" /></el-form-item>
+          <el-form-item label="存在问题"><el-input v-model="form.problems" :aria-label="`${taskLabel}问题`" type="textarea" :rows="2" maxlength="6000" placeholder="没有问题可留空" /></el-form-item><el-form-item label="下一步"><el-input v-model="form.next_step" :aria-label="`${taskLabel}下一步`" type="textarea" :rows="2" maxlength="6000" /></el-form-item>
           <el-form-item v-if="item.nodes.some(n=>!n.completed_on)" label="本次完成的节点"><el-checkbox-group v-model="form.completed_node_ids"><el-checkbox v-for="n in item.nodes.filter(n=>!n.completed_on)" :key="n.id" :value="n.id">{{ n.name }}</el-checkbox></el-checkbox-group></el-form-item>
-          <el-form-item label="任务状态"><el-radio-group v-model="form.status" aria-label="重点任务状态"><el-radio-button :value="3">已完成</el-radio-button><el-radio-button :value="2">未完成</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="任务状态"><el-radio-group v-model="form.status" :aria-label="`${taskLabel}状态`"><el-radio-button :value="3">已完成</el-radio-button><el-radio-button :value="2">未完成</el-radio-button></el-radio-group></el-form-item>
           <el-form-item v-if="form.status===3" label="实际完成日期"><el-date-picker v-model="form.completed_on" type="date" value-format="YYYY-MM-DD" aria-label="任务实际完成日期" /></el-form-item>
         </el-form>
       </div>
@@ -43,14 +43,53 @@ import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import WecomDeliveryStatus from '@/components/WecomDeliveryStatus.vue'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import { feedbackTime } from '@/utils/taskFeedback'
-const props=defineProps({modelValue:Boolean,taskId:Number,project:Object}),emit=defineEmits(['update:modelValue','saved','edit'])
-const visible=computed({get:()=>props.modelValue,set:v=>emit('update:modelValue',v)}),item=ref(null),loading=ref(false),saving=ref(false),form=reactive({}),formRef=ref()
+const props = defineProps({ modelValue: Boolean, taskId: Number, project: Object, tasksPath: String })
+const emit = defineEmits(['update:modelValue', 'saved', 'edit'])
+const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
+const item = ref(null), loading = ref(false), saving = ref(false), form = reactive({}), formRef = ref()
+const taskLabel = computed(() => props.project.is_key ? '重点任务' : '任务')
+const taskPath = computed(() => `${props.tasksPath}/${props.taskId}`)
 const canFeedback = computed(() => item.value?.can_feedback && item.value.status !== 3 && !props.project.paused && props.project.status !== 5)
 const cadenceLabel = { daily: '每天反馈', weekly: '每周反馈', node: '按节点反馈' }
-let version=0
-async function load(){if(!visible.value||!props.taskId)return;const v=++version;loading.value=true;try{const r=await api.get(`/market/projects/${props.project.project_code}/tasks/${props.taskId}`);if(v!==version||!visible.value)return;item.value=r;Object.assign(form,{content:'',problems:r.problems||'',next_step:r.next_step||'',status:2,completed_on:props.project.today,completed_node_ids:[]});await nextTick();formRef.value?.clearValidate()}catch{if(v===version)item.value=null}finally{if(v===version)loading.value=false}}
-async function submit(){if(saving.value||!item.value||!await formRef.value?.validate().catch(()=>false))return;if(form.status===3&&item.value.nodes.some(n=>!n.completed_on&&!form.completed_node_ids.includes(n.id)))return ElMessage.warning('请先确认所有阶段节点完成');saving.value=true;try{await api.post(`/market/projects/${props.project.project_code}/tasks/${props.taskId}/feedback`,{...form,completed_on:form.status===3?form.completed_on:null,expected_revision:item.value.revision});ElMessage.success('进展已保存');await load();announceBusinessChange();emit('saved')}catch{}finally{saving.value=false}}
-watch([visible, () => props.taskId, () => props.project.project_code], ([open]) => {
+let version = 0
+
+async function load() {
+  if (!visible.value || !props.taskId) return
+  const request = ++version
+  loading.value = true
+  try {
+    const result = await api.get(taskPath.value)
+    if (request !== version || !visible.value) return
+    item.value = result
+    Object.assign(form, { content: '', problems: result.problems || '', next_step: result.next_step || '',
+      status: 2, completed_on: props.project.today, completed_node_ids: [] })
+    await nextTick()
+    formRef.value?.clearValidate()
+  } catch {
+    if (request === version) item.value = null
+  } finally {
+    if (request === version) loading.value = false
+  }
+}
+
+async function submit() {
+  if (saving.value || !item.value || !await formRef.value?.validate().catch(() => false)) return
+  if (form.status === 3 && item.value.nodes.some(node => !node.completed_on && !form.completed_node_ids.includes(node.id))) {
+    return ElMessage.warning('请先确认所有阶段节点完成')
+  }
+  saving.value = true
+  try {
+    await api.post(`${taskPath.value}/feedback`, { ...form, completed_on: form.status === 3 ? form.completed_on : null,
+      expected_revision: item.value.revision })
+    ElMessage.success('进展已保存')
+    await load()
+    announceBusinessChange()
+    emit('saved')
+  } catch { /* 提交失败时保留已填写的反馈。 */ }
+  finally { saving.value = false }
+}
+
+watch([visible, taskPath], ([open]) => {
   version++
   item.value = null
   if (open) load()

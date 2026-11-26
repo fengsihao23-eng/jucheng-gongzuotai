@@ -33,6 +33,7 @@ const pages = [
   { path: 'operations/:id', name: 'operation-detail', component: () => import('@/views/OperationDetail.vue'), meta: { menu: 'operations', title: '运营项目跟进' } },
   { path: 'tender-projects', name: 'tender-projects', component: () => import('@/views/TenderWorkbook.vue'), meta: { menu: 'projects', workbookView: 'tender', title: '招标与在建' } },
   { path: 'general-projects', name: 'general-projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectMode: 'general', title: '一般项目' } },
+  { path: 'general-projects/:code', name: 'general-project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { menu: 'projects', title: '一般项目详情' } },
   { path: 'history-projects', name: 'history-projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectMode: 'history', title: '历史项目' } },
   { path: 'projects', name: 'projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', title: '项目台账', permissionGroup: '市场与项目' } },
   { path: 'projects/:code', name: 'project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { menu: 'projects', title: '项目详情' } },

@@ -8,19 +8,19 @@
 from collections import defaultdict
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.storage import save_bytes
 from app.core.timeutil import last_week, prev_month, today, week_no
 from app.jobs.registry import job
-from app.models import BizMilestoneLog, BizProject, BizProjectMilestone, RptReport, SysUser
+from app.models import BizMilestoneLog, BizProject, BizProjectMilestone, KeyProjectTaskPlan, RptReport, SysUser
 from app.services import market_service, notify_service
 from app.services import project_service as ps
 
 DUE_LEAD_DAYS = 3
 
 
-@job("key_project_feedback_reminders", "重点项目节点与反馈提醒", {"hour": 9, "minute": 10}, "每天 09:10（北京时间）")
+@job("key_project_feedback_reminders", "项目任务节点与反馈提醒", {"hour": 9, "minute": 10}, "每天 09:10（北京时间）")
 def key_project_feedback_reminders(db, params):
     from app.services.key_projects import scan_reminders
     result = scan_reminders(db)
@@ -38,8 +38,11 @@ def _day(params: dict) -> date:
 def project_milestone_scan(db, params: dict) -> dict:
     from app.core.timeutil import utcnow
     T = _day(params)
-    rows = db.execute(select(BizProjectMilestone, BizProject).join(BizProject, BizProject.id == BizProjectMilestone.project_id)
+    rows = db.execute(select(BizProjectMilestone, BizProject)
+                      .join(BizProject, BizProject.id == BizProjectMilestone.project_id)
+                      .outerjoin(KeyProjectTaskPlan, KeyProjectTaskPlan.milestone_id == BizProjectMilestone.id)
                       .where(BizProject.is_deleted.is_(False), BizProject.status.in_([2, 3, 4]),
+                             or_(BizProject.is_key.is_(True), KeyProjectTaskPlan.milestone_id.is_(None)),
                              BizProjectMilestone.status.in_([1, 2, 4]),
                              BizProjectMilestone.plan_date.is_not(None))).all()
     users = {u.id: u for u in db.scalars(select(SysUser))}

@@ -1,7 +1,7 @@
 <template>
   <div class="key-task-board">
     <div class="task-filters">
-      <el-input v-model="search" class="task-search" placeholder="搜索任务 / 负责人" aria-label="重点任务搜索" clearable />
+      <el-input v-model="search" class="task-search" placeholder="搜索任务 / 负责人" :aria-label="project.is_key ? '重点任务搜索' : '任务搜索'" clearable />
       <el-checkbox v-model="mine">我负责的</el-checkbox>
       <el-checkbox v-model="attention">需要关注</el-checkbox>
       <span class="jc-spacer" />
@@ -24,14 +24,14 @@
       <el-table-column prop="progress_note" label="最近进展" min-width="180" show-overflow-tooltip />
       <el-table-column prop="next_step" label="下一步" min-width="140" show-overflow-tooltip />
       <el-table-column label="状态" min-width="110"><template #default="{ row }">{{ taskState(row).label }}</template></el-table-column>
-      <el-table-column label="操作" width="84"><template #default="{ row }"><el-button link type="primary" @click.stop="openTask(row.id)">{{ canFeedback(row) ? '反馈进展' : '查看详情' }}</el-button></template></el-table-column>
+      <el-table-column label="操作" width="96"><template #default="{ row }"><el-button link type="primary" @click.stop="openTask(row.id)">{{ canFeedback(row) ? '反馈进展' : '查看详情' }}</el-button></template></el-table-column>
     </el-table>
     <el-empty v-else :description="project.tasks.length ? '没有符合条件的任务' : '还没有安排任务'" :image-size="66">
       <el-button v-if="editable && !project.tasks.length" type="primary" @click="editTask()">安排第一项任务</el-button>
     </el-empty>
 
-    <KeyTaskForm v-model="formOpen" :initial="editingTask" :project="project" @saved="savedTask" />
-    <KeyTaskDialog v-model="taskOpen" :task-id="taskId" :project="project" @saved="emit('refresh')" @edit="editTask" />
+    <KeyTaskForm v-model="formOpen" :initial="editingTask" :project="project" :tasks-path="tasksPath" @saved="savedTask" />
+    <KeyTaskDialog v-model="taskOpen" :task-id="taskId" :project="project" :tasks-path="tasksPath" @saved="emit('refresh')" @edit="editTask" />
     <el-dialog v-model="summaryOpen" title="当前进展汇总" width="min(900px, calc(100vw - 24px))" align-center append-to-body>
       <h3 class="summary-title">{{ project.name }}</h3>
       <p class="jc-muted">进行中 {{ totals.ongoing.length }} 项 · 已完成 {{ totals.done.length }} 项 · 逾期未反馈 {{ totals.overdue.length }} 项</p>
@@ -61,6 +61,7 @@ const taskId = defineModel('taskId', { type: Number })
 const auth = useAuth()
 const search = ref(''), mine = ref(false), attention = ref(false), status = ref('ongoing'), view = ref('cards')
 const formOpen = ref(false), editingTask = ref(null), summaryOpen = ref(false)
+const tasksPath = computed(() => `${props.project.is_key ? '/market' : ''}/projects/${props.project.project_code}/tasks`)
 const active = computed(() => !props.project.paused && props.project.status !== 5)
 const editable = computed(() => active.value && props.project.can_manage)
 const canFeedback = task => active.value && task.status !== 3 && task.can_feedback
@@ -80,8 +81,9 @@ const taskOpen = computed({
   get: () => Boolean(taskId.value) && !formOpen.value,
   set: open => { if (!open && !formOpen.value) taskId.value = undefined },
 })
-const taskRemoval = task => (props.project.can_manage || (props.project.can_delete && auth.hasDeleteGrant)) &&
-  recordRemoval('key-task', task.id, task.title, () => emit('refresh'), { title: '删除重点项目任务' })
+const taskRemoval = task => props.project.can_delete_tasks && recordRemoval('key-task', task.id, task.title, () => emit('refresh'), {
+  title: props.project.is_key ? '删除重点项目任务' : '删除一般项目任务',
+})
 const taskMenu = rowDeletion(taskRemoval)
 
 function openTask(id) { taskId.value = id }

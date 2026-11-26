@@ -1,4 +1,4 @@
-"""A simple key project workspace on the original project, milestone and financial records."""
+"""Project task planning, feedback and the key project workspace on existing milestone records."""
 import hashlib
 import json
 from datetime import timedelta
@@ -22,6 +22,9 @@ TASK_ASSIGNMENT_NOTICE = "key_task_assignment"
 TEAM_NOTICE = "key_project_team"
 TEAM_REF = "key_project_team"
 REF = "key_project_task"
+GENERAL_REF = "project_task"
+GENERAL_NOTICE = "project_task_due"
+GENERAL_TASK_ASSIGNMENT_NOTICE = "project_task_assignment"
 PAUSE_USERIDS = {"ken", "SZGLY"}
 ZERO = Decimal(0)
 
@@ -66,11 +69,12 @@ def is_member(db, p, row):
 
 
 def standard_access(db, p, row):
-    return has_project_menu(p) and ps.can_view(db, p, row)
+    menu = has_project_menu(p) if row.is_key else p.has_menu("projects")
+    return menu and ps.can_view(db, p, row)
 
 
 def can_manage(db, p, row, *, standard=None):
-    return (can_create(p) or ps.can_edit(p, row)) and (standard_access(db, p, row) if standard is None else standard)
+    return (ps.can_edit(p, row) or (row.is_key and can_create(p))) and (standard_access(db, p, row) if standard is None else standard)
 
 
 def require_team_manager(db, p, row):
@@ -100,23 +104,22 @@ def user(db, user_id):
     return u
 
 
-def project(db, p, code, *, lock=False):
-    row = ps.get_project(db, code)
-    if not row.is_key:
-        raise not_found("重点项目")
-    if lock:
-        row = db.scalar(select(BizProject).where(BizProject.id == row.id).with_for_update(of=BizProject).execution_options(populate_existing=True))
-        if not row or row.is_deleted or not row.is_key:
-            raise forbidden("项目可见范围已变更，请重新打开")
-        db.expire(row, ["milestones"])
+def project(db, p, code, *, lock=False, is_key=True):
+    row = ps.get_project(db, code, lock=lock)
+    if is_key is not None and row.is_key != is_key:
+        raise not_found("重点项目" if is_key else "一般项目")
     if not standard_access(db, p, row) and not is_member(db, p, row):
-        raise forbidden("无权查看该重点项目")
+        raise forbidden("无权查看该重点项目" if row.is_key else "无权查看该一般项目")
     return row
 
 
+def is_paused(db, row):
+    setting = db.get(BizProjectFollowSetting, row.id) if row.is_key else None
+    return bool(setting and setting.paused)
+
+
 def active(db, row):
-    paused = db.get(BizProjectFollowSetting, row.id)
-    if row.status == 5 or (paused and paused.paused):
+    if row.status == 5 or is_paused(db, row):
         raise conflict("项目已结项或暂停跟进，请恢复后再安排任务或填写进展")
 
 
@@ -136,6 +139,19 @@ def available_people(db):
 def person_info(person):
     return {"id": person.id, "name": person.name, "dept": person.dept_code,
             "department": person.department.name if person.department else None}
+
+
+def can_assign_to(db, row, assignee):
+    if row.is_key:
+        return is_member(db, assignee, row) or (has_project_menu(assignee) and
+            (can_create(assignee) or ps.can_edit(assignee, row) or assignee.can("feedback:write")))
+    return assignee.has_menu("projects") and (ps.can_edit(assignee, row) or assignee.can("feedback:write"))
+
+
+def general_task_options(db, p, row):
+    if not can_manage(db, p, row):
+        raise forbidden("仅项目负责人或项目管理者可安排任务")
+    return {"users": [person_info(u) for u in available_people(db) if can_assign_to(db, row, build_principal(u))]}
 
 
 def options(db, p, code=None, include_team=False):
@@ -321,6 +337,11 @@ def task(db, row, ident):
     return item
 
 
+def task_link(row, task_id):
+    base = "/market/projects" if row.is_key else "/general-projects"
+    return f"{base}/{row.project_code}?task={task_id}"
+
+
 def task_data(db, p, row, item, *, history=False, manageable=None):
     plan = db.get(Plan, item.id)
     nodes = list(db.scalars(select(Node).where(Node.milestone_id == item.id).order_by(Node.seq, Node.id)))
@@ -333,9 +354,8 @@ def task_data(db, p, row, item, *, history=False, manageable=None):
     if plan and cadence != "node":
         base = last.feedback_date if last else plan.created_at.astimezone(TZ).date()
         due = max(preparation or base, base) + timedelta(days=1 if cadence == "daily" else 7)
-    paused = db.get(BizProjectFollowSetting, row.id)
     schedule = task_feedback_deadlines.view(plan, updates[0][0].created_at if updates else None, due,
-        active=item.status != 3 and row.status != 5 and not (paused and paused.paused))
+        active=item.status != 3 and row.status != 5 and not is_paused(db, row))
     if manageable is None:
         manageable = can_manage(db, p, row)
     result = {**ps.ms_dict(item), "title": item.node_name, "requirements": plan.requirements if plan else (item.duty or ""),
@@ -343,7 +363,7 @@ def task_data(db, p, row, item, *, history=False, manageable=None):
               "next_step": plan.next_step if plan else "", **schedule,
               "nodes": [{"id": n.id, "name": n.name, "due_on": n.due_on, "completed_on": n.completed_on,
                           "overdue": not n.completed_on and n.due_on < today()} for n in nodes],
-              "latest_feedback": ps.feedback_dict(last) if last else None,
+              "latest_feedback": ps.feedback_dict(last) if last else None, "has_plan": plan is not None,
               "can_manage": manageable, "can_feedback": can_feedback_task(db, p, row, item, manageable=manageable)}
     result["alert"] = result["alert"] or any(n["overdue"] for n in result["nodes"]) or bool(result["problems"]) or result["needs_feedback"]
     result["revision"] = digest({"task": ps._snap(item), "plan": snapshot(plan, ["requirements", "preparation_on", "cadence", "feedback_due_at", "problems", "next_step", "revision"]) if plan else None,
@@ -351,13 +371,13 @@ def task_data(db, p, row, item, *, history=False, manageable=None):
     if history:
         result["history"] = [{"id": u.id, "feedback": ps.feedback_dict(f), "values": u.values} for u, f in updates]
         result["notification_deliveries"] = notify_service.delivery_status(db,
-            (SysNotify.ref_type == REF) & (func.split_part(SysNotify.ref_id, ":", 1) == str(item.id)),
+            SysNotify.ref_type.in_((REF, GENERAL_REF)) & (func.split_part(SysNotify.ref_id, ":", 1) == str(item.id)),
             user_id=None if result["can_manage"] else p.id)
     return result
 
 
-def save_task(db, p, code, body, task_id=None, *, notice_ids=None):
-    row = project(db, p, code, lock=True)
+def save_task(db, p, code, body, task_id=None, *, notice_ids=None, is_key=True):
+    row = project(db, p, code, lock=True, is_key=is_key)
     item = _save_task(db, p, row, body, task_id, notice_ids=notice_ids)
     return task_data(db, p, row, item, history=True)
 
@@ -370,21 +390,22 @@ def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team
     if not person or person.status != 1 or person.is_deleted or not person.workbench_enabled:
         raise bad_request("任务负责人须为在职且已获工作台使用权限的员工")
     assignee = build_principal(person)
-    if not (is_member(db, assignee, row) or (has_project_menu(assignee) and
-            (can_create(assignee) or ps.can_edit(assignee, row) or assignee.can("feedback:write")))):
+    if not can_assign_to(db, row, assignee):
         raise bad_request("任务负责人需有进展反馈权限，请选择可执行人员")
     if row.start_date and body.preparation_on < row.start_date or row.plan_end_date and body.due_on > row.plan_end_date:
         raise bad_request("任务准备和完成日期须在项目计划日期内")
-    item = task(db, row, task_id) if task_id else None
+    item = task(db, row, task_id) if task_id is not None else None
     if item and body.expected_revision != task_data(db, p, row, item)["revision"]:
         raise conflict("任务已变化，请重新打开后保存")
     if item and item.status == 3:
         raise conflict("任务已完成，保留原计划和完成记录")
     previous_owner = item.owner_id if item else None
     if item:
-        ps.edit_milestone(db, row, item, {"node_name": body.title, "owner_id": body.owner_id, "plan_date": body.due_on}, p.id)
+        ps.edit_milestone(db, row, item, {"node_name": body.title, "owner_id": body.owner_id, "plan_date": body.due_on}, p.id, from_task=True)
     else:
         item = ps.add_milestone(db, row, {"node_name": body.title, "owner_id": body.owner_id, "plan_date": body.due_on}, p.id)
+    if previous_owner != item.owner_id:
+        db.expire(item, ["owner"])
     plan = db.get(Plan, item.id) or Plan(milestone_id=item.id, revision=0, created_at=now())
     plan.requirements, plan.preparation_on, plan.cadence = body.requirements, body.preparation_on, body.cadence
     task_feedback_deadlines.set_deadline(plan,
@@ -407,14 +428,15 @@ def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team
         node.name, node.due_on, node.seq = n.name, n.due_on, seq
         db.add(node)
     db.flush()
-    log_op(db, p.id, "market.key_task.plan", "biz_project_milestone", item.id,
+    log_op(db, p.id, "market.key_task.plan" if row.is_key else "project.task.plan", "biz_project_milestone", item.id,
            after=body.model_dump(mode="json", exclude={"expected_revision"}))
     if previous_owner != item.owner_id:
-        notices = notify_service.send(db, [assignee.user], TASK_ASSIGNMENT_NOTICE,
-            "收到重点项目任务" if not previous_owner else "重点项目任务已转交给你",
+        label = "重点项目" if row.is_key else "一般项目"
+        notices = notify_service.send(db, [assignee.user], TASK_ASSIGNMENT_NOTICE if row.is_key else GENERAL_TASK_ASSIGNMENT_NOTICE,
+            f"收到{label}任务" if not previous_owner else f"{label}任务已转交给你",
             f"{row.name} · {item.node_name}，任务完成节点 {item.plan_date}。",
-            link=f"/market/projects/{row.project_code}?task={item.id}", ref_type=REF, ref_id=str(item.id), defer=True,
-            wecom_content="你有一项新的重点项目任务安排，请打开工作台查看任务要求和反馈时间。")
+            link=task_link(row, item.id), ref_type=REF if row.is_key else GENERAL_REF, ref_id=str(item.id), defer=True,
+            wecom_content=f"你有一项新的{label}任务安排，请打开工作台查看任务要求和反馈时间。")
         if notice_ids is not None:
             notice_ids.extend(notice.id for notice in notices if notice.channel == "wecom_app")
     if announce_team and task_id is None:
@@ -435,8 +457,8 @@ def create_project(db, p, body):
     return row, notices
 
 
-def feedback(db, p, code, task_id, body, *, notice_ids=None):
-    row = project(db, p, code, lock=True)
+def feedback(db, p, code, task_id, body, *, notice_ids=None, is_key=True):
+    row = project(db, p, code, lock=True, is_key=is_key)
     active(db, row)
     item = task(db, row, task_id)
     current = task_data(db, p, row, item)
@@ -461,7 +483,7 @@ def feedback(db, p, code, task_id, body, *, notice_ids=None):
     if body.status == 3 and any(n.completed_on and n.completed_on > completed_on for n in nodes.values()):
         raise bad_request("任务完成日期不能早于已完成的阶段节点日期")
     ps.edit_milestone(db, row, item, {"status": body.status, "finish_date": completed_on if body.status == 3 else None,
-                                     "progress_note": body.content}, p.id)
+                                     "progress_note": body.content}, p.id, from_task=True)
     plan = db.get(Plan, item.id) or Plan(milestone_id=item.id, preparation_on=row.start_date, cadence="node", revision=0, created_at=now())
     plan.problems, plan.next_step, plan.revision = body.problems, body.next_step, plan.revision + 1
     db.add(plan)
@@ -471,7 +493,8 @@ def feedback(db, p, code, task_id, body, *, notice_ids=None):
     db.flush()
     db.add(Update(milestone_id=item.id, feedback_id=fb.id, values=body.model_dump(mode="json", exclude={"expected_revision"}), created_at=now()))
     db.flush()
-    log_op(db, p.id, "market.key_task.feedback", "biz_project_milestone", item.id, after={"feedback_id": fb.id, "status": body.status})
+    log_op(db, p.id, "market.key_task.feedback" if row.is_key else "project.task.feedback", "biz_project_milestone", item.id,
+           after={"feedback_id": fb.id, "status": body.status})
     return task_data(db, p, row, item, history=True)
 
 
@@ -499,16 +522,25 @@ def financials(db, row, period=""):
             "note": "按本项目关联合同读取已确认开票和实际到账；金额以财务台账为准。"}
 
 
-def detail(db, p, code, period=""):
-    row = project(db, p, code)
-    paused = db.get(BizProjectFollowSetting, row.id)
-    standard = standard_access(db, p, row)
+def task_workspace(db, p, row, *, standard=None):
+    if standard is None:
+        standard = standard_access(db, p, row)
     manageable = can_manage(db, p, row, standard=standard)
     tasks = [task_data(db, p, row, m, manageable=manageable) for m in row.milestones]
+    return {"project_code": row.project_code, "name": row.name, "owner_id": row.owner_id, "is_key": row.is_key,
+            "status": row.status, "start_date": row.start_date, "plan_end_date": row.plan_end_date,
+            "today": today(), "paused": is_paused(db, row), "can_manage": manageable,
+            "can_delete_tasks": manageable or (standard and p.has_delete_grant),
+            "tasks": tasks, "done_nodes": sum(item["status"] == 3 for item in tasks)}
+
+
+def detail(db, p, code, period=""):
+    row = project(db, p, code)
+    standard = standard_access(db, p, row)
     fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id).order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50))
-    return {**brief(db, row, standard), "content": row.remark or "", "revision": project_revision(row), "today": today(),
-            "paused": bool(paused and paused.paused), "can_manage": manageable, "can_delete": standard and can_delete(p),
-            "can_pause": standard and can_pause(p), "tasks": tasks, "team": team(db, row),
+    return {**brief(db, row, standard), **task_workspace(db, p, row, standard=standard),
+            "content": row.remark or "", "revision": project_revision(row), "can_delete": standard and can_delete(p),
+            "can_pause": standard and can_pause(p), "team": team(db, row),
             "feedbacks": [ps.feedback_dict(f) for f in fbs], "money": ps.contract_detail(db, row.project_code) if standard else None,
             "financials": financials(db, row, period) if standard else None}
 
@@ -545,11 +577,12 @@ def _notice_task(db, notice):
     if not item or not u or u.is_deleted or u.status != 1:
         return None
     row = db.get(BizProject, item.project_id)
-    if not row or row.is_deleted or not row.is_key or row.status == 5 or item.status == 3:
+    if not row or row.is_deleted or row.status == 5 or item.status == 3:
         return None
-    paused = db.get(BizProjectFollowSetting, row.id)
+    if row.is_key != (notice.ref_type != GENERAL_REF):
+        return None
     p = build_principal(u)
-    if (paused and paused.paused) or not (standard_access(db, p, row) or is_member(db, p, row)):
+    if is_paused(db, row) or not (standard_access(db, p, row) or is_member(db, p, row)):
         return None
     return row, item, p
 
@@ -588,8 +621,9 @@ def scan_feedback_deadlines(db, at):
         Update.created_at >= Plan.feedback_requested_at).exists()
     tasks = db.execute(select(Plan, BizProjectMilestone, BizProject).join(BizProjectMilestone, Plan.milestone_id == BizProjectMilestone.id)
         .join(BizProject, BizProject.id == BizProjectMilestone.project_id).outerjoin(BizProjectFollowSetting, BizProjectFollowSetting.project_id == BizProject.id)
-        .where(BizProject.is_key.is_(True), BizProject.is_deleted.is_(False), BizProject.status != 5,
-            BizProjectFollowSetting.paused.is_not(True), BizProjectMilestone.status != 3, BizProjectMilestone.owner_id.is_not(None),
+        .where(BizProject.is_deleted.is_(False), BizProject.status != 5,
+            or_(BizProject.is_key.is_(False), BizProjectFollowSetting.paused.is_not(True)),
+            BizProjectMilestone.status != 3, BizProjectMilestone.owner_id.is_not(None),
             Plan.feedback_due_at < at, Plan.feedback_requested_at.is_not(None), ~has_feedback))
     notices = []
     for plan, item, row in tasks:
@@ -599,9 +633,10 @@ def scan_feedback_deadlines(db, at):
         principal = build_principal(owner)
         if not ((standard_access(db, principal, row) or is_member(db, principal, row)) and can_feedback_task(db, principal, row, item)):
             continue
-        notices.extend(task_feedback_deadlines.queue_overdue(db, owner, kind=task_feedback_deadlines.KEY_OVERDUE, ref_type=REF,
-            task_id=item.id, row=plan, title="重点项目任务逾期未反馈", task_title=f"{row.name} · {item.node_name}",
-            link=f"/market/projects/{row.project_code}?task={item.id}"))
+        kind = task_feedback_deadlines.KEY_OVERDUE if row.is_key else task_feedback_deadlines.PROJECT_OVERDUE
+        notices.extend(task_feedback_deadlines.queue_overdue(db, owner, kind=kind, ref_type=REF if row.is_key else GENERAL_REF,
+            task_id=item.id, row=plan, title="重点项目任务逾期未反馈" if row.is_key else "一般项目任务逾期未反馈",
+            task_title=f"{row.name} · {item.node_name}", link=task_link(row, item.id)))
     return notices
 
 
@@ -609,18 +644,23 @@ def scan_reminders(db):
     start, end = day_bounds(today())
     sent = 0
     for item, row in db.execute(select(BizProjectMilestone, BizProject).join(BizProject, BizProjectMilestone.project_id == BizProject.id)
-            .where(BizProject.is_key.is_(True), BizProject.is_deleted.is_(False), BizProject.status != 5, BizProjectMilestone.status != 3)):
+            .outerjoin(Plan, Plan.milestone_id == BizProjectMilestone.id)
+            .where(or_(BizProject.is_key.is_(True), Plan.milestone_id.is_not(None)), BizProject.is_deleted.is_(False),
+                BizProject.status != 5, BizProjectMilestone.status != 3)):
+        kind = NOTICE if row.is_key else GENERAL_NOTICE
+        ref_type = REF if row.is_key else GENERAL_REF
+        label = "重点项目" if row.is_key else "一般项目"
         for uid in {u for u in (item.owner_id, row.owner_id) if u}:
-            probe = SysNotify(user_id=uid, ref_id=str(item.id))
+            probe = SysNotify(user_id=uid, ref_type=ref_type, ref_id=str(item.id))
             if not eligible_notice(db, probe) or db.scalar(select(SysNotify.id).where(SysNotify.user_id == uid,
-                SysNotify.msg_type == NOTICE, SysNotify.ref_id == str(item.id), SysNotify.created_at >= start, SysNotify.created_at < end).limit(1)):
+                SysNotify.msg_type == kind, SysNotify.ref_id == str(item.id), SysNotify.created_at >= start, SysNotify.created_at < end).limit(1)):
                 continue
             u = db.get(SysUser, uid)
             p = build_principal(u)
             reasons = reminder_reasons(task_data(db, p, row, item))
-            link = f"/market/projects/{row.project_code}?task={item.id}"
-            notices = notify_service.send(db, [u], NOTICE, "重点项目节点待处理", f"{row.name} / {item.node_name}：" + "；".join(reasons),
-                link=link, ref_type=REF, ref_id=str(item.id), defer=True, wecom_content="重点项目有节点待处理，请打开工作台查看并填写进展。")
+            notices = notify_service.send(db, [u], kind, f"{label}节点待处理", f"{row.name} / {item.node_name}：" + "；".join(reasons),
+                link=task_link(row, item.id), ref_type=ref_type, ref_id=str(item.id), defer=True,
+                wecom_content=f"{label}有节点待处理，请打开工作台查看并填写进展。")
             for notice in notices:
                 notice.created_at = now()
             sent += 1

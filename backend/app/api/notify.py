@@ -18,14 +18,16 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
     from app.services.operations_notifications import project_assignment_access
     from app.services.operations_policy import task_access
     from app.services import operations_scope as scope, operations_reports as reports
-    from app.services import key_projects
+    from app.services import key_projects, project_service
     from app.models import BizProject, BizProjectMilestone
 
     task_notice = ("ops_task", "ops_task_reminder")
     accessible_keys = key_projects.visible_projects(p).where(BizProject.is_key.is_(True)).with_only_columns(BizProject.id)
-    visible_key_task = exists(select(BizProjectMilestone.id).join(BizProject, BizProject.id == BizProjectMilestone.project_id).where(
+    accessible_general = project_service.visible_query(p).where(BizProject.is_key.is_(False)).with_only_columns(BizProject.id)
+    visible_project_task = exists(select(BizProjectMilestone.id).where(
         cast(BizProjectMilestone.id, String) == func.split_part(SysNotify.ref_id, ":", 1),
-        BizProject.id.in_(accessible_keys)))
+        or_((SysNotify.ref_type == key_projects.REF) & BizProjectMilestone.project_id.in_(accessible_keys),
+            (SysNotify.ref_type == key_projects.GENERAL_REF) & BizProjectMilestone.project_id.in_(accessible_general) & p.has_menu("projects"))))
     visible_team_notice = exists(select(BizProject.id).where(cast(BizProject.id, String) == SysNotify.ref_id,
         BizProject.is_deleted.is_(False), key_projects.membership_scope(p)))
     visible_project = exists(select(OpsProject.id).where(
@@ -47,8 +49,8 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
         BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
     q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
         or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_(("ops_project", *task_notice, *discussion_types,
-            "ops_digest", "collection_entry", key_projects.REF, key_projects.TEAM_REF)),
-            (SysNotify.ref_type == key_projects.REF) & visible_key_task,
+            "ops_digest", "collection_entry", key_projects.REF, key_projects.GENERAL_REF, key_projects.TEAM_REF)),
+            visible_project_task,
             (SysNotify.ref_type == key_projects.TEAM_REF) & visible_team_notice,
             (SysNotify.ref_type == "ops_project") & visible_project,
             SysNotify.ref_type.in_(task_notice) & visible_task,

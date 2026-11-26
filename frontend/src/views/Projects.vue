@@ -159,7 +159,7 @@ const listStatuses = computed(() => Object.fromEntries(Object.entries(PROJECT_ST
   projectMode.value === 'pipeline' ? [1, 2].includes(Number(k)) : projectMode.value === 'history' ? Number(k) === 5 : projectMode.value !== 'general' || Number(k) !== 5)))
 const descriptions = {
   pipeline: '查看招标中和在建项目。可由已有商机转入，也可直接登记项目。',
-  general: '集中看日常推进的非重点项目，可进入项目查看原有节点与反馈。',
+  general: '查看一般项目，打开项目可安排任务、更新进展并查看流程节点。',
   history: '查看已经结项的项目，保留历史流程、合同和费用记录。',
   all: '查看项目及其生命周期节点、责任人与进度。',
 }
@@ -191,7 +191,10 @@ async function load() {
 }
 watch(view, (v) => localStorage.setItem('jc_projects_view', v))
 watch(projectMode, () => { q.status = null; q.is_key = false; load() })
-const go = (p) => router.push({ name: 'project-detail', params: { code: p.project_code }, query: { back: route.fullPath } })
+const go = (p) => router.push({
+  name: projectMode.value === 'general' && !p.is_key ? 'general-project-detail' : 'project-detail',
+  params: { code: p.project_code }, query: { back: route.fullPath },
+})
 
 const exportWeekly = () => api.download('/projects/weekly/export')
 
@@ -222,7 +225,7 @@ async function create() {
     const r = await api.post('/projects', form)
     ElMessage.success(`已创建 ${r.project_code}`)
     dlg.value = false
-    go(r)
+    go({ ...r, is_key: form.is_key })
   } finally {
     saving.value = false
   }

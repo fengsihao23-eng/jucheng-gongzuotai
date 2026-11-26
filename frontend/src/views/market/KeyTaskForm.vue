@@ -1,7 +1,7 @@
 <template>
   <el-dialog v-model="visible" :title="initial ? '调整任务安排' : '安排任务'" width="min(700px, 94vw)" class="key-task-form" append-to-body destroy-on-close>
     <el-form ref="formRef" :model="form" label-position="top" scroll-to-error>
-      <KeyTaskFields :plan="form" :users="users" :completed="completed" />
+      <KeyTaskFields :plan="form" :users="users" :completed="completed" :general="!project.is_key" />
       <p class="jc-small jc-muted">任务安排后通知负责人。超过反馈截止时间仍未提交进展时，企业微信提醒负责人填写。</p>
     </el-form>
     <template #footer>
@@ -19,7 +19,7 @@ import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import KeyTaskFields from './KeyTaskFields.vue'
 import { taskDateError, taskPlan } from './keyTaskPlan'
 
-const props = defineProps({ modelValue: Boolean, project: Object, initial: Object })
+const props = defineProps({ modelValue: Boolean, project: Object, initial: Object, tasksPath: String })
 const emit = defineEmits(['update:modelValue', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const form = reactive({ nodes: [] }), formRef = ref(), saving = ref(false), users = ref([])
@@ -28,7 +28,12 @@ const completed = computed(() => new Set((props.initial?.nodes || []).filter(nod
 watch(visible, async open => {
   if (!open) return
   Object.assign(form, taskPlan(props.project, props.initial))
-  try { users.value = (await api.get('/market/key-options', { project_code: props.project.project_code })).users }
+  try {
+    const result = props.project.is_key
+      ? await api.get('/market/key-options', { project_code: props.project.project_code })
+      : await api.get(`${props.tasksPath}/options`)
+    users.value = result.users
+  }
   catch { /* 请求错误由接口提示统一显示。 */ }
 })
 
@@ -39,10 +44,9 @@ async function save() {
     if (!await formRef.value.validate().catch(() => false)) return
     const error = taskDateError(form, props.project)
     if (error) return ElMessage.warning(error)
-    const path = `/market/projects/${props.project.project_code}/tasks`
     const result = props.initial
-      ? await api.put(`${path}/${props.initial.id}`, { ...form, expected_revision: props.initial.revision })
-      : await api.post(path, form)
+      ? await api.put(`${props.tasksPath}/${props.initial.id}`, { ...form, expected_revision: props.initial.revision })
+      : await api.post(props.tasksPath, form)
     visible.value = false
     ElMessage.success('任务安排已保存')
     announceBusinessChange()

@@ -9,6 +9,7 @@ from app.services import notify_service
 
 OPS_OVERDUE = "operations_feedback_overdue"
 KEY_OVERDUE = "key_task_feedback_overdue"
+PROJECT_OVERDUE = "project_task_feedback_overdue"
 
 
 def set_deadline(row, due_at, *, reassigned=False):

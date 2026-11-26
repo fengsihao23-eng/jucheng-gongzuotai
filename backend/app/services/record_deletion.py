@@ -207,15 +207,15 @@ def _delete_project(db, p, ident, ip):
            before={"name": row.name}, after={"is_deleted": True}, ip=ip)
 
 
-def _delete_key_task(db, p, ident, ip):
+def _delete_project_task(db, p, ident, ip):
     records.menu(p, "market", "projects")
     item = db.get(m.BizProjectMilestone, records.number(ident))
     if not item:
-        raise not_found("重点项目任务")
-    project = key_projects.project(db, p, item.project_id, lock=True)
+        raise not_found("项目任务")
+    project = key_projects.project(db, p, item.project_id, lock=True, is_key=None)
     if not (key_projects.can_manage(db, p, project) or (p.has_delete_grant and key_projects.standard_access(db, p, project))):
         raise forbidden("无权删除该项目的任务")
-    row = _row(db, m.BizProjectMilestone, m.BizProjectMilestone.id == item.id, "重点项目任务")
+    row = _row(db, m.BizProjectMilestone, m.BizProjectMilestone.id == item.id, "项目任务")
     _mark(db, p, row, row.node_name, ip)
 
 
@@ -368,7 +368,7 @@ def delete(db, p, kind, reference, ip=None):
     elif kind in {"project", "key-project"}:
         _delete_project(db, p, ident, ip)
     elif kind == "key-task":
-        _delete_key_task(db, p, ident, ip)
+        _delete_project_task(db, p, ident, ip)
     elif kind == "contract":
         _delete_contract(db, p, ident, ip)
     elif kind == "opportunity":

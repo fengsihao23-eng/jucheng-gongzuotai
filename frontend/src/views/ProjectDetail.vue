@@ -14,6 +14,7 @@
           </div>
         </template>
         <el-button @click="returnToList(router, backTarget)">返回列表</el-button>
+        <el-button v-if="taskProject?.can_manage && taskProject.status !== 5" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
         <el-button @click="exportWeekly">导出周进度</el-button>
         <el-button v-if="d.can_key" @click="toggleKey">{{ d.is_key ? '取消重点' : '标记重点' }}</el-button>
         <el-dropdown v-if="d.can_edit" trigger="click" @command="setStatus">
@@ -27,6 +28,23 @@
         <RecordFeedbackButton :target="{ kind: 'project', id: d.project_code }" :heading="d.name"
           progress-hint="说明项目目前推进到哪一步、需要协调什么。" />
       </PageHeader>
+
+      <template v-if="showTasks && taskProject">
+        <div class="jc-grid c2 mt-16 task-kpis">
+          <Kpi label="项目任务" :value="taskProject.tasks.length" :hint="`已完成 ${taskProject.done_nodes} 项`" />
+          <Kpi label="需要关注" :value="taskProject.tasks.filter(task => task.alert && task.status !== 3).length" hint="逾期、问题或待填写进展" />
+        </div>
+        <Panel class="mt-16 mb-16">
+          <el-tabs model-value="tasks">
+            <el-tab-pane label="任务情况" name="tasks">
+              <KeyTaskBoard ref="taskBoard" v-model:task-id="taskId" :project="taskProject" @refresh="load" />
+            </el-tab-pane>
+          </el-tabs>
+        </Panel>
+      </template>
+      <el-alert v-else-if="showTasks && taskError" class="mt-16 mb-16" type="warning" title="任务情况加载失败" :closable="false">
+        <el-button link type="primary" @click="loadTasks()">重试</el-button>
+      </el-alert>
 
       <div class="jc-grid c5 mb-16">
         <Kpi label="合同额" :value="wanNum(d.money.contract_total)" unit="万" :hint="`${d.money.contract_count} 份合同`" />
@@ -56,12 +74,17 @@
                     <StatusPill v-if="m.late_finished" text="延期完成" tone="down" />
                     <span v-if="m.days_left != null && m.days_left >= 0 && m.days_left <= 3" class="jc-warn jc-small">{{ m.days_left }} 天后到期</span>
                   </div>
-                  <div v-if="d.can_edit" class="ops">
-                    <el-button link size="small" :disabled="i === 0" @click="move(m, 'up')">上移</el-button>
-                    <el-button link size="small" :disabled="i === d.milestones.length - 1" @click="move(m, 'down')">下移</el-button>
-                    <el-button link size="small" @click="openNode(m)">编辑</el-button>
-                    <el-button v-if="m.status !== 3" link size="small" type="primary" @click="complete(m)">完成</el-button>
-                    <el-button link size="small" type="danger" @click="remove(m)">删除</el-button>
+                  <div v-if="d.can_edit || plannedTasks.has(m.id)" class="ops">
+                    <template v-if="d.can_edit">
+                      <el-button link size="small" :disabled="i === 0" @click="move(m, 'up')">上移</el-button>
+                      <el-button link size="small" :disabled="i === d.milestones.length - 1" @click="move(m, 'down')">下移</el-button>
+                    </template>
+                    <el-button v-if="plannedTasks.has(m.id)" link size="small" type="primary" @click="taskId = m.id">任务详情</el-button>
+                    <template v-else-if="d.can_edit">
+                      <el-button link size="small" @click="openNode(m)">编辑</el-button>
+                      <el-button v-if="m.status !== 3" link size="small" type="primary" @click="complete(m)">完成</el-button>
+                      <el-button link size="small" type="danger" @click="remove(m)">删除</el-button>
+                    </template>
                   </div>
                 </div>
                 <div class="meta jc-small">
@@ -135,6 +158,7 @@
         </el-table>
       </Panel>
     </template>
+    <el-empty v-else-if="!loading" description="无法打开项目，请检查权限或重试"><el-button @click="load">重试</el-button></el-empty>
 
     <el-drawer v-model="nodeDlg" :title="nodeForm.id ? '编辑节点' : '新增节点'" size="440px">
       <el-form :model="nodeForm" label-position="top">
@@ -173,17 +197,29 @@ import dayjs from 'dayjs'
 import api from '@/api/client'
 import ProjectReportSources from '@/components/ProjectReportSources.vue'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useAuth } from '@/store/auth'
 import { detailBackTarget, returnToList } from '@/utils/detail-navigation'
 import { BUSINESS_LINES, MILESTONE_STATUS, PROJECT_STATUS, date, datetime, percent, wan, wanNum } from '@/utils/format'
+import KeyTaskBoard from './market/KeyTaskBoard.vue'
 
 const route = useRoute(), router = useRouter()
 const auth = useAuth()
 const code = route.params.code
 const d = ref(null)
-const backTarget = computed(() => detailBackTarget(route.query.back, '/projects', ['/projects', '/general-projects', '/history-projects']))
+const generalEntry = computed(() => route.name === 'general-project-detail')
+const backTarget = computed(() => detailBackTarget(route.query.back, generalEntry.value ? '/general-projects' : '/projects',
+  ['/projects', '/general-projects', '/history-projects']))
 const loading = ref(false)
 const users = ref([])
+const taskProject = ref(null), taskBoard = ref(null), taskError = ref(false)
+const taskId = computed({
+  get: () => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined,
+  set: id => router.replace({ query: { ...route.query, task: id } }),
+})
+const plannedTasks = computed(() => new Set(taskProject.value?.tasks.filter(task => task.has_plan).map(task => task.id)))
+const showTasks = computed(() => d.value && !d.value.is_key &&
+  (d.value.status !== 5 || generalEntry.value || taskId.value || plannedTasks.value.size))
 const KIND = { progress: '进展', event: '重点事件', risk: '风险' }
 const SRC = { web: '工作台', mcp: 'WorkBuddy', system: '系统' }
 const ACT = { create: '新增', update: '修改', delete: '删除', reorder: '排序', complete: '完成' }
@@ -198,14 +234,42 @@ const fmt = (f, v) => {
 }
 const tone = (m) => (m.is_delayed ? 'down' : m.status === 3 ? 'up' : m.status === 2 ? 'brand' : '')
 
+let taskRequest = 0
+async function loadTasks(quiet = false) {
+  const request = ++taskRequest
+  if (!d.value || d.value.is_key) {
+    taskProject.value = null
+    return
+  }
+  try {
+    const result = await api.get(`/projects/${code}/tasks`, null, { silent: quiet })
+    if (request === taskRequest) {
+      taskProject.value = result
+      taskError.value = false
+    }
+  } catch (error) {
+    if (request === taskRequest && (!quiet || [40301, 40401].includes(error.code))) {
+      taskProject.value = null
+      taskError.value = true
+    }
+  }
+}
+
 async function load() {
   loading.value = true
   try {
     d.value = await api.get(`/projects/${code}`)
+    await loadTasks()
+  } catch (error) {
+    if (!d.value || [40301, 40401].includes(error.code)) {
+      d.value = null
+      await loadTasks()
+    }
   } finally {
     loading.value = false
   }
 }
+useBusinessRefresh(() => loadTasks(true), { interval: 12000, enabled: () => !!showTasks.value })
 
 // 节点编辑
 const nodeDlg = ref(false)
@@ -247,7 +311,7 @@ async function move(m, direction) {
   d.value.milestones = await api.post(`/projects/${code}/milestones/${m.id}/move`, { direction })
   load()
 }
-const nodeRemoval = row => (d.value?.can_edit || auth.hasDeleteGrant) && {
+const nodeRemoval = row => !plannedTasks.value.has(row.id) && (d.value?.can_edit || auth.hasDeleteGrant) && {
   endpoint: `/projects/${code}/milestones/${row.id}`, name: row.node_name, title: '删除节点', onDeleted: load,
 }
 const remove = row => deleteRecord(nodeRemoval(row))
@@ -292,6 +356,7 @@ onMounted(() => {
 <style scoped>
 .layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .jc-grid.task-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .steps { list-style: none; margin: 0; padding: 0; }
 .steps li { position: relative; display: flex; gap: 14px; padding: 0 0 18px; }
 .steps li::before { content: ''; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--jc-line); }
