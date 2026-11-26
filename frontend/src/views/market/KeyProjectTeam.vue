@@ -1,8 +1,8 @@
 <template>
-  <section aria-label="重点项目团队">
+  <section :aria-label="project.is_key ? '重点项目团队' : '一般项目团队'">
     <p v-if="project.can_manage" class="jc-small jc-muted team-hint">团队成员可查看项目任务和跟进记录，并收到企业微信项目通知。</p>
     <div v-if="project.can_manage" class="team-tools">
-      <el-select v-model="selected" :loading="loading" :disabled="saving" aria-label="选择重点项目成员"
+      <el-select v-model="selected" :loading="loading" :disabled="saving" :aria-label="project.is_key ? '选择重点项目成员' : '选择一般项目成员'"
         placeholder="选择团队成员" filterable multiple collapse-tags collapse-tags-tooltip class="team-select"
         @visible-change="open => { if (open && !loaded) loadOptions() }">
         <el-option v-for="person in available" :key="person.id" :value="person.id"
@@ -39,13 +39,15 @@ const props = defineProps({ project: { type: Object, required: true } })
 const emit = defineEmits(['saved'])
 const people = ref([]), selected = ref([]), saving = ref(false), loading = ref(false), loaded = ref(false)
 const endpoint = computed(() => `/market/projects/${encodeURIComponent(props.project.project_code)}/team`)
+const scope = computed(() => props.project.is_key ? undefined : 'general')
 const available = computed(() => people.value.filter(person => !props.project.team.some(member => member.id === person.id)))
 
 async function loadOptions() {
   if (loading.value) return
   loading.value = true
   try {
-    people.value = (await api.get('/market/key-options', { project_code: props.project.project_code, include_team: true })).team_users || []
+    people.value = (await api.get('/market/key-options', { project_code: props.project.project_code,
+      scope: scope.value, include_team: true })).team_users || []
     loaded.value = true
   } catch { /* 统一显示 API 错误，重新打开可重试。 */ }
   finally { loading.value = false }
@@ -60,7 +62,7 @@ async function add() {
   if (!selected.value.length || saving.value) return
   saving.value = true
   try {
-    const result = await api.post(endpoint.value, { user_ids: selected.value })
+    const result = await api.post(endpoint.value, { user_ids: selected.value }, { params: { scope: scope.value } })
     selected.value = []
     refresh()
     ElMessage.success(result.added ? `已加入 ${result.added} 位团队成员` : '所选员工已在团队中')
@@ -69,7 +71,7 @@ async function add() {
 }
 
 function remove(member) {
-  deleteRecord({ endpoint: `${endpoint.value}/${member.id}`, title: '移除团队成员', name: member.name,
+  deleteRecord({ endpoint: `${endpoint.value}/${member.id}`, query: { scope: scope.value }, title: '移除团队成员', name: member.name,
     description: `将「${member.name}」移出项目团队后，该成员的团队访问权限和消息订阅会取消。`,
     confirmLabel: '确认移除', onDeleted: refresh })
 }

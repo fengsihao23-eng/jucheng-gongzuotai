@@ -89,7 +89,7 @@ import RecordRouteOutlet from '@/components/records/RecordRouteOutlet.vue'
 const route = useRoute()
 const router = useRouter()
 const projectLayout = computed(() => route.path.startsWith('/market') ||
-  ['general-project-detail', 'project-detail', 'receivables'].includes(route.name))
+  ['general-projects', 'general-project-detail', 'project-detail', 'receivables'].includes(route.name))
 const auth = useAuth()
 const assistant = useAssistant()
 const profile = computed(() => auth.profile)
@@ -101,7 +101,8 @@ const today = dayjs().format('YYYY年M月D日') + ' 星期' + W[dayjs().day()]
 
 const groups = computed(() =>
   MENU_GROUPS.map(group => ({ ...group, items: group.items.filter(item => canSeeMenu(item,
-    key => key === 'market' ? auth.canAccessKeyProjects : auth.hasMenu(key), profile.value?.is_admin)) }))
+    key => item.path === '/general-projects' ? auth.canAccessGeneralProjects :
+      key === 'market' ? auth.canAccessKeyProjects : auth.hasMenu(key), profile.value?.is_admin)) }))
     .filter(group => group.items.length),
 )
 const isActive = (m) => (m.path === '/' ? route.path === '/' : route.path === m.path || route.path.startsWith(m.path + '/'))

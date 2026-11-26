@@ -27,7 +27,8 @@ async function toggle() {
         type: 'warning',
       })
     }
-    await api.put(`/market/projects/${project_code}/pause`, { paused: !paused })
+    await api.put(`/market/projects/${project_code}/pause`, { paused: !paused },
+      { params: { scope: props.project.is_key ? undefined : 'general' } })
     ElMessage.success(paused ? '已恢复跟进' : '已暂停跟进')
     emit('changed')
     announceBusinessChange()

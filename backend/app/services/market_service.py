@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text as sql_text
 from sqlalchemy.orm import Session
 
 from app.core.response import bad_request, encode
@@ -44,16 +44,22 @@ def _llm(system: str, user: str) -> str | None:
 
 
 # ------------------------------------------------------------------ 跟进看板
-def key_board(db: Session, p=None, include_all: bool = False, include_paused: bool = False) -> dict:
+def key_board(db: Session, p=None, include_all: bool = False, include_paused: bool = False, *, is_key=True) -> dict:
     from app.services import key_projects
 
     paused = set(db.scalars(select(BizProjectFollowSetting.project_id).where(BizProjectFollowSetting.paused.is_(True))))
-    standard_scope = key_projects.standard_scope(p, overview=True)
-    q = key_projects.visible_projects(p, overview=True).add_columns(standard_scope.label("standard")).where(BizProject.status != 5)
+    standard_scope = key_projects.standard_scope(p, overview=True, is_key=is_key)
+    membership = key_projects.membership_scope(p, is_key=is_key)
+    if include_all and not is_key:
+        standard_scope = (BizProject.is_key.is_(False) & standard_scope) | (
+            BizProject.is_key.is_(True) & key_projects.standard_scope(p, overview=True))
+        membership = key_projects.membership_scope(p, is_key=None)
+    q = select(BizProject, standard_scope.label("standard")).where(
+        BizProject.is_deleted.is_(False), BizProject.status != 5, standard_scope | membership)
     if not include_paused:
         q = q.where(BizProject.id.not_in(paused))
     if not include_all:
-        q = q.where(BizProject.is_key.is_(True))
+        q = q.where(BizProject.is_key.is_(is_key))
     projects = db.execute(q.order_by(BizProject.project_code)).unique().all()
     T = today()
     money = ps.money_summary(db, [x.project_code for x, standard in projects if standard])
@@ -69,8 +75,8 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
     for x, standard in projects:
         b = key_projects.brief(db, x, standard, day=T, money=money.get(x.project_code))
         b["can_view_financials"] = standard
-        b["can_delete"] = bool(standard and p and x.is_key and key_projects.can_delete(p))
-        b["can_pause"] = standard and can_pause and x.is_key
+        b["can_delete"] = bool(standard and p and (not is_key or x.is_key) and key_projects.can_remove_project(p, x))
+        b["can_pause"] = standard and can_pause and (not is_key or x.is_key)
         f = latest.get(x.id)
         b["latest_feedback"] = ps.feedback_dict(f) if f else None
         b["paused"] = x.id in paused
@@ -86,7 +92,7 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
     cards.sort(key=lambda c: (not c["alert"], c["project_code"]))
     tot_c = sum((c.get("contract_total", ZERO) for c in cards), ZERO)
     tot_r = sum((c.get("received", ZERO) for c in cards), ZERO)
-    current = [x for x in cards if x["is_key"] and not x["paused"]]
+    current = [x for x in cards if x["is_key"] == is_key and not x["paused"]]
     summary_text = "\n".join(
         f"{x['name']}：{x['market_owner_name'] or x['owner_name'] or '未分配'}；"
         f"{'本周已反馈' if x['reported_this_week'] else '本周未反馈'}；"
@@ -136,12 +142,11 @@ def add_feedback(db: Session, proj: BizProject, data: dict, reporter_id: int | N
                            risk_level=int(data.get("risk_level") or (2 if kind == "risk" else 0)), reporter_id=reporter_id)
     db.add(f)
     db.flush()
-    if proj.is_key:
-        from app.services.key_projects import queue_team_notice
+    from app.services.key_projects import project_label, queue_team_notice
 
-        pending = queue_team_notice(db, proj, "重点项目有新进展", exclude=[reporter_id] if reporter_id else [], item=item)
-        if notice_ids is not None:
-            notice_ids.extend(pending)
+    pending = queue_team_notice(db, proj, f"{project_label(proj)}有新进展", exclude=[reporter_id] if reporter_id else [], item=item)
+    if notice_ids is not None:
+        notice_ids.extend(pending)
     return f
 
 
@@ -158,10 +163,16 @@ def period_bounds(period_type: str, period: str | None) -> tuple[str, date, date
     return period, s, e
 
 
-def _report_data(db: Session, period_type: str, period: str | None, user_scope=None) -> dict:
+GENERAL_REPORT_TYPES = ("general_weekly", "general_monthly")
+
+
+def _report_data(db: Session, period_type: str, period: str | None, user_scope=None, *, is_key=True) -> dict:
     period, s, e = period_bounds(period_type, period)
     T = today()
-    q = ps.visible_query(user_scope).where(BizProject.is_key.is_(True))
+    q = ps.visible_query(user_scope).where(BizProject.is_key.is_(is_key))
+    if not is_key:
+        paused = select(BizProjectFollowSetting.project_id).where(BizProjectFollowSetting.paused.is_(True))
+        q = q.where(BizProject.status != 5, BizProject.id.not_in(paused))
     projects = db.scalars(q.order_by(BizProject.project_code)).unique().all()
     money = ps.money_summary(db, [x.project_code for x in projects])
     nxt_s, nxt_e = (e + timedelta(days=1), e + timedelta(days=7)) if period_type == "weekly" else \
@@ -215,18 +226,20 @@ def _report_data(db: Session, period_type: str, period: str | None, user_scope=N
         "received": sum((i["received"] for i in items), ZERO)}
     tot["payment_rate"] = (tot["received"] / tot["contract_total"]).quantize(Decimal("0.0001")) \
         if tot["contract_total"] else None
-    return {"period_type": period_type, "period": period, "start": s, "end": e, "generated_on": T,
+    return {"period_type": period_type, "period": period, "start": s, "end": e, "generated_on": T, "is_key": is_key,
             "totals": tot, "projects": items}
 
 
 def report_text(data: dict) -> str:
     """汇总稿文本（markdown，供 MCP「汇总本周重点项目周报」及前端预览）。"""
     name = "周报" if data["period_type"] == "weekly" else "月报"
+    is_key = data.get("is_key", True)
+    label = "重点项目" if is_key else "一般项目"
     t = data["totals"]
-    out = [f"# 市场部重点项目{name}（{data['period']}：{data['start']} ~ {data['end']}）", "",
-           f"本期跟进重点项目 {t['projects']} 个，其中异常 {t['alert_projects']} 个；完成节点 {t['done_nodes']} 个，"
+    out = [f"# {'市场部' if is_key else ''}{label}{name}（{data['period']}：{data['start']} ~ {data['end']}）", "",
+           f"本期跟进{label} {t['projects']} 个，其中异常 {t['alert_projects']} 个；完成节点 {t['done_nodes']} 个，"
            f"延期节点 {t['delayed_nodes']} 个；本期新签合同 {_wan(t['period_signed'])}，本期回款 {_wan(t['period_received'])}；"
-           f"重点项目累计合同 {_wan(t['contract_total'])}，累计回款 {_wan(t['received'])}，回款率 {_pct(t['payment_rate'])}。"]
+           f"{label}累计合同 {_wan(t['contract_total'])}，累计回款 {_wan(t['received'])}，回款率 {_pct(t['payment_rate'])}。"]
     for i, x in enumerate(data["projects"], start=1):
         flag = "【异常】" if x["alert"] else ""
         out += ["", f"## {i}. {flag}{x['name']}（{x['project_code']}）",
@@ -255,15 +268,17 @@ def _docx_report(data: dict) -> bytes:
     st = doc.styles["Normal"]
     st.font.name, st.font.size = "Microsoft YaHei", Pt(10.5)
     name = "周报" if data["period_type"] == "weekly" else "月报"
-    doc.add_heading(f"市场部重点项目{name}（初稿）", 0)
+    is_key = data.get("is_key", True)
+    label = "重点项目" if is_key else "一般项目"
+    doc.add_heading(f"{'市场部' if is_key else ''}{label}{name}（初稿）", 0)
     doc.add_paragraph(f"统计周期：{data['period']}（{data['start']} ~ {data['end']}）  生成日期：{data['generated_on']}  "
                       "数据来源：项目流程节点 / 进展反馈 / 合同台账 / 回款记录")
     t = data["totals"]
     doc.add_heading("一、总体概况", 1)
     doc.add_paragraph(
-        f"本期跟进重点项目 {t['projects']} 个，异常 {t['alert_projects']} 个；完成节点 {t['done_nodes']} 个，延期节点 "
+        f"本期跟进{label} {t['projects']} 个，异常 {t['alert_projects']} 个；完成节点 {t['done_nodes']} 个，延期节点 "
         f"{t['delayed_nodes']} 个。本期新签合同 {_wan(t['period_signed'])}，本期回款 {_wan(t['period_received'])}；"
-        f"重点项目累计合同 {_wan(t['contract_total'])}，累计回款 {_wan(t['received'])}，回款率 {_pct(t['payment_rate'])}。")
+        f"{label}累计合同 {_wan(t['contract_total'])}，累计回款 {_wan(t['received'])}，回款率 {_pct(t['payment_rate'])}。")
     tbl = doc.add_table(rows=1, cols=7)
     tbl.style = "Light Grid Accent 1"
     for c, h in zip(tbl.rows[0].cells, ["项目", "当前节点", "进度", "延期", "本期回款", "累计回款", "回款率"]):
@@ -277,7 +292,7 @@ def _docx_report(data: dict) -> bytes:
         if x["delayed"]:
             for run in r[3].paragraphs[0].runs:
                 run.font.color.rgb = red
-    doc.add_heading("二、重点项目进展", 1)
+    doc.add_heading(f"二、{label}进展", 1)
     for i, x in enumerate(data["projects"], start=1):
         h = doc.add_heading(f"{i}. {x['name']}（{x['project_code']}）", 2)
         if x["alert"]:
@@ -312,10 +327,10 @@ def _docx_report(data: dict) -> bytes:
         doc.add_paragraph("下期计划：" + ("、".join(f"{d['node_name']}（{d['plan_date']}）" for d in x["next"]) or "按计划推进"),
                           style="List Bullet")
     doc.add_heading("三、口径说明", 1)
-    for s in ["重点项目：项目台账中标记为重点（is_key）的项目。",
+    for s in ["重点项目：项目台账中标记为重点（is_key）的项目。" if is_key else "一般项目：项目台账中当前跟进的一般项目。",
               "本期完成：完成日落在统计周期内的节点；延期：未完成且计划日早于生成日，或状态为延期的节点。",
               "本期回款：回款日（银行流水到账日）落在统计周期内的回款；累计回款率 = 累计回款 / 累计合同额（不含已终止合同）。",
-              "本稿为系统自动生成初稿，请市场部润色后发布。"]:
+              "本稿为系统自动生成初稿，请市场部润色后发布。" if is_key else "本稿为系统自动生成初稿，请核对后发布。"]:
         doc.add_paragraph(s, style="List Bullet")
     buf = io.BytesIO()
     doc.save(buf)
@@ -329,21 +344,24 @@ def _next_version(db: Session, rtype: str, period: str) -> int:
 
 
 def build_market_report(db: Session, period_type: str = "weekly", period: str | None = None, user_scope=None,
-                        trigger: str = "manual", created_by: int | None = None, save: bool = True) -> dict:
+                        trigger: str = "manual", created_by: int | None = None, save: bool = True, *, is_key=True) -> dict:
     """生成市场周报/月报：docx 初稿 + 结构化 JSON + 汇总稿文本；存 RptReport(report_type=market_weekly|market_monthly)。"""
     t0 = _time.perf_counter()
-    data = _report_data(db, period_type, period, user_scope)
+    data = _report_data(db, period_type, period, user_scope, is_key=is_key)
     text = report_text(data)
     out = {"data": data, "text": text, "report": None, "file": None}
     if not save:
         return out
-    rtype = f"market_{period_type}"
+    rtype = f"{'market' if is_key else 'general'}_{period_type}"
+    if not is_key and db.bind.dialect.name == "postgresql":
+        db.execute(sql_text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"report:{rtype}:{data['period']}"})
     ver = _next_version(db, rtype, data["period"])
     name = "周报" if period_type == "weekly" else "月报"
-    fname = f"市场部重点项目{name}_{data['period']}_v{ver}.docx"
-    f = save_bytes(db, data=_docx_report(data), filename=fname, category="report",
+    label = "市场部重点项目" if is_key else "一般项目"
+    fname = f"{label}{name}_{data['period']}_v{ver}.docx"
+    f = save_bytes(db, data=_docx_report(data), filename=fname, category="report" if is_key else "general_project_report",
                    key=f"report/{rtype}/{data['end']:%Y-%m}/{fname}", uploader_id=created_by)
-    r = RptReport(report_type=rtype, period=data["period"], title=f"市场部重点项目{name} {data['period']}", version=ver,
+    r = RptReport(report_type=rtype, period=data["period"], title=f"{label}{name} {data['period']}", version=ver,
                   metrics=encode({**data["totals"], "project_count": data["totals"]["projects"], "start": data["start"], "end": data["end"], "text": text,
                                   "projects": [{k: v for k, v in x.items() if k not in ("doing",)}
                                                for x in data["projects"]]}),
@@ -353,6 +371,18 @@ def build_market_report(db: Session, period_type: str = "weekly", period: str | 
     db.flush()
     out.update(report=r, file=f)
     return out
+
+
+def can_read_general_report(db, p, report):
+    if not p.has_menu("projects") or report.report_type not in GENERAL_REPORT_TYPES:
+        return False
+    if p.data_scope == "all":
+        return True
+    if report.created_by != p.id:
+        return False
+    codes = {item["project_code"] for item in (report.metrics or {}).get("projects", [])}
+    visible = db.scalars(ps.visible_query(p).with_only_columns(BizProject.project_code).where(BizProject.project_code.in_(codes)))
+    return codes.issubset(visible)
 
 
 def summarize_week_text(db: Session, user_scope=None, period: str | None = None) -> str:

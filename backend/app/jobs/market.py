@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 from app.core.storage import save_bytes
 from app.core.timeutil import last_week, prev_month, today, week_no
 from app.jobs.registry import job
-from app.models import BizMilestoneLog, BizProject, BizProjectMilestone, KeyProjectTaskPlan, RptReport, SysUser
+from app.models import BizMilestoneLog, BizProject, BizProjectFollowSetting, BizProjectMilestone, KeyProjectTaskPlan, RptReport, SysUser
 from app.services import market_service, notify_service
 from app.services import project_service as ps
 
@@ -41,8 +41,10 @@ def project_milestone_scan(db, params: dict) -> dict:
     rows = db.execute(select(BizProjectMilestone, BizProject)
                       .join(BizProject, BizProject.id == BizProjectMilestone.project_id)
                       .outerjoin(KeyProjectTaskPlan, KeyProjectTaskPlan.milestone_id == BizProjectMilestone.id)
+                      .outerjoin(BizProjectFollowSetting, BizProjectFollowSetting.project_id == BizProject.id)
                       .where(BizProject.is_deleted.is_(False), BizProject.status.in_([2, 3, 4]),
-                             or_(BizProject.is_key.is_(True), KeyProjectTaskPlan.milestone_id.is_(None)),
+                             or_(BizProject.is_key.is_(True), (KeyProjectTaskPlan.milestone_id.is_(None) &
+                                 BizProjectFollowSetting.paused.is_not(True))),
                              BizProjectMilestone.status.in_([1, 2, 4]),
                              BizProjectMilestone.plan_date.is_not(None))).all()
     users = {u.id: u for u in db.scalars(select(SysUser))}
@@ -147,6 +149,24 @@ def market_monthly_report(db, params: dict) -> dict:
     n = _push_report(db, res, f"市场部重点项目月报 {period}")
     db.commit()
     return {"rows": res["data"]["totals"]["projects"], "message": f"{period} 月报已生成，推送 {n} 人"}
+
+
+def _general_report(db, params, period_type, period):
+    result = market_service.build_market_report(db, period_type, period, trigger=params.get("trigger", "schedule"), is_key=False)
+    db.commit()
+    return {"rows": result["data"]["totals"]["projects"], "message": f"已生成 {result['report'].title}"}
+
+
+@job("general_weekly_report", "一般项目周报", {"day_of_week": "mon", "hour": 10, "minute": 30}, "每周一 10:30",
+     idempotency=lambda p: f"general_weekly_report:{p.get('period') or last_week()}")
+def general_weekly_report(db, params):
+    return _general_report(db, params, "weekly", params.get("period") or last_week())
+
+
+@job("general_monthly_report", "一般项目月报", {"day": 1, "hour": 11, "minute": 0}, "每月 1 日 11:00",
+     idempotency=lambda p: f"general_monthly_report:{p.get('period') or prev_month(f'{today():%Y-%m}')}")
+def general_monthly_report(db, params):
+    return _general_report(db, params, "monthly", params.get("period") or prev_month(f"{today():%Y-%m}"))
 
 
 __all__ = ["project_milestone_scan", "project_weekly_progress", "market_weekly_report", "market_monthly_report",

@@ -86,8 +86,10 @@ def profile(p: Principal, db: Session | None = None) -> dict:
     u = p.user
     menus = visible_menus(db, p) if db is not None else sorted(p.menus, key=list(MENUS).index)
     key_project_team = db is not None and p.workbench_enabled and has_team(db, p)
+    general_project_team = db is not None and p.workbench_enabled and has_team(db, p, is_key=False)
     permission_revision = hashlib.sha256(json.dumps({"configuration": view(u)["permission_revision"], "menus": menus,
-        "workbench_enabled": p.workbench_enabled, "sections": p.sections, "key_project_team": key_project_team},
+        "workbench_enabled": p.workbench_enabled, "sections": p.sections, "key_project_team": key_project_team,
+        "general_project_team": general_project_team},
         sort_keys=True).encode()).hexdigest()
     return {"id": u.id, "userid": u.wecom_userid, "name": u.name, "position": u.position,
             "dept_code": u.dept_code, "dept_name": u.department.name if u.department else None,
@@ -95,6 +97,7 @@ def profile(p: Principal, db: Session | None = None) -> dict:
             "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
             "portal": p.portal, "is_admin": p.is_admin, "is_system_manager": p.is_system_manager, "preferences": u.preferences or {},
             "workbench_enabled": p.workbench_enabled, "sections": p.sections, "key_project_team": key_project_team,
+            "general_project_team": general_project_team,
             "mcp_token_hint": u.access_token_hint, "permission_revision": permission_revision}
 
 

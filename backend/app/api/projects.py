@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deletion import DeletionIn, verify_deletion
-from app.core.deps import Principal, client_ip, require_menu
+from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.response import bad_request, conflict, forbidden, not_found, ok
 from app.core.storage import file_brief, save_bytes
 from app.models import PROJECT_STATUS, BizOpportunity, BizProject, BizProjectMilestone, SysUser
@@ -151,9 +151,9 @@ def detail(code: str, p: Principal = Menu, db: Session = Depends(get_db)):
 
 
 @router.get("/{code}/tasks")
-def project_tasks(code: str, p: Principal = Menu, db: Session = Depends(get_db)):
+def project_tasks(code: str, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     row = key_projects.project(db, p, code, is_key=False)
-    return ok(key_projects.task_workspace(db, p, row, standard=True))
+    return ok(key_projects.task_workspace(db, p, row))
 
 
 @router.get("/{code}/tasks/options")
@@ -163,7 +163,7 @@ def project_task_options(code: str, p: Principal = Menu, db: Session = Depends(g
 
 
 @router.get("/{code}/tasks/{task_id}")
-def project_task_detail(code: str, task_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
+def project_task_detail(code: str, task_id: int, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     row = key_projects.project(db, p, code, is_key=False)
     return ok(key_projects.task_data(db, p, row, key_projects.task(db, row, task_id), history=True))
 
@@ -192,7 +192,7 @@ def update_project_task(code: str, task_id: int, body: KeyTaskIn, background: Ba
 
 @router.post("/{code}/tasks/{task_id}/feedback")
 def project_task_feedback(code: str, task_id: int, body: KeyTaskFeedbackIn, background: BackgroundTasks,
-                          p: Principal = Menu, db: Session = Depends(get_db)):
+                          p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     notices = []
     result = key_projects.feedback(db, p, code, task_id, body, notice_ids=notices, is_key=False)
     return _commit_task(db, background, result, notices)

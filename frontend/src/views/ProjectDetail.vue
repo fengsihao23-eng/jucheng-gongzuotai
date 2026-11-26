@@ -14,7 +14,7 @@
           </div>
         </template>
         <el-button @click="returnToList(router, backTarget)">返回列表</el-button>
-        <el-button v-if="taskProject?.can_manage && taskProject.status !== 5" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
+        <el-button v-if="taskProject?.can_manage && !taskProject.paused && taskProject.status !== 5" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
         <el-button @click="exportWeekly">导出周进度</el-button>
         <el-button v-if="d.can_key" @click="toggleKey">{{ d.is_key ? '取消重点' : '标记重点' }}</el-button>
         <el-dropdown v-if="d.can_edit" trigger="click" @command="setStatus">
@@ -207,8 +207,7 @@ const route = useRoute(), router = useRouter()
 const auth = useAuth()
 const code = route.params.code
 const d = ref(null)
-const generalEntry = computed(() => route.name === 'general-project-detail')
-const backTarget = computed(() => detailBackTarget(route.query.back, generalEntry.value ? '/general-projects' : '/projects',
+const backTarget = computed(() => detailBackTarget(route.query.back, '/projects',
   ['/projects', '/general-projects', '/history-projects']))
 const loading = ref(false)
 const users = ref([])
@@ -219,7 +218,7 @@ const taskId = computed({
 })
 const plannedTasks = computed(() => new Set(taskProject.value?.tasks.filter(task => task.has_plan).map(task => task.id)))
 const showTasks = computed(() => d.value && !d.value.is_key &&
-  (d.value.status !== 5 || generalEntry.value || taskId.value || plannedTasks.value.size))
+  (d.value.status !== 5 || taskId.value || plannedTasks.value.size))
 const KIND = { progress: '进展', event: '重点事件', risk: '风险' }
 const SRC = { web: '工作台', mcp: 'WorkBuddy', system: '系统' }
 const ACT = { create: '新增', update: '修改', delete: '删除', reorder: '排序', complete: '完成' }

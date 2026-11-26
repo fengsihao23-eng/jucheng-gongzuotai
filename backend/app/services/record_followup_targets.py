@@ -65,6 +65,8 @@ TARGETS = {
                      (("统计期间", "period"), ("版本", "version"))),
     "market-report": Target("market", "市场报告详情", m.RptReport, "title", ("created_by",), ("report:generate",),
                             (("统计期间", "period"), ("版本", "version"))),
+    "general-report": Target("projects", "一般项目报告详情", m.RptReport, "title", ("created_by",), ("report:generate",),
+                             (("统计期间", "period"), ("版本", "version"))),
     "service-report": Target("service", "工单归因报告", m.RptReport, "title", ("created_by",), ("ticket:write",),
                              (("统计期间", "period"), ("版本", "version"))),
     "performance-report": Target("performance", "业绩快照详情", m.RptReport, "title", ("created_by",), ("report:generate",),
@@ -213,14 +215,16 @@ def resolve(db, p, kind, ref, *, lock=False):
             row = key_projects.project(db, p, ident, lock=lock)
             standard = key_projects.standard_access(db, p, row)
         else:
-            menu(p, "projects")
-            row = project_service.get_project(db, ident, p)
-            standard = True
+            row = project_service.get_project(db, ident, lock=lock)
+            standard = p.has_menu("projects") and project_service.can_view(db, p, row)
+            if not standard and (row.is_key or not key_projects.is_member(db, p, row)):
+                raise forbidden()
         writers = standard and (project_service.can_edit(p, row) or p.can("feedback:write") or p.can("project:key"))
         return Record(kind, row.project_code, "重点项目详情" if kind == "key-project" else "项目详情", row.name,
                       "重点项目" if kind == "key-project" else "项目台账", owners(row.owner_id, row.market_owner_id), writers,
                       facts=facts(row, (("项目编号", "project_code"), ("客户", "customer_name"), ("计划完成", "plan_end_date"))),
-                      context=row.remark or "", path=("/market/projects/" if kind == "key-project" else "/projects/") + row.project_code,
+                      context=row.remark or "", path=key_projects.project_link(row) if kind == "key-project" or not row.is_key else
+                      f"/projects/{row.project_code}",
                       legacy=("project", row.id))
     if kind == "key-task":
         item = get_or_404(db, m.BizProjectMilestone, number(ident), "项目任务")
@@ -395,6 +399,10 @@ def resolve(db, p, kind, ref, *, lock=False):
         raise forbidden("无权查看该类报表")
     if kind == "market-report" and row.report_type not in {"market_weekly", "market_monthly", "intel_brief"}:
         raise not_found("市场报告")
+    if kind == "general-report":
+        from app.services.market_service import can_read_general_report
+        if not can_read_general_report(db, p, row):
+            raise not_found("一般项目报告")
     if kind == "service-report" and row.report_type != "cs_attribution":
         raise not_found("归因报告")
     if kind == "performance-report" and row.report_type not in {"performance_monthly", "operation_board"}:
@@ -405,6 +413,8 @@ def resolve(db, p, kind, ref, *, lock=False):
         employee = db.get(m.SysUser, row.user_id)
         if employee:
             title = f"{employee.name} · {target.label.removesuffix('详情')}"
+    path = "/general-projects?tab=reports" if kind == "general-report" else "/" + {
+        "finance_data": "finance-data", "operation_records": "operation-records"}.get(target.menu, target.menu)
     return Record(kind, str(row.id), target.label, title, MENUS[target.menu],
                   owners(*(getattr(row, key, None) for key in target.owners)), any(p.can(key) for key in target.write),
-                  facts=facts(row, target.facts), path="/" + {"finance_data": "finance-data", "operation_records": "operation-records"}.get(target.menu, target.menu))
+                  facts=facts(row, target.facts), path=path)

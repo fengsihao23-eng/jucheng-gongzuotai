@@ -4,6 +4,7 @@
 """
 from collections import Counter
 from datetime import date, timedelta
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request
@@ -32,6 +33,12 @@ Intel = Depends(require_menu("intel"))
 Reviews = Depends(require_menu("reviews"))
 MarketOrProject = Depends(require_menu("market", "projects"))
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+Workspace = Literal["key", "general"]
+
+
+def _workspace_menu(p, scope):
+    if not p.has_menu("market" if scope == "key" else "projects"):
+        raise forbidden()
 
 
 def _docx(data: bytes, filename: str) -> Response:
@@ -41,22 +48,28 @@ def _docx(data: bytes, filename: str) -> Response:
 
 # ================================================================ 跟进看板
 @router.get("/board")
-def board(include_all: bool = False, include_paused: bool = False, p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    keys.require_overview(db, p)
-    d = ms.key_board(db, p, include_all, include_paused)
-    d["events"] = ms.key_events(db, p, days=60)[:30] if p.has_menu("market") else []
+def board(include_all: bool = False, include_paused: bool = False, scope: Workspace = "key",
+          p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    is_key = scope == "key"
+    keys.require_overview(db, p, is_key=is_key)
+    if not is_key:
+        include_all = include_all and p.has_menu("projects") and p.has_menu("market")
+    d = ms.key_board(db, p, include_all, include_paused, is_key=is_key)
+    d["events"] = ms.key_events(db, p, days=60)[:30] if is_key and p.has_menu("market") else []
     return ok(d)
 
 
 @router.get("/key-options")
-def key_project_options(project_code: str | None = None, include_team: bool = False,
+def key_project_options(project_code: str | None = None, include_team: bool = False, scope: Workspace = "key",
                         p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    return ok(keys.options(db, p, project_code, include_team))
+    return ok(keys.options(db, p, project_code, include_team, is_key=scope == "key"))
 
 
 @router.post("/projects")
-def create_key_project(body: KeyProjectCreateIn, background: BackgroundTasks, p: Principal = Market, db: Session = Depends(get_db)):
-    row, notices = keys.create_project(db, p, body)
+def create_key_project(body: KeyProjectCreateIn, background: BackgroundTasks, scope: Workspace = "key",
+                       p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    _workspace_menu(p, scope)
+    row, notices = keys.create_project(db, p, body, is_key=scope == "key")
     db.commit()
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
@@ -64,29 +77,32 @@ def create_key_project(body: KeyProjectCreateIn, background: BackgroundTasks, p:
 
 
 @router.get("/projects/{project_code}")
-def key_project_detail(project_code: str, period: str = "", p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    return ok(keys.detail(db, p, project_code, period))
+def key_project_detail(project_code: str, period: str = "", scope: Workspace = "key",
+                       p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    return ok(keys.detail(db, p, project_code, period, is_key=scope == "key"))
 
 
 @router.put("/projects/{project_code}")
-def edit_key_project(project_code: str, body: KeyProjectEditIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    row = keys.save_project(db, p, body, project_code)
+def edit_key_project(project_code: str, body: KeyProjectEditIn, scope: Workspace = "key",
+                     p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    row = keys.save_project(db, p, body, project_code, is_key=scope == "key")
     db.commit()
     return ok({"project_code": row.project_code})
 
 
 @router.delete("/projects/{project_code}")
-def delete_key_project(project_code: str, body: DeletionIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+def delete_key_project(project_code: str, body: DeletionIn, scope: Workspace = "key",
+                       p: Principal = MarketOrProject, db: Session = Depends(get_db)):
     verify_deletion(db, body)
-    result = keys.delete_project(db, p, project_code)
+    result = keys.delete_project(db, p, project_code, is_key=scope == "key")
     db.commit()
     return ok(result)
 
 
 @router.post("/projects/{project_code}/team")
 def add_key_project_team(project_code: str, body: KeyProjectTeamIn, background: BackgroundTasks,
-                         p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    row = keys.project(db, p, project_code, lock=True)
+                         scope: Workspace = "key", p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    row = keys.project(db, p, project_code, lock=True, is_key=scope == "key")
     added, notices = keys.add_team(db, p, row, body.user_ids)
     db.commit()
     if notices:
@@ -96,9 +112,9 @@ def add_key_project_team(project_code: str, body: KeyProjectTeamIn, background: 
 
 @router.delete("/projects/{project_code}/team/{user_id}")
 def remove_key_project_member(project_code: str, user_id: int, body: DeletionIn,
-                              p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+                              scope: Workspace = "key", p: Principal = MarketOrProject, db: Session = Depends(get_db)):
     verify_deletion(db, body)
-    row = keys.project(db, p, project_code, lock=True)
+    row = keys.project(db, p, project_code, lock=True, is_key=scope == "key")
     keys.remove_team_member(db, p, row, user_id)
     db.commit()
     return ok()
@@ -146,8 +162,9 @@ class PauseIn(BaseModel):
 
 
 @router.put("/projects/{project_code}/pause")
-def pause_follow(project_code: str, body: PauseIn, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
-    result = keys.set_paused(db, p, project_code, body.paused)
+def pause_follow(project_code: str, body: PauseIn, scope: Workspace = "key",
+                 p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+    result = keys.set_paused(db, p, project_code, body.paused, is_key=scope == "key")
     db.commit()
     return ok(result)
 
@@ -198,6 +215,19 @@ class ReportIn(BaseModel):
     period: str | None = None
 
 
+MARKET_REPORT_TYPES = ("market_weekly", "market_monthly", "intel_brief")
+
+
+def _workspace_report(db, p, ident, scope):
+    _workspace_menu(p, scope)
+    report = get_or_404(db, RptReport, ident, "报告")
+    visible = (report.report_type.startswith(("market_", "intel_")) if scope == "key"
+               else ms.can_read_general_report(db, p, report))
+    if not visible:
+        raise not_found("报告")
+    return report
+
+
 def _report_out(db: Session, r: RptReport, with_text: bool = False) -> dict:
     files = [file_brief(db.get(SysFile, fid)) for fid in (r.file_ids or [])]
     m = dict(r.metrics or {})
@@ -213,8 +243,11 @@ def _report_out(db: Session, r: RptReport, with_text: bool = False) -> dict:
 
 
 @router.post("/reports/generate")
-def generate_report(body: ReportIn, request: Request, p: Principal = Market, db: Session = Depends(get_db)):
-    res = ms.build_market_report(db, body.period_type, body.period, user_scope=p, trigger="manual", created_by=p.id)
+def generate_report(body: ReportIn, request: Request, scope: Workspace = "key",
+                    p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    _workspace_menu(p, scope)
+    res = ms.build_market_report(db, body.period_type, body.period, user_scope=p, trigger="manual", created_by=p.id,
+                                 is_key=scope == "key")
     log_op(db, p.id, "report.generate", res["report"].report_type, res["report"].period, ip=client_ip(request))
     db.commit()
     out = _report_out(db, res["report"])
@@ -223,40 +256,47 @@ def generate_report(body: ReportIn, request: Request, p: Principal = Market, db:
 
 
 @router.get("/reports")
-def list_reports(report_type: str | None = None, page: int = 1, page_size: int = 20, p: Principal = Market,
-                 db: Session = Depends(get_db)):
-    types = [report_type] if report_type else ["market_weekly", "market_monthly", "intel_brief"]
+def list_reports(report_type: str | None = None, page: int = 1, page_size: int = 20, scope: Workspace = "key",
+                 p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    _workspace_menu(p, scope)
+    types = MARKET_REPORT_TYPES if scope == "key" else ms.GENERAL_REPORT_TYPES
     q = select(RptReport).where(RptReport.report_type.in_(types))
+    if report_type:
+        q = q.where(RptReport.report_type == report_type)
+    ordered = q.order_by(RptReport.created_at.desc(), RptReport.id.desc())
+    offset = (page - 1) * page_size
+    if scope == "general" and p.data_scope != "all":
+        rows = [r for r in db.scalars(ordered.where(RptReport.created_by == p.id)) if ms.can_read_general_report(db, p, r)]
+        return ok(page_data([_report_out(db, r) for r in rows[offset:offset + page_size]], len(rows), page, page_size))
     total = db.scalar(select(func.count()).select_from(q.subquery()))
-    rows = db.scalars(q.order_by(RptReport.created_at.desc(), RptReport.id.desc())
-                      .offset((page - 1) * page_size).limit(page_size)).all()
+    rows = db.scalars(ordered.offset(offset).limit(page_size)).all()
     return ok(page_data([_report_out(db, r) for r in rows], total, page, page_size))
 
 
 @router.get("/reports/summary")
-def summary(period_type: str = "weekly", period: str | None = None, p: Principal = Market,
-            db: Session = Depends(get_db)):
+def summary(period_type: str = "weekly", period: str | None = None, scope: Workspace = "key",
+            p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
     """「汇总本周重点项目周报」：返回汇总稿文本（默认本周，不落库）。"""
+    _workspace_menu(p, scope)
     if period_type == "weekly":
         from app.core.timeutil import week_no
-        res = ms.build_market_report(db, "weekly", period or week_no(today()), p, save=False)
+        res = ms.build_market_report(db, "weekly", period or week_no(today()), p, save=False, is_key=scope == "key")
     else:
-        res = ms.build_market_report(db, "monthly", period or f"{today():%Y-%m}", p, save=False)
+        res = ms.build_market_report(db, "monthly", period or f"{today():%Y-%m}", p, save=False, is_key=scope == "key")
     return ok({"text": res["text"], "data": res["data"]})
 
 
 @router.get("/reports/{rid}")
-def report_detail(rid: int, p: Principal = Market, db: Session = Depends(get_db)):
-    r = get_or_404(db, RptReport, rid, "报告")
-    if not r.report_type.startswith(("market_", "intel_")):
-        raise not_found("报告")
+def report_detail(rid: int, scope: Workspace = "key", p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    r = _workspace_report(db, p, rid, scope)
     return ok(_report_out(db, r, with_text=True))
 
 
 @router.get("/reports/{rid}/download")
-def report_download(rid: int, request: Request, p: Principal = Market, db: Session = Depends(get_db)):
-    r = get_or_404(db, RptReport, rid, "报告")
-    if not r.report_type.startswith(("market_", "intel_")) or not r.file_ids:
+def report_download(rid: int, request: Request, scope: Workspace = "key",
+                    p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    r = _workspace_report(db, p, rid, scope)
+    if not r.file_ids:
         raise not_found("报告文件")
     f = db.get(SysFile, r.file_ids[0])
     log_op(db, p.id, "report.download", r.report_type, r.id, after={"filename": f.filename}, ip=client_ip(request))

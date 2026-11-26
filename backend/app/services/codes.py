@@ -1,5 +1,5 @@
 """业务编码生成：项目 JC-<业务线>-<年>-<三位流水>、合同 HT-<年>-<四位>、商机 SJ-、工单 KF-。"""
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.timeutil import today
@@ -14,7 +14,10 @@ def _next(db: Session, column, prefix: str, width: int) -> str:
 
 def project_code(db: Session, business_line: str, year: int | None = None) -> str:
     from app.models import BizProject
-    return _next(db, BizProject.project_code, f"JC-{business_line}-{year or today().year}-", 3)
+    prefix = f"JC-{business_line}-{year or today().year}-"
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:prefix))"), {"prefix": prefix})
+    return _next(db, BizProject.project_code, prefix, 3)
 
 
 def contract_no(db: Session, year: int | None = None) -> str:

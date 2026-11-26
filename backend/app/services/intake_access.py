@@ -1,11 +1,12 @@
 """资料原件与清洗任务的服务端访问边界；不能只靠前端隐藏入口。"""
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, cast, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import aliased
 
 from app.core.response import not_found
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
 
-PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source"}
+PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source", "general_project_report"}
 
 
 def can_handle_department(p, dept_code):
@@ -69,6 +70,12 @@ def require_file_access(db, p, file):
         from app.services.project_report_service import can_view
         report = db.scalar(select(FinProjectReport).where(FinProjectReport.file_id == file.id))
         allowed = report is not None and can_view(db, p, report)
+    elif file.category == "general_project_report":
+        from app.models import RptReport
+        from app.services.market_service import GENERAL_REPORT_TYPES, can_read_general_report
+        report = db.scalar(select(RptReport).where(RptReport.report_type.in_(GENERAL_REPORT_TYPES),
+                                                  cast(RptReport.file_ids, JSONB).contains([file.id])))
+        allowed = report is not None and can_read_general_report(db, p, report)
     elif file.category == "kb":
         from app.services.kb_service import can_view
         current_file = aliased(SysFile)

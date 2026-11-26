@@ -191,10 +191,7 @@ async function load() {
 }
 watch(view, (v) => localStorage.setItem('jc_projects_view', v))
 watch(projectMode, () => { q.status = null; q.is_key = false; load() })
-const go = (p) => router.push({
-  name: projectMode.value === 'general' && !p.is_key ? 'general-project-detail' : 'project-detail',
-  params: { code: p.project_code }, query: { back: route.fullPath },
-})
+const go = (p) => router.push({ name: 'project-detail', params: { code: p.project_code }, query: { back: route.fullPath } })
 
 const exportWeekly = () => api.download('/projects/weekly/export')
 
@@ -225,7 +222,7 @@ async function create() {
     const r = await api.post('/projects', form)
     ElMessage.success(`已创建 ${r.project_code}`)
     dlg.value = false
-    go({ ...r, is_key: form.is_key })
+    go(r)
   } finally {
     saving.value = false
   }

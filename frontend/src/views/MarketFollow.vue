@@ -1,29 +1,29 @@
 <template>
   <div class="jc-page">
-    <PageHeader eyebrow="市场部" title="重点项目"
+    <PageHeader :eyebrow="general ? '项目管理' : '市场部'" :title="label"
       desc="明确项目内容、负责人和时间节点，查看进展、风险与回款。">
-      <el-button v-if="canCreate" type="primary" @click="createOpen=true">新建重点项目</el-button>
+      <el-button v-if="canCreate" type="primary" @click="createOpen=true">新建{{ label }}</el-button>
     </PageHeader>
 
     <el-tabs v-model="tab">
-      <el-tab-pane label="重点项目总览" name="key">
+      <el-tab-pane :label="`${label}总览`" name="key">
         <div class="jc-grid mb-16" :class="showFinancials ? 'c5' : 'c3'" v-if="board">
-          <Kpi label="重点项目" :value="stats.count" unit="个" />
+          <Kpi :label="label" :value="stats.count" unit="个" />
           <Kpi label="异常项目" :value="stats.alert_count" unit="个" hint="延期、风险或进展待反馈" />
           <Kpi label="延期节点" :value="stats.delayed_nodes" unit="个" />
           <Kpi v-if="showFinancials" label="累计合同" :value="wanNum(stats.contract_total)" unit="万" />
           <Kpi v-if="showFinancials" label="累计回款" :value="wanNum(stats.received)" unit="万" :progress="Number(stats.payment_rate || 0)" :hint="`回款率 ${percent(stats.payment_rate)}`" />
         </div>
 
-        <Panel title="重点项目" sub="按异常优先排序" :loading="loading">
+        <Panel :title="label" sub="按异常优先排序" :loading="loading">
           <template #extra>
-            <el-checkbox v-if="auth.hasMenu('market')" v-model="includeAll" @change="load">含非重点项目</el-checkbox>
+            <el-checkbox v-if="canIncludeOther" v-model="includeAll" @change="load">{{ general ? '含重点项目' : '含非重点项目' }}</el-checkbox>
             <el-checkbox v-model="includePaused" @change="load">含已暂停</el-checkbox>
           </template>
-          <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个重点项目本周未反馈</p>
-          <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" aria-label="重点项目搜索" /><el-select v-model="projectStatus" clearable placeholder="全部状态" aria-label="重点项目筛选状态"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
+          <p v-if="board" class="jc-muted jc-small">本周起始 {{ board.week_start }} · {{ board.summary.unreported }} 个{{ label }}本周未反馈</p>
+          <div class="project-filters"><el-input v-model="keyword" clearable placeholder="搜索项目 / 客户 / 负责人" :aria-label="`${label}搜索`" /><el-select v-model="projectStatus" clearable placeholder="全部状态" :aria-label="`${label}筛选状态`"><el-option v-for="(v,k) in PROJECT_STATUS" :key="k" :value="Number(k)" :label="v" /></el-select><el-checkbox v-model="attentionOnly">需要关注</el-checkbox></div>
           <div class="cards">
-            <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看重点项目：${p.name}`" :aria-haspopup="p.can_delete ? 'menu' : undefined" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)" @contextmenu.prevent.stop="openMenu($event, p)" @keydown.shift.f10.prevent.stop="openMenu($event, p)">
+            <div v-for="p in filteredProjects" :key="p.project_code" class="pcard" :class="{ alert: p.alert }" role="button" tabindex="0" :aria-label="`查看${label}：${p.name}`" :aria-haspopup="p.can_delete ? 'menu' : undefined" @click="openProject(p)" @keydown.enter="openProject(p)" @keydown.space.prevent="openProject(p)" @contextmenu.prevent.stop="openMenu($event, p)" @keydown.shift.f10.prevent.stop="openMenu($event, p)">
               <div class="jc-row between">
                 <span class="jc-small jc-muted">{{ BUSINESS_LINES[p.business_line] }} · {{ p.status_text }}</span>
                 <span v-if="p.paused" class="jc-muted jc-small">已暂停</span>
@@ -35,7 +35,7 @@
                 <div class="bar"><i :style="{ width: p.progress * 100 + '%' }" /></div>
                 <span class="jc-num jc-small">{{ Math.round(p.progress * 100) }}%</span>
               </div>
-              <p v-if="p.is_key" class="jc-small jc-muted task-count">任务 {{ p.done_nodes }} / {{ p.total_nodes }} 项已完成</p>
+              <p v-if="general || p.is_key" class="jc-small jc-muted task-count">任务 {{ p.done_nodes }} / {{ p.total_nodes }} 项已完成</p>
               <div class="row2 jc-small">
                 <span>当前 <b :class="{ 'jc-down': p.current_node_delayed }">{{ p.current_node || '—' }}</b><span v-if="p.current_node_plan"> · {{ p.current_node_plan }}</span></span>
                 <span v-if="p.delayed_nodes" class="jc-down">延期 {{ p.delayed_nodes }}</span>
@@ -56,25 +56,27 @@
               <KeyProjectPauseButton :project="p" compact @changed="load" />
             </div>
           </div>
-          <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length?'没有符合条件的项目':'暂无重点项目'"><el-button v-if="canCreate&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个重点项目</el-button></el-empty>
+          <el-empty v-if="board && !filteredProjects.length" :description="board.projects.length ? '没有符合条件的项目' : `暂无${label}`"><el-button v-if="canCreate&&!board.projects.length" type="primary" @click="createOpen=true">创建第一个{{ label }}</el-button></el-empty>
         </Panel>
       </el-tab-pane>
 
-      <el-tab-pane v-if="auth.hasMenu('market')" label="周报 / 月报" name="reports">
+      <el-tab-pane v-if="hasWorkspaceMenu" label="周报 / 月报" name="reports">
         <Panel class="report-history" title="报告历史" sub="每周一 10:30 自动生成上周周报，每月 1 日 11:00 生成上月月报" :padding="false">
           <template #extra>
             <el-button @click="gen('weekly')" :loading="genLoading === 'weekly'">生成周报</el-button>
             <el-button @click="gen('monthly')" :loading="genLoading === 'monthly'">生成月报</el-button>
             <el-button @click="summary">汇总本周周报</el-button>
             <el-select v-model="rtype" clearable placeholder="全部类型" style="width: 140px" @change="loadReports">
-              <el-option label="市场周报" value="market_weekly" /><el-option label="市场月报" value="market_monthly" /><el-option label="竞品简报" value="intel_brief" />
+              <el-option :label="general ? '一般项目周报' : '市场周报'" :value="general ? 'general_weekly' : 'market_weekly'" />
+              <el-option :label="general ? '一般项目月报' : '市场月报'" :value="general ? 'general_monthly' : 'market_monthly'" />
+              <el-option v-if="!general" label="竞品简报" value="intel_brief" />
             </el-select>
           </template>
           <el-table :data="reports" size="default" @row-contextmenu="marketReportMenu">
             <el-table-column prop="title" label="报告" min-width="220" />
             <el-table-column prop="period" label="周期" width="160" />
             <el-table-column label="版本" width="70"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
-            <el-table-column label="重点项目" width="90" align="right"><template #default="{ row }"><span class="jc-num">{{ row.metrics.project_count ?? row.metrics.total ?? '—' }}</span></template></el-table-column>
+            <el-table-column :label="label" width="90" align="right"><template #default="{ row }"><span class="jc-num">{{ row.metrics.project_count ?? row.metrics.total ?? '—' }}</span></template></el-table-column>
             <el-table-column label="延期节点" width="90" align="right"><template #default="{ row }"><span class="jc-num" :class="{ 'jc-down': row.metrics.delayed_nodes }">{{ row.metrics.delayed_nodes ?? '—' }}</span></template></el-table-column>
             <el-table-column label="本期回款" width="110" align="right"><template #default="{ row }"><span class="jc-num">{{ row.metrics.period_received != null ? wan(row.metrics.period_received) : '—' }}</span></template></el-table-column>
             <el-table-column label="触发" width="80"><template #default="{ row }">{{ { schedule: '定时', manual: '手动', mcp: 'WorkBuddy' }[row.trigger] || row.trigger }}</template></el-table-column>
@@ -90,26 +92,27 @@
         </Panel>
       </el-tab-pane>
     </el-tabs>
-    <KeyProjectForm v-model="createOpen" @saved="showCreatedProject" />
-    <PasswordDeleteDialog v-model="deleteOpen" title="删除重点项目" :name="menu.project?.name" :endpoint="`/market/projects/${menu.project?.project_code}`" @deleted="load" />
+    <KeyProjectForm v-model="createOpen" :general="general" @saved="showCreatedProject" />
+    <PasswordDeleteDialog v-model="deleteOpen" :title="menu.project?.is_key ? '删除重点项目' : '删除一般项目'" :name="menu.project?.name"
+      :endpoint="`/market/projects/${menu.project?.project_code}${menu.project?.is_key ? '' : '?scope=general'}`" @deleted="load" />
     <Teleport to="body">
       <div v-if="menu.open" class="ctx-mask" @click.self="closeMenu" @contextmenu.prevent="closeMenu" @keydown.esc.prevent.stop="closeMenu" @keydown.tab="closeMenu">
-        <div class="ctx-menu" role="menu" aria-label="重点项目操作" :style="{ left: menu.x + 'px', top: menu.y + 'px' }">
+        <div class="ctx-menu" role="menu" :aria-label="`${label}操作`" :style="{ left: menu.x + 'px', top: menu.y + 'px' }">
           <div class="ctx-title">{{ menu.project?.name }}</div>
           <button ref="menuAction" type="button" role="menuitem" class="ctx-item" @click="closeMenu(); deleteOpen = true">删除项目</button>
         </div>
       </div>
     </Teleport>
 
-    <RecordDetailDialog v-model="pv.show" dialog-title="市场报告详情" :heading="pv.title"
-      :target="{ kind: 'market-report', id: pv.report?.id }" >
+    <RecordDetailDialog v-model="pv.show" :dialog-title="general ? '一般项目报告详情' : '市场报告详情'" :heading="pv.title"
+      :target="{ kind: reportKind, id: pv.report?.id }" >
       <div class="md" v-html="pv.html" />
       <template #footer>
         <el-button @click="copy">复制汇总稿</el-button>
         <el-button v-if="pv.report" type="primary" @click="download(pv.report)">下载 docx 初稿</el-button>
       </template>
     </RecordDetailDialog>
-    <el-dialog v-model="summaryOpen" title="本周重点项目汇总" width="min(720px, 94vw)">
+    <el-dialog v-model="summaryOpen" :title="`本周${label}汇总`" width="min(720px, 94vw)">
       <p class="jc-muted jc-small">仅汇总当前跟进且有权限查看的重点项目。</p>
       <div style="white-space: pre-wrap; overflow-wrap: anywhere">{{ board?.summary_text }}</div>
     </el-dialog>
@@ -130,12 +133,18 @@ import KeyProjectForm from './market/KeyProjectForm.vue'
 import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import PasswordDeleteDialog from './operations/PasswordDeleteDialog.vue'
 
+const props = defineProps({ general: Boolean })
 const auth = useAuth()
-const canCreate = computed(() => auth.hasMenu('market') && auth.can('project:key'))
+const label = computed(() => props.general ? '一般项目' : '重点项目')
+const scope = computed(() => props.general ? 'general' : undefined)
+const reportKind = computed(() => props.general ? 'general-report' : 'market-report')
+const hasWorkspaceMenu = computed(() => auth.hasMenu(props.general ? 'projects' : 'market'))
+const canIncludeOther = computed(() => auth.hasMenu('market') && (!props.general || hasWorkspaceMenu.value))
+const canCreate = computed(() => hasWorkspaceMenu.value && (auth.can('project:key') || (props.general && auth.can('milestone:write'))))
 const route = useRoute()
 const router = useRouter(), createOpen = ref(false), keyword = ref(''), projectStatus = ref(null), attentionOnly = ref(false)
 const tab = computed({
-  get: () => route.query.tab === 'reports' && auth.hasMenu('market') ? 'reports' : 'key',
+  get: () => route.query.tab === 'reports' && hasWorkspaceMenu.value ? 'reports' : 'key',
   set: (value) => router.replace({ query: { ...route.query, tab: value === 'key' ? undefined : value } }),
 })
 const board = ref(null)
@@ -144,10 +153,17 @@ const includeAll = ref(false), includePaused = ref(false), summaryOpen = ref(fal
 const menu = reactive({ open: false, x: 0, y: 0, project: null }), deleteOpen = ref(false), menuAction = ref(null)
 let menuTrigger = null
 let loadVersion = 0
-const filteredProjects = computed(() => (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) && (!attentionOnly.value || p.alert) && `${p.name} ${p.customer_name} ${p.owner_name} ${p.market_owner_name}`.includes(keyword.value.trim())))
-const showFinancials = computed(() => auth.hasMenu('market') && (!board.value?.projects.length || board.value.projects.some(project => project.can_view_financials)))
+const filteredProjects = computed(() => {
+  const search = keyword.value.trim().toLowerCase()
+  return (board.value?.projects || []).filter(p => (!projectStatus.value || p.status === projectStatus.value) &&
+    (!attentionOnly.value || p.alert) && [p.name, p.project_code, p.customer_name, p.owner_name, p.market_owner_name].join(' ').toLowerCase().includes(search))
+})
+const showFinancials = computed(() => hasWorkspaceMenu.value && (!board.value?.projects.length || board.value.projects.some(project => project.can_view_financials)))
 const stats = computed(() => { const rows=filteredProjects.value,contract=rows.reduce((s,p)=>s+Number(p.contract_total||0),0),received=rows.reduce((s,p)=>s+Number(p.received||0),0);return {count:rows.length,alert_count:rows.filter(p=>p.alert).length,delayed_nodes:rows.reduce((s,p)=>s+p.delayed_nodes,0),contract_total:contract,received,payment_rate:contract?received/contract:null} })
-function openProject(p) { router.push(`/${p.is_key?'market/projects':'projects'}/${p.project_code}`) }
+function openProject(p) {
+  const name = p.is_key ? 'key-project-detail' : props.general ? 'general-project-detail' : 'project-detail'
+  router.push({ name, params: { code: p.project_code }, query: props.general && !p.is_key ? { back: route.fullPath } : undefined })
+}
 async function openMenu(event, project) {
   if (!project.can_delete) return
   menuTrigger = event.currentTarget
@@ -168,7 +184,8 @@ async function load() {
   const current = ++loadVersion
   loading.value = true
   try {
-    const result = await api.get('/market/board', { include_all: includeAll.value || undefined, include_paused: includePaused.value || undefined })
+    const result = await api.get('/market/board', { scope: scope.value, include_all: includeAll.value || undefined,
+      include_paused: includePaused.value || undefined })
     if (current === loadVersion) board.value = result
   } catch (error) {
     if (current === loadVersion && error.code === 40301) {
@@ -193,7 +210,7 @@ const rtype = ref('')
 const rpage = ref(1)
 const rtotal = ref(0)
 async function loadReports() {
-  const r = await api.get('/market/reports', { report_type: rtype.value || undefined, page: rpage.value })
+  const r = await api.get('/market/reports', { scope: scope.value, report_type: rtype.value || undefined, page: rpage.value })
   reports.value = r.items
   rtotal.value = r.total
 }
@@ -203,7 +220,7 @@ const genLoading = ref('')
 async function gen(type) {
   genLoading.value = type
   try {
-    const r = await api.post('/market/reports/generate', { period_type: type })
+    const r = await api.post('/market/reports/generate', { period_type: type }, { params: { scope: scope.value } })
     ElMessage.success(`${r.title} 已生成（v${r.version}）`)
     openPreview(r.title, r.text, r)
     if (tab.value === 'reports') loadReports()
@@ -212,14 +229,14 @@ async function gen(type) {
   }
 }
 async function summary() {
-  const r = await api.get('/market/reports/summary')
-  openPreview('本周重点项目周报汇总稿', r.text, null)
+  const r = await api.get('/market/reports/summary', { scope: scope.value })
+  openPreview(`本周${label.value}周报汇总稿`, r.text, null)
 }
 async function preview(row) {
-  const r = await api.get(`/market/reports/${row.id}`)
+  const r = await api.get(`/market/reports/${row.id}`, { scope: scope.value })
   openPreview(r.title, r.text || '（无汇总文本）', row)
 }
-const download = (row) => api.download(`/market/reports/${row.id}/download`)
+const download = (row) => api.download(`/market/reports/${row.id}/download`, { scope: scope.value })
 
 const pv = reactive({ show: false, title: '', text: '', html: '', report: null })
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
@@ -250,7 +267,8 @@ onMounted(() => {
 })
 useBusinessRefresh(load, { interval: 15000, enabled: () => tab.value !== 'reports' && !createOpen.value && !menu.open && !deleteOpen.value })
 
-const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') && recordRemoval('market-report', row.id, row.title, loadReports, { title: '删除市场报告' }))
+const marketReportMenu = rowDeletion(row => auth.canDelete('report:generate') && recordRemoval(reportKind.value, row.id, row.title,
+  loadReports, { title: props.general ? '删除一般项目报告' : '删除市场报告' }))
 </script>
 
 <style scoped>

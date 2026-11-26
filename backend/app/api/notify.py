@@ -18,18 +18,18 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
     from app.services.operations_notifications import project_assignment_access
     from app.services.operations_policy import task_access
     from app.services import operations_scope as scope, operations_reports as reports
-    from app.services import key_projects, project_service
+    from app.services import key_projects
     from app.models import BizProject, BizProjectMilestone
 
     task_notice = ("ops_task", "ops_task_reminder")
     accessible_keys = key_projects.visible_projects(p).where(BizProject.is_key.is_(True)).with_only_columns(BizProject.id)
-    accessible_general = project_service.visible_query(p).where(BizProject.is_key.is_(False)).with_only_columns(BizProject.id)
+    accessible_general = key_projects.visible_projects(p, is_key=False).where(BizProject.is_key.is_(False)).with_only_columns(BizProject.id)
     visible_project_task = exists(select(BizProjectMilestone.id).where(
         cast(BizProjectMilestone.id, String) == func.split_part(SysNotify.ref_id, ":", 1),
         or_((SysNotify.ref_type == key_projects.REF) & BizProjectMilestone.project_id.in_(accessible_keys),
-            (SysNotify.ref_type == key_projects.GENERAL_REF) & BizProjectMilestone.project_id.in_(accessible_general) & p.has_menu("projects"))))
+            (SysNotify.ref_type == key_projects.GENERAL_REF) & BizProjectMilestone.project_id.in_(accessible_general))))
     visible_team_notice = exists(select(BizProject.id).where(cast(BizProject.id, String) == SysNotify.ref_id,
-        BizProject.is_deleted.is_(False), key_projects.membership_scope(p)))
+        BizProject.is_deleted.is_(False), key_projects.membership_scope(p, is_key=None)))
     visible_project = exists(select(OpsProject.id).where(
         cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))
     visible_task = exists(select(OpsTask.id).where(

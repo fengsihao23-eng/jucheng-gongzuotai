@@ -75,6 +75,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
         key_projects.NOTICE: key_projects.eligible_notice,
         key_projects.GENERAL_NOTICE: key_projects.eligible_notice,
         key_projects.ASSIGNMENT_NOTICE: key_projects.eligible_assignment,
+        key_projects.GENERAL_ASSIGNMENT_NOTICE: key_projects.eligible_assignment,
         key_projects.TASK_ASSIGNMENT_NOTICE: key_projects.eligible_task_assignment,
         key_projects.GENERAL_TASK_ASSIGNMENT_NOTICE: key_projects.eligible_task_assignment,
         key_projects.TEAM_NOTICE: key_projects.eligible_team_notice,

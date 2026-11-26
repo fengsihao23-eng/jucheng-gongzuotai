@@ -4,7 +4,7 @@ import json
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import false, func, or_, select, text, true
+from sqlalchemy import false, func, or_, select, true
 
 from app.core.audit import log_op, snapshot
 from app.core.deps import build_principal
@@ -18,6 +18,7 @@ from app.services import codes, market_service as market, notify_service, projec
 PROJECT_FIELDS = ["name", "remark", "customer_name", "business_line", "owner_id", "start_date", "plan_end_date", "status", "is_key"]
 NOTICE = "key_project_feedback_due"
 ASSIGNMENT_NOTICE = "key_project_assignment"
+GENERAL_ASSIGNMENT_NOTICE = "general_project_assignment"
 TASK_ASSIGNMENT_NOTICE = "key_task_assignment"
 TEAM_NOTICE = "key_project_team"
 TEAM_REF = "key_project_team"
@@ -29,8 +30,8 @@ PAUSE_USERIDS = {"ken", "SZGLY"}
 ZERO = Decimal(0)
 
 
-def can_create(p):
-    return p.is_admin or p.can("project:key")
+def can_create(p, *, is_key=True):
+    return p.is_admin or p.can("project:key") or (not is_key and p.can("milestone:write"))
 
 
 def can_delete(p):
@@ -41,31 +42,34 @@ def has_project_menu(p):
     return p.has_menu("market") or p.has_menu("projects")
 
 
-def standard_scope(p, *, overview=False):
+def standard_scope(p, *, overview=False, is_key=True):
     if p is None:
         return true()
-    if not (p.has_menu("market") if overview else has_project_menu(p)):
+    menu = p.has_menu("projects") if not is_key else p.has_menu("market") if overview else has_project_menu(p)
+    if not menu:
         return false()
     scope = ps.visible_filter(p)
     return scope if scope is not None else true()
 
 
-def membership_scope(p):
+def membership_scope(p, *, is_key=True):
     if p is None or not p.workbench_enabled:
         return false()
-    return BizProject.is_key.is_(True) & BizProject.id.in_(select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id))
+    membership = BizProject.id.in_(select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id))
+    return membership if is_key is None else membership & BizProject.is_key.is_(is_key)
 
 
-def visible_projects(p, *, overview=False):
-    return select(BizProject).where(BizProject.is_deleted.is_(False), or_(standard_scope(p, overview=overview), membership_scope(p)))
+def visible_projects(p, *, overview=False, is_key=True):
+    return select(BizProject).where(BizProject.is_deleted.is_(False),
+        or_(standard_scope(p, overview=overview, is_key=is_key), membership_scope(p, is_key=is_key)))
 
 
-def has_team(db, p):
-    return db.scalar(select(BizProject.id).where(BizProject.is_deleted.is_(False), membership_scope(p)).limit(1)) is not None
+def has_team(db, p, *, is_key=True):
+    return db.scalar(select(BizProject.id).where(BizProject.is_deleted.is_(False), membership_scope(p, is_key=is_key)).limit(1)) is not None
 
 
 def is_member(db, p, row):
-    return row.is_key and not row.is_deleted and p.workbench_enabled and db.get(KeyProjectMember, (row.id, p.id)) is not None
+    return not row.is_deleted and p.workbench_enabled and db.get(KeyProjectMember, (row.id, p.id)) is not None
 
 
 def standard_access(db, p, row):
@@ -75,6 +79,10 @@ def standard_access(db, p, row):
 
 def can_manage(db, p, row, *, standard=None):
     return (ps.can_edit(p, row) or (row.is_key and can_create(p))) and (standard_access(db, p, row) if standard is None else standard)
+
+
+def can_remove_project(p, row):
+    return can_delete(p) if row.is_key else (p.has_delete_grant or ps.can_edit(p, row))
 
 
 def require_team_manager(db, p, row):
@@ -88,8 +96,8 @@ def can_feedback_task(db, p, row, item, *, manageable=None):
     return manageable or (item.owner_id == p.id and (p.can("feedback:write") or is_member(db, p, row)))
 
 
-def require_overview(db, p):
-    if not p.has_menu("market") and not has_team(db, p):
+def require_overview(db, p, *, is_key=True):
+    if not p.has_menu("market" if is_key else "projects") and not has_team(db, p, is_key=is_key):
         raise forbidden()
 
 
@@ -97,10 +105,13 @@ def can_pause(p):
     return p.user.wecom_userid in PAUSE_USERIDS and any(p.has_menu(m) for m in ("market", "projects"))
 
 
-def user(db, user_id):
+def user(db, user_id, *, is_key=True):
     u = db.get(SysUser, user_id)
-    if not u or u.status != 1 or u.is_deleted or not any(build_principal(u).has_menu(m) for m in ("market", "projects")):
-        raise bad_request("负责人须为在职且有重点项目或项目台账访问权限的人员")
+    if not u or u.status != 1 or u.is_deleted:
+        raise bad_request("请选择在职的项目负责人")
+    owner = build_principal(u)
+    if not (has_project_menu(owner) if is_key else owner.has_menu("projects")):
+        raise bad_request("负责人须有项目访问权限")
     return u
 
 
@@ -114,7 +125,7 @@ def project(db, p, code, *, lock=False, is_key=True):
 
 
 def is_paused(db, row):
-    setting = db.get(BizProjectFollowSetting, row.id) if row.is_key else None
+    setting = db.get(BizProjectFollowSetting, row.id)
     return bool(setting and setting.paused)
 
 
@@ -142,8 +153,10 @@ def person_info(person):
 
 
 def can_assign_to(db, row, assignee):
+    if is_member(db, assignee, row):
+        return True
     if row.is_key:
-        return is_member(db, assignee, row) or (has_project_menu(assignee) and
+        return (has_project_menu(assignee) and
             (can_create(assignee) or ps.can_edit(assignee, row) or assignee.can("feedback:write")))
     return assignee.has_menu("projects") and (ps.can_edit(assignee, row) or assignee.can("feedback:write"))
 
@@ -154,19 +167,28 @@ def general_task_options(db, p, row):
     return {"users": [person_info(u) for u in available_people(db) if can_assign_to(db, row, build_principal(u))]}
 
 
-def options(db, p, code=None, include_team=False):
-    row = project(db, p, code) if code else None
+def options(db, p, code=None, include_team=False, *, is_key=True):
+    row = project(db, p, code, is_key=is_key) if code else None
     # Keep the employee directory scoped to people managing this project or opening the create form.
     if row and not can_manage(db, p, row):
         raise forbidden()
-    if include_team and not (row or (p.has_menu("market") and can_create(p))):
+    create = p.has_menu("market" if is_key else "projects") and can_create(p, is_key=is_key)
+    if not row and ((include_team or not is_key) and not create):
         raise forbidden()
     people = list(available_people(db))
     team_ids = set(db.scalars(select(KeyProjectMember.user_id).where(KeyProjectMember.project_id == row.id))) if row else set()
-    users = [person_info(u) for u in people if u.id in team_ids or has_project_menu(build_principal(u))]
-    result = {"users": users, "can_create": can_create(p), "today": today()}
+    if is_key:
+        users = [person_info(u) for u in people if u.id in team_ids or has_project_menu(build_principal(u))]
+    else:
+        users = [person_info(u) for u in people if build_principal(u).has_menu("projects") and within_owner_scope(p, u)]
+    result = {"users": users, "can_create": can_create(p, is_key=is_key), "today": today()}
     if include_team:
         result["team_users"] = [person_info(u) for u in people]
+        if not is_key:
+            owner_ids = {u["id"] for u in users}
+            assignees = (build_principal(u) for u in people)
+            result["task_users"] = [person_info(a.user) for a in assignees if a.has_menu("projects") and
+                (a.id in owner_ids or a.can("feedback:write") or a.can("milestone:write") or a.is_admin)]
     return result
 
 
@@ -178,24 +200,33 @@ def team(db, row):
              "active": u.status == 1 and not u.is_deleted and u.workbench_enabled} for u in people]
 
 
+def project_label(row):
+    return "重点项目" if row.is_key else "一般项目"
+
+
+def project_link(row):
+    return f"{'/market/projects' if row.is_key else '/general-projects'}/{row.project_code}"
+
+
 def queue_team_notice(db, row, title, *, exclude=(), item=None, recipients=None):
-    if not row.is_key or row.is_deleted:
+    if row.is_deleted:
         return []
     if recipients is None:
         recipients = db.scalars(select(SysUser).join(KeyProjectMember, KeyProjectMember.user_id == SysUser.id)
             .where(KeyProjectMember.project_id == row.id, SysUser.id.not_in(exclude)).order_by(SysUser.id))
-    link = f"/market/projects/{row.project_code}"
-    if item:
-        link += f"?task={item.id}"
+    link = task_link(row, item.id) if item else project_link(row)
+    label = project_label(row)
+    ref = REF if row.is_key else GENERAL_REF
     subject = f"{row.name} · {item.node_name}" if item else row.name
-    notices = notify_service.send(db, recipients, TEAM_NOTICE, title, f"{subject}。请打开重点项目查看详细信息。",
-        link=link, ref_type=REF if item else TEAM_REF, ref_id=str(item.id if item else row.id), defer=True,
-        wecom_content="你参与的重点项目有新消息，请打开工作台查看。")
+    notices = notify_service.send(db, recipients, TEAM_NOTICE, title, f"{subject}。请打开{label}查看详细信息。",
+        link=link, ref_type=ref if item else TEAM_REF, ref_id=str(item.id if item else row.id), defer=True,
+        wecom_content=f"你参与的{label}有新消息，请打开工作台查看。")
     return [notice.id for notice in notices if notice.channel == "wecom_app"]
 
 
-def add_team(db, p, row, user_ids):
-    require_team_manager(db, p, row)
+def add_team(db, p, row, user_ids, *, creating=False):
+    if not creating:
+        require_team_manager(db, p, row)
     joined = set(db.scalars(select(KeyProjectMember.user_id).where(KeyProjectMember.project_id == row.id)))
     additions = set(user_ids) - joined - {row.owner_id}
     if not additions:
@@ -206,8 +237,9 @@ def add_team(db, p, row, user_ids):
         raise bad_request("请选择在职且已获工作台使用权限的员工")
     for person in people:
         db.add(KeyProjectMember(project_id=row.id, user_id=person.id))
-    log_op(db, p.id, "market.key_project.team.add", "biz_project", row.project_code, after={"user_ids": sorted(additions)})
-    return len(additions), queue_team_notice(db, row, "你已加入重点项目团队", recipients=people)
+    log_op(db, p.id, "market.key_project.team.add" if row.is_key else "project.team.add", "biz_project", row.project_code,
+           after={"user_ids": sorted(additions)})
+    return len(additions), queue_team_notice(db, row, f"你已加入{project_label(row)}团队", recipients=people)
 
 
 def remove_team_member(db, p, row, user_id):
@@ -219,34 +251,39 @@ def remove_team_member(db, p, row, user_id):
         return
     person = db.get(SysUser, user_id)
     assignee = build_principal(person)
-    independent = has_project_menu(assignee) and (can_manage(db, assignee, row) or assignee.can("feedback:write"))
+    independent = standard_access(db, assignee, row) and (can_manage(db, assignee, row) or assignee.can("feedback:write"))
     if not independent and person.status == 1 and not person.is_deleted and assignee.workbench_enabled and db.scalar(
         select(BizProjectMilestone.id).where(BizProjectMilestone.project_id == row.id, BizProjectMilestone.owner_id == user_id,
             BizProjectMilestone.status != 3).limit(1)) is not None:
         raise conflict("请先转交该成员负责的未完成任务，再移除")
     db.delete(member)
-    log_op(db, p.id, "market.key_project.team.remove", "biz_project", row.project_code, before={"user_id": user_id})
+    log_op(db, p.id, "market.key_project.team.remove" if row.is_key else "project.team.remove", "biz_project", row.project_code,
+           before={"user_id": user_id})
 
 
 def eligible_team_notice(db, notice):
-    if notice.ref_type not in {REF, TEAM_REF} or not (notice.ref_id or "").isdigit():
+    if notice.ref_type not in {REF, GENERAL_REF, TEAM_REF} or not (notice.ref_id or "").isdigit():
         return False
     ident = int(notice.ref_id)
-    if notice.ref_type == REF:
+    if notice.ref_type in {REF, GENERAL_REF}:
         item = db.get(BizProjectMilestone, ident)
         ident = item.project_id if item else None
     row = db.get(BizProject, ident) if ident else None
-    return bool(row and row.is_key and not row.is_deleted and db.get(KeyProjectMember, (row.id, notice.user_id)))
+    return bool(row and not row.is_deleted and db.get(KeyProjectMember, (row.id, notice.user_id)))
 
 
-def save_project(db, p, body, code=None):
-    row = project(db, p, code, lock=True) if code else None
-    if not (can_manage(db, p, row) if row else can_create(p)):
-        raise forbidden("无管理重点项目权限")
+def within_owner_scope(p, owner):
+    return p.data_scope == "all" or owner.id == p.id or (p.data_scope == "dept" and owner.department_id == p.user.department_id)
+
+
+def save_project(db, p, body, code=None, *, is_key=True):
+    row = project(db, p, code, lock=True, is_key=is_key) if code else None
+    if not (can_manage(db, p, row) if row else can_create(p, is_key=is_key)):
+        raise forbidden("无管理项目权限")
     if row and body.expected_revision != project_revision(row):
         raise conflict("项目资料已更新，请重新打开后保存")
-    owner = user(db, body.owner_id)
-    if p.data_scope != "all" and owner.id != p.id and not (p.data_scope == "dept" and owner.department_id == p.user.department_id):
+    owner = user(db, body.owner_id, is_key=is_key)
+    if not within_owner_scope(p, owner):
         raise forbidden("只能在本人项目数据范围内设置项目负责人")
     if row and any(m.plan_date and not body.preparation_on <= m.plan_date <= body.due_on for m in row.milestones):
         raise bad_request("项目日期需覆盖已有任务的完成节点，请先核对任务日期")
@@ -255,39 +292,35 @@ def save_project(db, p, body, code=None):
         raise bad_request("项目准备日期不能晚于已有任务的准备日期")
     before = snapshot(row, PROJECT_FIELDS) if row else None
     if not row:
-        # The code allocator is shared with normal projects; serialize allocation for the chosen business line.
-        if db.bind.dialect.name == "postgresql":
-            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"key-project:{body.business_line}:{today().year}"})
-        row = BizProject(project_code=codes.project_code(db, body.business_line), is_key=True, milestone_template="none")
+        row = BizProject(project_code=codes.project_code(db, body.business_line), is_key=is_key, milestone_template="none")
         db.add(row)
     row.name, row.remark, row.customer_name = body.name, body.content, body.customer_name
     row.business_line, row.owner_id, row.status = body.business_line, owner.id, body.status
     row.start_date, row.plan_end_date = body.preparation_on, body.due_on
     db.flush()
     db.expire(row, ["owner"])
-    log_op(db, p.id, "market.key_project.update" if code else "market.key_project.create", "biz_project", row.project_code,
+    prefix = "market.key_project" if is_key else "project"
+    log_op(db, p.id, f"{prefix}.{'update' if code else 'create'}", "biz_project", row.project_code,
            before=before, after=snapshot(row, PROJECT_FIELDS))
     return row
 
 
-def delete_project(db, p, code):
-    if not can_delete(p):
-        raise forbidden("无删除重点项目权限")
-    row = project(db, p, code, lock=True)
-    if not standard_access(db, p, row):
-        raise forbidden("无删除重点项目权限")
+def delete_project(db, p, code, *, is_key=True):
+    row = project(db, p, code, lock=True, is_key=is_key)
+    if not can_remove_project(p, row) or not standard_access(db, p, row):
+        raise forbidden(f"无删除{project_label(row)}权限")
     fields = [*PROJECT_FIELDS, "is_deleted"]
     before = snapshot(row, fields)
     row.is_deleted = True
-    log_op(db, p.id, "market.key_project.delete", "biz_project", row.project_code,
+    log_op(db, p.id, "market.key_project.delete" if is_key else "project.delete", "biz_project", row.project_code,
            before=before, after=snapshot(row, fields))
     return {"deleted": True, "project_code": row.project_code, "name": row.name}
 
 
-def set_paused(db, p, code, paused):
+def set_paused(db, p, code, paused, *, is_key=True):
     if not can_pause(p):
-        raise forbidden("只有梁道灿和聚成数智管理员可以暂停或恢复重点项目跟进")
-    row = project(db, p, code, lock=True)
+        raise forbidden("只有梁道灿和聚成数智管理员可以暂停或恢复项目跟进")
+    row = project(db, p, code, lock=True, is_key=is_key)
     if not standard_access(db, p, row):
         raise forbidden("无权暂停或恢复该项目")
     setting = db.get(BizProjectFollowSetting, row.id)
@@ -296,37 +329,39 @@ def set_paused(db, p, code, paused):
         setting = setting or BizProjectFollowSetting(project_id=row.id)
         setting.paused = paused
         db.add(setting)
-        log_op(db, p.id, "market.follow_pause", "biz_project", row.project_code,
+        log_op(db, p.id, "market.follow_pause" if is_key else "project.follow_pause", "biz_project", row.project_code,
                before={"paused": before}, after={"paused": paused})
     return {"paused": paused}
 
 
 def assignment_recipient(db, row, user_id):
-    if not row or row.is_deleted or not row.is_key or row.status == 5 or row.owner_id != user_id:
+    if not row or row.is_deleted or row.status == 5 or row.owner_id != user_id:
         return None
     paused = db.get(BizProjectFollowSetting, row.id)
     owner = db.get(SysUser, user_id)
     if (paused and paused.paused) or not owner or owner.is_deleted or owner.status != 1:
         return None
     p = build_principal(owner)
-    return owner if any(p.has_menu(m) for m in ("market", "projects")) else None
+    return owner if standard_access(db, p, row) else None
 
 
 def queue_assignment(db, row):
     owner = assignment_recipient(db, row, row.owner_id) if row.owner_id else None
     if not owner:
         return []
-    notices = notify_service.send(db, [owner], ASSIGNMENT_NOTICE, "你有新的重点项目",
-        f"你是「{row.name}」的项目负责人。", link=f"/market/projects/{row.project_code}",
+    label = project_label(row)
+    notices = notify_service.send(db, [owner], ASSIGNMENT_NOTICE if row.is_key else GENERAL_ASSIGNMENT_NOTICE, f"你有新的{label}",
+        f"你是「{row.name}」的项目负责人。", link=project_link(row),
         ref_type="biz_project", ref_id=str(row.id), defer=True,
-        wecom_content="你已被指定为一个新建重点项目的负责人，请打开工作台查看项目安排。")
+        wecom_content=f"你已被指定为一个新建{label}的负责人，请打开工作台查看项目安排。")
     return [notice.id for notice in notices if notice.channel == "wecom_app"]
 
 
 def eligible_assignment(db, notice):
     if notice.ref_type != "biz_project" or not (notice.ref_id or "").isdigit():
         return False
-    return assignment_recipient(db, db.get(BizProject, int(notice.ref_id)), notice.user_id) is not None
+    row = db.get(BizProject, int(notice.ref_id))
+    return bool(row and row.is_key == (notice.msg_type != GENERAL_ASSIGNMENT_NOTICE) and assignment_recipient(db, row, notice.user_id))
 
 
 def task(db, row, ident):
@@ -338,8 +373,7 @@ def task(db, row, ident):
 
 
 def task_link(row, task_id):
-    base = "/market/projects" if row.is_key else "/general-projects"
-    return f"{base}/{row.project_code}?task={task_id}"
+    return f"{project_link(row)}?task={task_id}"
 
 
 def task_data(db, p, row, item, *, history=False, manageable=None):
@@ -382,9 +416,9 @@ def save_task(db, p, code, body, task_id=None, *, notice_ids=None, is_key=True):
     return task_data(db, p, row, item, history=True)
 
 
-def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team=True):
+def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team=True, creating=False):
     active(db, row)
-    if not can_manage(db, p, row):
+    if not creating and not can_manage(db, p, row):
         raise forbidden("仅项目负责人或项目管理者可安排任务")
     person = db.get(SysUser, body.owner_id)
     if not person or person.status != 1 or person.is_deleted or not person.workbench_enabled:
@@ -440,20 +474,20 @@ def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team
         if notice_ids is not None:
             notice_ids.extend(notice.id for notice in notices if notice.channel == "wecom_app")
     if announce_team and task_id is None:
-        team_notices = queue_team_notice(db, row, "重点项目新增任务", exclude={p.id, item.owner_id}, item=item)
+        team_notices = queue_team_notice(db, row, f"{project_label(row)}新增任务", exclude={p.id, item.owner_id}, item=item)
         if notice_ids is not None:
             notice_ids.extend(team_notices)
     return item
 
 
-def create_project(db, p, body):
-    row = save_project(db, p, body)
+def create_project(db, p, body, *, is_key=True):
+    row = save_project(db, p, body, is_key=is_key)
     notices = queue_assignment(db, row)
     if body.team_member_ids:
-        _, team_notices = add_team(db, p, row, body.team_member_ids)
+        _, team_notices = add_team(db, p, row, body.team_member_ids, creating=not is_key)
         notices.extend(team_notices)
     for fields in body.tasks:
-        _save_task(db, p, row, fields, notice_ids=notices, announce_team=False)
+        _save_task(db, p, row, fields, notice_ids=notices, announce_team=False, creating=not is_key)
     return row, notices
 
 
@@ -534,12 +568,12 @@ def task_workspace(db, p, row, *, standard=None):
             "tasks": tasks, "done_nodes": sum(item["status"] == 3 for item in tasks)}
 
 
-def detail(db, p, code, period=""):
-    row = project(db, p, code)
+def detail(db, p, code, period="", *, is_key=True):
+    row = project(db, p, code, is_key=is_key)
     standard = standard_access(db, p, row)
     fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id).order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50))
     return {**brief(db, row, standard), **task_workspace(db, p, row, standard=standard),
-            "content": row.remark or "", "revision": project_revision(row), "can_delete": standard and can_delete(p),
+            "content": row.remark or "", "revision": project_revision(row), "can_delete": standard and can_remove_project(p, row),
             "can_pause": standard and can_pause(p), "team": team(db, row),
             "feedbacks": [ps.feedback_dict(f) for f in fbs], "money": ps.contract_detail(db, row.project_code) if standard else None,
             "financials": financials(db, row, period) if standard else None}
@@ -622,7 +656,7 @@ def scan_feedback_deadlines(db, at):
     tasks = db.execute(select(Plan, BizProjectMilestone, BizProject).join(BizProjectMilestone, Plan.milestone_id == BizProjectMilestone.id)
         .join(BizProject, BizProject.id == BizProjectMilestone.project_id).outerjoin(BizProjectFollowSetting, BizProjectFollowSetting.project_id == BizProject.id)
         .where(BizProject.is_deleted.is_(False), BizProject.status != 5,
-            or_(BizProject.is_key.is_(False), BizProjectFollowSetting.paused.is_not(True)),
+            BizProjectFollowSetting.paused.is_not(True),
             BizProjectMilestone.status != 3, BizProjectMilestone.owner_id.is_not(None),
             Plan.feedback_due_at < at, Plan.feedback_requested_at.is_not(None), ~has_feedback))
     notices = []

@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from app.core.timeutil import TZ
 from app.integration.wecom.mock import read_outbox
+from app.jobs import market as market_jobs
 from app.jobs import operations as jobs
 from app.services import key_projects, task_feedback_deadlines
 from tests.conftest import data, deletion_body
@@ -98,3 +100,64 @@ def test_general_assignment_and_overdue_wecom_cards_open_the_same_task(client, l
     result = data(client.post(task_path + "/feedback", headers=worker, json={"content": "设备清单已登记",
         "expected_revision": current["revision"]}))
     assert result["feedback_status"] is None and not result["feedback_deadline_pending"]
+
+
+def test_general_overview_and_creation_keep_project_and_team_access_scoped(client, login, monkeypatch):
+    monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
+    admin, worker, outsider = (login(name) for name in ("admin", "yangyue", "pengbo"))
+    admin_id = data(client.get("/api/v1/auth/me", headers=admin))["id"]
+    member = data(client.get("/api/v1/auth/me", headers=worker))
+    assert "projects" not in member["menus"]
+    board = "/api/v1/market/board?scope=general"
+    assert client.get(board, headers=worker).status_code == 403
+
+    body = {"name": "一般项目首页验收-" + uuid4().hex[:8], "owner_id": admin_id, "preparation_on": "2026-11-20",
+            "due_on": "2026-12-15", "team_member_ids": [member["id"]], "tasks": [
+                {"title": "复核交接资料", "owner_id": member["id"], "preparation_on": "2026-11-20", "due_on": "2026-12-10"}]}
+    created = data(client.post("/api/v1/market/projects?scope=general", headers=admin, json=body))
+    code = created["project_code"]
+    detail_path = f"/api/v1/market/projects/{code}"
+    assert client.get(detail_path, headers=admin).status_code == 404
+    assert client.get(detail_path + "?scope=general", headers=outsider).status_code == 403
+    assert data(client.get("/api/v1/auth/me", headers=worker))["general_project_team"] is True
+    card = next(row for row in data(client.get(board, headers=admin))["projects"] if row["project_code"] == code)
+    assert not card["is_key"] and card["total_nodes"] == 1 and card["can_view_financials"]
+    assert code not in {row["project_code"] for row in data(client.get("/api/v1/market/board", headers=admin))["projects"]}
+    assert code not in {row["project_code"] for row in data(client.get(board, headers=outsider))["projects"]}
+    member_cards = data(client.get(board, headers=worker))["projects"]
+    assert all(not row["can_view_financials"] for row in member_cards)
+    assert code in {row["project_code"] for row in member_cards}
+
+    detail = data(client.get(detail_path + "?scope=general", headers=worker))
+    assert detail["money"] is None and detail["financials"] is None and not detail["can_manage"]
+    task = detail["tasks"][0]
+    assert task["can_feedback"]
+    path = f"/api/v1/projects/{code}/tasks/{task['id']}"
+    done = data(client.post(path + "/feedback", headers=worker, json={"status": 3, "content": "已确认交接完成",
+        "expected_revision": task["revision"]}))
+    assert done["status"] == 3
+    assert client.get(f"/api/v1/projects/{code}", headers=worker).status_code == 403
+    removal = detail_path + f"/team/{member['id']}?scope=general"
+    data(client.request("DELETE", removal, headers=admin, json=deletion_body()))
+    assert client.get(path, headers=worker).status_code == 403
+    assert client.get(detail_path + "?scope=general", headers=worker).status_code == 403
+
+
+def test_general_reports_use_the_same_periods_and_enforce_file_scope(client, login, db, monkeypatch):
+    monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
+    admin, owner, reader = (login(name) for name in ("admin", "xuhao", "pengbo"))
+    owner_id = data(client.get("/api/v1/auth/me", headers=owner))["id"]
+    project_path = project(client, admin, "一般项目报告范围验收", owner_id)
+    code = project_path.rsplit("/", 1)[1]
+    result = data(client.post("/api/v1/market/reports/generate?scope=general", headers=owner, json={"period_type": "weekly"}))
+    assert result["report_type"] == "general_weekly" and result["title"].startswith("一般项目周报")
+    assert code in {item["project_code"] for item in result["data"]["projects"]}
+    path = f"/api/v1/market/reports/{result['id']}"
+    assert data(client.get(path + "?scope=general", headers=owner))["text"].startswith("# 一般项目周报")
+    assert client.get(path + "?scope=general", headers=reader).status_code == 404
+    file = result["files"][0]
+    assert client.get(file["url"], headers=owner).content.startswith(b"PK")
+    assert client.get(file["url"], headers=reader).status_code == 404
+    assert client.get(path, headers=admin).status_code == 404
+    assert result["id"] not in {row["id"] for row in data(client.get("/api/v1/market/reports?scope=general", headers=reader))["items"]}
+    assert market_jobs.general_monthly_report(db, {"period": "2026-10"})["message"].startswith("已生成 一般项目月报")

@@ -39,6 +39,7 @@ RECORDS = {
     "hr-doc": VisibleRecord(m.HrDocument, ("hr:write",)),
     "report": VisibleRecord(m.RptReport, ("report:generate",)),
     "market-report": VisibleRecord(m.RptReport, ("report:generate",)),
+    "general-report": VisibleRecord(m.RptReport, ("report:generate",)),
     "performance-report": VisibleRecord(m.RptReport, ("report:generate",)),
     "approval": VisibleRecord(m.SyncWecomApproval, ("contracts:write",)),
     "clean": VisibleRecord(m.CleanJob, ("clean:import",)),
