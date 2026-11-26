@@ -100,6 +100,7 @@ import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, 
 import TaskDelayPanel from './TaskDelayPanel.vue'
 import TaskDiscussion from './TaskDiscussion.vue'
 import TaskFeedbackForm from './TaskFeedbackForm.vue'
+import './task-dialog.css'
 
 const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean })
 const emit = defineEmits(['update:modelValue', 'edit'])
@@ -194,12 +195,6 @@ function review(decision) {
 
 <style scoped>
 .node-detail { border: 1px solid var(--jc-line); padding: 12px; margin: 8px 0; border-radius: 6px; }.node-detail summary { cursor: pointer; line-height: 1.8; }.node-detail summary small { display: block; color: var(--jc-ink-3); }.node-entry { border-top: 1px solid var(--jc-line); padding-top: 10px; margin-top: 10px; }
-:global(.ops-task-dialog.el-dialog) { display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 13px; }
-:global(.ops-task-dialog > .el-dialog__header) { padding: 15px 23px 13px; border-bottom: 1px solid var(--jc-line); margin: 0; }
-:global(.ops-task-dialog > .el-dialog__header .el-dialog__title) { font-size: 14px; font-weight: 600; }
-:global(.ops-task-dialog > .el-dialog__header .el-dialog__headerbtn) { top: 1px; right: 4px; }
-:global(.ops-task-dialog > .el-dialog__body) { flex: 1; min-height: 0; max-height: min(76vh, calc(100dvh - 124px)); overflow: auto; overscroll-behavior: contain; }
-:global(.ops-task-dialog > .el-dialog__footer) { border-top: 1px solid var(--jc-line); padding: 9px 23px; }
 .task-footer { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }.task-footer .el-button + .el-button { margin-left: 0; }
 .task-page { min-height: 140px; padding: 20px 23px 24px; }
 .task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
@@ -215,5 +210,5 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 :global(.task-history-dialog > .el-dialog__body) { max-height: 68dvh; overflow: auto; overscroll-behavior: contain; }
 .history-timeline { padding: 0 4px 0 2px; }.history-timeline :deep(.el-timeline-item:last-child) { padding-bottom: 0; }
 @media (max-width: 740px) { .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }.work { grid-row: 1; }.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { :global(.ops-task-dialog.el-dialog) { width: 100vw; height: 100dvh; border-radius: 0; }:global(.ops-task-dialog > .el-dialog__body) { max-height: none; }.task-page { padding: 14px; }.section { padding: 12px; } }
+@media (max-width: 600px) { .task-page { padding: 14px; }.section { padding: 12px; } }
 </style>

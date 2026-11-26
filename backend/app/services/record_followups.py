@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import func, select, text
+from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.orm import aliased
 
 from app.core.audit import log_op
@@ -175,14 +175,29 @@ def _wecom_enabled(db, record):
     return record.operation_project_id is None or operations_scope.controls(db, record.operation_project_id)["wecom_reminders"]
 
 
-def recipients(db, p, record, keyword):
+def _team_user_ids(record):
+    if record.operation_project_id is not None:
+        from app.services.operations_policy import team_user_ids
+        return team_user_ids(record.operation_project_id)
+    if record.biz_project_id is not None:
+        from app.services.project_service import team_user_ids
+        return team_user_ids(record.biz_project_id)
+
+
+def recipients(db, p, record, keyword, *, selected_id=None):
     query = select(SysUser.id).where(SysUser.id != p.id, SysUser.status == 1, SysUser.is_deleted.is_(False), SysUser.workbench_enabled.is_(True))
+    team = _team_user_ids(record)
+    if team is not None:
+        query = query.where(SysUser.id.in_(team))
     if keyword:
         query = query.where(SysUser.name.icontains(keyword, autoescape=True))
     elif record.owner_ids:
         query = query.order_by(SysUser.id.in_(record.owner_ids).desc())
-    result = []
+    selected = _recipient(db, p, record, selected_id) if selected_id else None
+    result = [{"id": selected.id, "name": selected.name}] if selected else []
     for user_id in db.scalars(query.order_by(SysUser.name, SysUser.id).limit(120)):
+        if selected and user_id == selected.id:
+            continue
         user = _recipient(db, p, record, user_id)
         if user:
             result.append({"id": user.id, "name": user.name})
@@ -206,6 +221,28 @@ def _progress_requestors(db, record, author_id):
                           .where(Entry.action == "request", Entry.recipient_id == author_id)))
 
 
+def _notice_record(db, p, entry):
+    try:
+        record = targets.resolve(db, p, entry.target_kind, entry.reference)
+    except BizError:
+        return None
+    return record if record.key == entry.target_key else None
+
+
+def visible_notice_refs(db, p):
+    refs = select(SysNotify.ref_id).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp", SysNotify.ref_type == NOTICE)
+    entries = db.scalars(select(Entry).where(cast(Entry.id, String).in_(refs)))
+    visible = {}
+    result = []
+    for entry in entries:
+        key = (entry.target_kind, entry.target_key)
+        if key not in visible:
+            visible[key] = _notice_record(db, p, entry) is not None
+        if visible[key]:
+            result.append(str(entry.id))
+    return result
+
+
 def eligible_notice(db, p, notice):
     if notice.ref_type != NOTICE:
         return False
@@ -216,11 +253,8 @@ def eligible_notice(db, p, notice):
     entry = db.get(Entry, entry_id)
     if not entry or entry.author_id == p.id:
         return False
-    try:
-        record = targets.resolve(db, p, entry.target_kind, entry.reference)
-    except BizError:
-        return False
-    if record.key != entry.target_key or not _wecom_enabled(db, record):
+    record = _notice_record(db, p, entry)
+    if not record or not _wecom_enabled(db, record):
         return False
     if entry.action == "progress":
         return p.id in _progress_requestors(db, record, entry.author_id)

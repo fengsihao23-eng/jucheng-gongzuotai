@@ -53,6 +53,8 @@ def delete_project(db, p, project):
         raise forbidden("只有梁道灿、冯思皓、聚成数智管理员可以删除运营项目")
     if project.status == "deleted":
         raise conflict("该项目已删除")
+    if role(db, p, project) is None:
+        raise forbidden("仅项目团队成员可维护该项目")
     before = snapshot(project, PROJECT_FIELDS)
     project.status = "deleted"
     log_op(db, p.id, "operations.project_delete", "ops_project", project.id, before,
@@ -61,17 +63,8 @@ def delete_project(db, p, project):
     return {"deleted": True, "id": project.id, "name": project.name}
 
 
-def can_view_all(p):
-    return p.has_menu("operations") and is_superuser(p)
-
-
-def visible_projects(p, *, members_only=False):
-    q = select(OpsProject).where(OpsProject.status != "deleted")
-    if not p.has_menu("operations"):
-        q = q.where(False)
-    elif not can_view_all(p):
-        q = q.where(policy.member_clause(p))
-    return q
+def visible_projects(p):
+    return select(OpsProject).where(OpsProject.status != "deleted", p.has_menu("operations"), policy.member_clause(p))
 
 
 def project_categories(db, p):
@@ -79,7 +72,7 @@ def project_categories(db, p):
 
 
 def has_project_content(db, p, project):
-    return can_view_all(p) or role(db, p, project) is not None
+    return role(db, p, project) is not None
 
 
 def get_project(db, p, project_id, *, lock=False):
@@ -93,12 +86,12 @@ def get_project(db, p, project_id, *, lock=False):
 
 
 def role(db, p, project):
-    if not p.has_menu("operations"):
+    if not p.has_menu("operations") or project.status == "deleted":
         return None
-    if is_superuser(p) or project.owner_id == p.id:
+    if project.owner_id == p.id:
         return "manager"
     raw = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
-    if raw and (p.is_admin or p.can("operations:manage")):
+    if raw and (is_superuser(p) or p.is_admin or p.can("operations:manage")):
         return "manager"
     return "manager" if raw == "co_owner" else raw  # 联合负责人与项目管理员同权
 
@@ -131,7 +124,7 @@ def assignee(db, project, user_id):
 def project_dict(db, p, project):
     my_role = role(db, p, project)
     fields = snapshot(project, PROJECT_FIELDS)
-    if not (can_view_all(p) or my_role):
+    if not my_role:
         fields.update(objective="", target_date=None)
     return {"id": project.id, **fields, "owner_name": project.owner.name,
             "my_role": my_role, "can_manage": my_role == "manager"}
@@ -169,7 +162,7 @@ def save_project(db, p, body, project_id=None):
     legacy_campus_income = bool(project_id and project.name == "智慧校园")
     owner = user(db, body.owner_id)
     project = _write(db, p, project, body.model_dump(include=set(PROJECT_FIELDS)), PROJECT_FIELDS)
-    if not project_id and owner.id != p.id and not is_superuser(p):
+    if not project_id and owner.id != p.id:
         db.add(OpsMember(project_id=project.id, user_id=p.id, role="manager"))
         db.flush()
     if body.enabled_sections is not None:
@@ -649,15 +642,7 @@ def feedback(db, p, task_id, body):
         db.flush()
         db.add(OpsTaskNodeUpdate(update_id=event.id, node_id=body.node_id))
     log_op(db, p.id, "operations.task.feedback", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
-    recipients = {project.owner_id, task.creator_id}
-    # 撤销的项目成员不再收到新的反馈内容。
-    allowed = {m["user_id"] for m in members(db, project)}
-    for uid in list(recipients):
-        u = db.get(SysUser, uid)
-        from app.core.deps import build_principal
-        if uid not in allowed and (not u or not can_create(build_principal(u))):
-            recipients.discard(uid)
-    recipients.discard(p.id)
+    recipients = {project.owner_id, task.creator_id} - {p.id}
     _notify(db, recipients, project, task, "运营任务有新进展", f"{task.title} · {STATUS_LABELS[task.status]}\n{content[:500]}")
     db.flush()
     return task

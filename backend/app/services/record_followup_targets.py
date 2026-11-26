@@ -97,6 +97,7 @@ class Record:
     legacy: tuple[str, int | str] | None = None
     archive_key: str | None = None
     operation_project_id: int | None = None
+    biz_project_id: int | None = None
 
     @property
     def key(self):
@@ -210,7 +211,7 @@ def resolve(db, p, kind, ref, *, lock=False):
             if not row:
                 raise not_found("项目")
             return Record(kind, row.project_code, "项目利润详情", row.name, "项目利润", owners(row.owner_id),
-                          p.can("cost:write"), facts=facts(row, (("项目编号", "project_code"),)), path="/profit")
+                          p.can("cost:write"), facts=facts(row, (("项目编号", "project_code"),)), path="/profit", biz_project_id=row.id)
         if kind == "key-project":
             row = key_projects.project(db, p, ident, lock=lock)
             standard = key_projects.standard_access(db, p, row)
@@ -225,14 +226,14 @@ def resolve(db, p, kind, ref, *, lock=False):
                       facts=facts(row, (("项目编号", "project_code"), ("客户", "customer_name"), ("计划完成", "plan_end_date"))),
                       context=row.remark or "", path=key_projects.project_link(row) if kind == "key-project" or not row.is_key else
                       f"/projects/{row.project_code}",
-                      legacy=("project", row.id))
+                      legacy=("project", row.id), biz_project_id=row.id)
     if kind == "key-task":
         item = get_or_404(db, m.BizProjectMilestone, number(ident), "项目任务")
         project = key_projects.project(db, p, item.project_id, lock=lock, is_key=None)
         return Record(kind, str(item.id), "任务详情", item.node_name, "重点项目" if project.is_key else "一般项目",
                       owners(item.owner_id, project.owner_id), key_projects.can_feedback_task(db, p, project, item),
                       facts=facts(item, (("截止日期", "plan_date"),)), context=project.name,
-                      path=key_projects.task_link(project, item.id), legacy=("key-task", item.id))
+                      path=key_projects.task_link(project, item.id), legacy=("key-task", item.id), biz_project_id=project.id)
     if kind == "operation":
         row = operations_service.get_project(db, p, number(ident))
         operations_scope.require(db, p, row, "progress")
@@ -395,10 +396,20 @@ def resolve(db, p, kind, ref, *, lock=False):
     if kind == "receivables-source" and not p.can("receivables:source"):
         raise forbidden()
     row = get_or_404(db, target.model, number(ident), target.label.removesuffix("详情"))
+    if kind == "review":
+        project_service.get_project(db, row.project_id, p)
     if kind == "report" and not report_service.allowed(p, row.report_type):
         raise forbidden("无权查看该类报表")
+    if kind == "report":
+        from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
+        if row.report_type in TEAM_SCOPED_REPORT_TYPES and not can_read_project_report(db, p, row):
+            raise forbidden("报表包含未加入团队的项目")
     if kind == "market-report" and row.report_type not in {"market_weekly", "market_monthly", "intel_brief"}:
         raise not_found("市场报告")
+    if kind == "market-report" and row.report_type != "intel_brief":
+        from app.services.market_service import can_read_project_report
+        if not can_read_project_report(db, p, row):
+            raise not_found("市场报告")
     if kind == "general-report":
         from app.services.market_service import can_read_general_report
         if not can_read_general_report(db, p, row):
@@ -417,4 +428,4 @@ def resolve(db, p, kind, ref, *, lock=False):
         "finance_data": "finance-data", "operation_records": "operation-records"}.get(target.menu, target.menu)
     return Record(kind, str(row.id), target.label, title, MENUS[target.menu],
                   owners(*(getattr(row, key, None) for key in target.owners)), any(p.can(key) for key in target.write),
-                  facts=facts(row, target.facts), path=path)
+                  facts=facts(row, target.facts), path=path, biz_project_id=row.project_id if kind == "review" else None)

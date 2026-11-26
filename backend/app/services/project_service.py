@@ -1,6 +1,6 @@
 """项目部：项目台账 + 标准控制流程节点引擎（PRD 4.2.2 / 7.6）。
 
-- 数据范围：data_scope=self 的项目经理/工程师只看 owner_id==我 或 我是某节点责任人的项目；dept 看本部门负责人的项目；all 全部。
+- 项目读取范围由项目负责人和项目团队决定。
 - 节点编辑权限：项目负责人(owner) 或 有 milestone:write 按钮者（且项目在其可见范围内）。
 - 每次节点变更写 biz_milestone_log（操作人/时间/前后值/source web|mcp|system）。
 - 完成节点自动 status=3，finish_date>plan_date 置 alert_flag（延期完成标红）；进行中/未开始节点过计划日 → 延期标红。
@@ -12,13 +12,13 @@ import io
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import false, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import today, utcnow, week_no, week_range
 from app.models import (MILESTONE_STATUS, PROJECT_STATUS, BizContract, BizMilestoneLog, BizPayment, BizProject,
-                        BizProjectFeedback, BizProjectMilestone, KeyProjectTaskPlan, SysUser)
+                        BizProjectFeedback, BizProjectMilestone, KeyProjectMember, KeyProjectTaskPlan, SysUser)
 from app.services import codes, dict_service
 
 ZERO = Decimal("0")
@@ -29,15 +29,18 @@ STATUS_ALIASES = {"未开始": 1, "进行中": 2, "已完成": 3, "完成": 3, "
 
 # ------------------------------------------------------------------ 数据范围 / 权限
 def visible_filter(p):
-    """返回 BizProject 的可见过滤条件（None 表示全部）。p 为 Principal。"""
-    if p is None or p.data_scope == "all":
+    """项目负责人及项目团队成员才可读取项目，内部定时作业用 None。"""
+    if p is None:
         return None
-    mine = or_(BizProject.owner_id == p.id,
-               exists().where(BizProjectMilestone.project_id == BizProject.id, BizProjectMilestone.owner_id == p.id))
-    if p.data_scope == "dept" and p.user.department_id:
-        dept_users = select(SysUser.id).where(SysUser.department_id == p.user.department_id)
-        return or_(mine, BizProject.owner_id.in_(dept_users))
-    return mine
+    if not p.workbench_enabled:
+        return false()
+    return or_(BizProject.owner_id == p.id, BizProject.id.in_(
+        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id)))
+
+
+def team_user_ids(project_id):
+    return select(KeyProjectMember.user_id).where(KeyProjectMember.project_id == project_id).union(
+        select(BizProject.owner_id).where(BizProject.id == project_id, BizProject.owner_id.is_not(None)))
 
 
 def visible_query(p):
@@ -47,10 +50,8 @@ def visible_query(p):
 
 
 def can_view(db: Session, p, project: BizProject) -> bool:
-    if p is None or p.data_scope == "all":
-        return True
-    q = visible_query(p).where(BizProject.id == project.id)
-    return db.scalar(select(func.count()).select_from(q.subquery())) > 0
+    return not project.is_deleted and (p is None or (p.workbench_enabled and
+        (project.owner_id == p.id or db.get(KeyProjectMember, (project.id, p.id)) is not None)))
 
 
 def can_edit(p, project: BizProject) -> bool:
@@ -71,7 +72,7 @@ def get_project(db: Session, code_or_id, p=None, *, lock=False) -> BizProject:
     if lock:
         db.expire(proj, ["milestones"])
     if p is not None and not can_view(db, p, proj):
-        raise forbidden("无权查看该项目（仅可查看本人负责的项目）")
+        raise forbidden("仅项目团队成员可查看该项目")
     return proj
 
 
@@ -184,7 +185,7 @@ def contract_detail(db: Session, code: str) -> dict:
 def profit_of(db: Session, code: str, T: date | None = None, p=None) -> dict:
     from app.services.profit_service import project_profit, scoped_project_codes
     T = T or today()
-    scope = None if p is None or p.data_scope == "all" else set(db.scalars(visible_query(p).with_only_columns(BizProject.project_code)))
+    scope = None if p is None else set(db.scalars(visible_query(p).with_only_columns(BizProject.project_code)))
     codes = scoped_project_codes(db, code, scope)
     res = project_profit(db, date(T.year, 1, 1), T, project_codes=codes)
     row = res["rows"][0] if res["rows"] else None
@@ -421,7 +422,9 @@ def add_milestone(db: Session, proj: BizProject, data: dict, operator_id, source
     for m in ms:
         if m.seq >= pos:
             m.seq += 1
-    m = BizProjectMilestone(node_name=data["node_name"].strip(), seq=pos, owner_id=data.get("owner_id") or proj.owner_id,
+    owner_id = data.get("owner_id") or proj.owner_id
+    _require_team_owner(db, proj, owner_id)
+    m = BizProjectMilestone(node_name=data["node_name"].strip(), seq=pos, owner_id=owner_id,
                             duty=data.get("duty"), plan_date=_parse_date(data.get("plan_date")),
                             finish_date=_parse_date(data.get("finish_date")),
                             status=parse_status(data.get("status")) or 1, progress_note=data.get("progress_note"))
@@ -437,6 +440,11 @@ def _ensure_workflow_node(db, proj, m):
         raise conflict("请在「任务情况」调整安排、提交进展或删除任务")
 
 
+def _require_team_owner(db, proj, owner_id):
+    if owner_id is not None and owner_id != proj.owner_id and not db.get(KeyProjectMember, (proj.id, owner_id)):
+        raise bad_request("责任人须为项目团队成员，请先在项目团队中添加")
+
+
 def edit_milestone(db: Session, proj: BizProject, m: BizProjectMilestone, data: dict, operator_id,
                    source="web", *, from_task=False) -> BizProjectMilestone:
     if m.project_id != proj.id:
@@ -444,6 +452,8 @@ def edit_milestone(db: Session, proj: BizProject, m: BizProjectMilestone, data: 
     if not from_task:
         _ensure_workflow_node(db, proj, m)
     before = _snap(m)
+    if "owner_id" in data and data["owner_id"] != m.owner_id:
+        _require_team_owner(db, proj, data["owner_id"])
     if "node_name" in data and data["node_name"] is not None:
         if not str(data["node_name"]).strip():
             raise bad_request("节点名称不能为空")
@@ -617,6 +627,24 @@ def weekly_progress(db: Session, projects: list[BizProject], week: str | None = 
                      "delayed": [ms_dict(m, T) for m in ms if ms_delayed(m, T)],
                      "next": [ms_dict(m, T) for m in ms if m.status != 3 and m.plan_date and nws <= m.plan_date <= nwe]})
     return {"week": week_no(ws), "start": ws, "end": we, "projects": rows}
+
+
+def save_weekly_xlsx(db, content, filename, data, *, actor_id=None, trigger="manual"):
+    from app.core.storage import save_bytes
+    from app.models import RptReport
+
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:period))"), {"period": "project_weekly:" + data["week"]})
+    version = (db.scalar(select(func.max(RptReport.version)).where(RptReport.report_type == "project_weekly",
+        RptReport.period == data["week"]).execution_options(include_removed_records=True)) or 0) + 1
+    file = save_bytes(db, data=content, filename=filename, category="project_team_report",
+                      key=f"report/project_weekly/{data['end']:%Y-%m}/{filename}", uploader_id=actor_id)
+    db.add(RptReport(report_type="project_weekly", period=data["week"], title=f"项目周进度汇总 {data['week']}", version=version,
+        metrics={"project_codes": [row["project_code"] for row in data["projects"]], "projects": len(data["projects"]),
+                 "delayed_nodes": sum(len(row["delayed"]) for row in data["projects"]),
+                 "done_nodes": sum(len(row["done"]) for row in data["projects"])},
+        file_ids=[file.id], created_by=actor_id, trigger=trigger))
+    return file
 
 
 def export_weekly_xlsx(db: Session, projects: list[BizProject], week: str | None = None,

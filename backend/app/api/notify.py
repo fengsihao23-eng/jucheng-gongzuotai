@@ -18,8 +18,8 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
     from app.services.operations_notifications import project_assignment_access
     from app.services.operations_policy import task_access
     from app.services import operations_scope as scope, operations_reports as reports
-    from app.services import key_projects
-    from app.models import BizProject, BizProjectMilestone
+    from app.services import key_projects, market_service, record_followups
+    from app.models import BizProject, BizProjectMilestone, RptReport
 
     task_notice = ("ops_task", "ops_task_reminder")
     accessible_keys = key_projects.visible_projects(p).where(BizProject.is_key.is_(True)).with_only_columns(BizProject.id)
@@ -30,6 +30,15 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
             (SysNotify.ref_type == key_projects.GENERAL_REF) & BizProjectMilestone.project_id.in_(accessible_general))))
     visible_team_notice = exists(select(BizProject.id).where(cast(BizProject.id, String) == SysNotify.ref_id,
         BizProject.is_deleted.is_(False), key_projects.membership_scope(p, is_key=None)))
+    visible_milestone = exists(select(BizProjectMilestone.id).where(cast(BizProjectMilestone.id, String) == SysNotify.ref_id,
+        BizProjectMilestone.project_id.in_(accessible_general)))
+    report_refs = select(SysNotify.ref_id).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp", SysNotify.ref_type == "rpt_report")
+    hidden_reports = [str(row.id) for row in db.scalars(select(RptReport).where(
+        RptReport.report_type.in_(market_service.TEAM_SCOPED_REPORT_TYPES), cast(RptReport.id, String).in_(report_refs))
+        .execution_options(include_removed_records=True)) if not market_service.can_read_project_report(db, p, row)]
+    scoped_refs = ("ops_project", *task_notice, "ops_discussion", "ops_request_reminder", "ops_digest", "collection_entry",
+        key_projects.REF, key_projects.GENERAL_REF, key_projects.TEAM_REF, "biz_project", "milestone",
+        "project_weekly", "morning_report", record_followups.NOTICE)
     visible_project = exists(select(OpsProject.id).where(
         cast(OpsProject.id, String) == SysNotify.ref_id, project_assignment_access(p)))
     visible_task = exists(select(OpsTask.id).where(
@@ -48,15 +57,18 @@ def my_notifications(page: int = 1, page_size: int = 20, unread: bool = False,
         cast(BizCollectionEntry.id, String) == SysNotify.ref_id,
         BizCollectionFollowup.contract_id.in_(scoped(p).with_only_columns(BizContract.id))))
     q = select(SysNotify).where(SysNotify.user_id == p.id, SysNotify.channel == "inapp",
-        or_(SysNotify.ref_type.is_(None), ~SysNotify.ref_type.in_(("ops_project", *task_notice, *discussion_types,
-            "ops_digest", "collection_entry", key_projects.REF, key_projects.GENERAL_REF, key_projects.TEAM_REF)),
+        or_(SysNotify.ref_type.is_(None) & (SysNotify.msg_type != "project_weekly"), ~SysNotify.ref_type.in_(scoped_refs),
             visible_project_task,
-            (SysNotify.ref_type == key_projects.TEAM_REF) & visible_team_notice,
+            SysNotify.ref_type.in_((key_projects.TEAM_REF, "biz_project", "project_weekly")) & visible_team_notice,
+            (SysNotify.ref_type == "milestone") & visible_milestone,
+            (SysNotify.ref_type == record_followups.NOTICE) & SysNotify.ref_id.in_(record_followups.visible_notice_refs(db, p)),
             (SysNotify.ref_type == "ops_project") & visible_project,
             SysNotify.ref_type.in_(task_notice) & visible_task,
             SysNotify.ref_type.in_(discussion_types) & visible_discussion,
             (SysNotify.ref_type == "ops_digest") & SysNotify.ref_id.in_(report_ids),
             (SysNotify.ref_type == "collection_entry") & visible_collection & (p.has_menu("contracts") or p.has_menu("receivables"))))
+    if hidden_reports:
+        q = q.where(or_(SysNotify.ref_type.is_distinct_from("rpt_report"), SysNotify.ref_id.not_in(hidden_reports)))
     unread_n = db.scalar(select(func.count()).select_from(q.where(SysNotify.read_status.is_(False)).subquery()))
     if unread:
         q = q.where(SysNotify.read_status.is_(False))

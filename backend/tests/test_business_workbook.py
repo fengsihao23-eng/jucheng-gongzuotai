@@ -225,7 +225,7 @@ def test_dashboard_is_module_aggregate_and_preserves_other_blocks(db, source_onl
     assert ov["tender"]["bidding_amount"] == "285.00"  # Both lots.
     assert ov["payment"]["amount"] is None  # No implicit ledger fallback.
     assert ov["opportunity"]["month"]["count"] == 0
-    assert ov["key_projects"]["count"] == board._key_projects(db, date(2026, 11, 16))["count"]
+    assert ov["key_projects"] == board._key_projects(db, date(2026, 11, 16), p)
     assert ov["submission"]["weekly"]["required"] == board._submission_block(db, date(2026, 11, 16))["weekly"]["required"]
     assert Decimal(ov["profit"]["gross_profit"]) == board._profit_block(db, date(2026, 11, 16))["gross_profit"]
     history = data(client.get("/api/v1/board/monthly?year=2026", headers=login("admin")))

@@ -14,7 +14,7 @@ from app.core.db import get_db
 from app.core.deletion import DeletionIn, verify_deletion
 from app.core.deps import Principal, client_ip, get_principal, require_menu
 from app.core.response import bad_request, conflict, forbidden, not_found, ok
-from app.core.storage import file_brief, save_bytes
+from app.core.storage import file_brief
 from app.models import PROJECT_STATUS, BizOpportunity, BizProject, BizProjectMilestone, SysUser
 from app.schemas.key_projects import KeyTaskFeedbackIn, KeyTaskIn
 from app.services import key_projects, notify_service
@@ -93,12 +93,13 @@ def create_project(body: ProjectIn, request: Request, background: BackgroundTask
     if not data.get("owner_id") and p.dept_code == "XM":
         data["owner_id"] = p.id
     proj = ps.create_project(db, data, p.id)
+    _, notices = key_projects.add_team(db, p, proj, [p.id], creating=True)
     if source:
         source.project_code = proj.project_code
         log_op(db, p.id, "project.link_opportunity", "biz_project", proj.project_code,
                after={"opportunity_id": source.id}, ip=client_ip(request))
     log_op(db, p.id, "project.create", "project", proj.project_code, after={"name": proj.name}, ip=client_ip(request))
-    notices = key_projects.queue_assignment(db, proj) if proj.is_key else []
+    notices.extend(key_projects.queue_assignment(db, proj) if proj.is_key else [])
     db.commit()
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
@@ -138,8 +139,7 @@ def generate_weekly(codes: str | None = Body(None, embed=True), week: str | None
     if not projects:
         raise not_found("可导出的项目")
     content, fname, data = ps.export_weekly_xlsx(db, projects, week)
-    f = save_bytes(db, data=content, filename=fname, category="report",
-                   key=f"report/project_weekly/{data['end']:%Y-%m}/{fname}", uploader_id=p.id)
+    f = ps.save_weekly_xlsx(db, content, fname, data, actor_id=p.id)
     db.commit()
     return ok({"file": file_brief(f), "text": ps.weekly_text(data), "week": data["week"]})
 

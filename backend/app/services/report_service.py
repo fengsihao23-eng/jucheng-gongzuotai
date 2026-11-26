@@ -136,8 +136,8 @@ def caliber_lines(db: Session, report_type: str) -> list[str]:
 
 def allowed(p, report_type: str) -> bool:
     """报表可见性：报表中心菜单之外，还需具备该报表数据所属的任一菜单（财务敏感报表不对市场专员开放）。"""
-    from app.services.market_service import GENERAL_REPORT_TYPES
-    if report_type in GENERAL_REPORT_TYPES:
+    from app.services.market_service import PROJECT_REPORT_TYPES
+    if report_type in PROJECT_REPORT_TYPES:
         return False
     spec = REPORT_TYPES.get(report_type)
     if spec is None or p.is_admin:
@@ -697,9 +697,11 @@ def submission_rate(db: Session, report_type: str, period: str) -> dict:
             "rate": _ratio(s, m), "late": sum(r["late"] for r in rows)}
 
 
-def key_projects_progress(db: Session, start: date, end: date) -> list[dict]:
-    ps = db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.is_key.is_(True),
-                                             BizProject.status.in_([1, 2, 3, 4])).order_by(BizProject.project_code)).all()
+def key_projects_progress(db: Session, start: date, end: date, codes=None) -> list[dict]:
+    query = select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.is_key.is_(True), BizProject.status.in_([1, 2, 3, 4]))
+    if codes is not None:
+        query = query.where(BizProject.project_code.in_(codes))
+    ps = db.scalars(query.order_by(BizProject.project_code)).all()
     fb = defaultdict(list)
     for f in db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.feedback_date >= start,
                                                          BizProjectFeedback.feedback_date <= end)
@@ -720,9 +722,11 @@ def key_projects_progress(db: Session, start: date, end: date) -> list[dict]:
     return out
 
 
-def delayed_milestones(db: Session) -> list[dict]:
-    rows = db.execute(select(BizProjectMilestone, BizProject).join(BizProject).where(
-        BizProject.is_deleted.is_(False), BizProjectMilestone.status == 4).order_by(BizProjectMilestone.plan_date)).all()
+def delayed_milestones(db: Session, codes=None) -> list[dict]:
+    query = select(BizProjectMilestone, BizProject).join(BizProject).where(BizProject.is_deleted.is_(False), BizProjectMilestone.status == 4)
+    if codes is not None:
+        query = query.where(BizProject.project_code.in_(codes))
+    rows = db.execute(query.order_by(BizProjectMilestone.plan_date)).all()
     T = today()
     return [{"project_code": p.project_code, "project_name": p.name, "node": m.node_name, "plan_date": m.plan_date,
              "delay_days": (T - m.plan_date).days if m.plan_date else None,
@@ -732,7 +736,7 @@ def delayed_milestones(db: Session) -> list[dict]:
 # ================================================================ 4. 公司周报
 def collect_company_weekly(db: Session, ctx: dict) -> dict:
     s, e = ctx["start"], ctx["end"]
-    week = ctx["period"]
+    week = ctx["period"].split(":")[0]
     contracts = signed_contracts(db, s, e)
     pays = payments_between(db, s, e)
     month = f"{e:%Y-%m}"
@@ -742,8 +746,8 @@ def collect_company_weekly(db: Session, ctx: dict) -> dict:
     opps = opportunities_view(db, s, e)
     exp = expense_core(db, s, e)
     sub = submission_rate(db, "weekly", week)
-    key = key_projects_progress(db, s, e)
-    delays = delayed_milestones(db)
+    key = key_projects_progress(db, s, e, ctx["project_codes"])
+    delays = delayed_milestones(db, ctx["project_codes"])
     prev_s, prev_e = s - timedelta(days=7), e - timedelta(days=7)
     prev_sign = sum((c["amount"] for c in signed_contracts(db, prev_s, prev_e)), ZERO)
     prev_pay = sum((p["amount"] for p in payments_between(db, prev_s, prev_e)), ZERO)
@@ -1201,15 +1205,18 @@ def regenerate_plan() -> list[tuple[str, str]]:
 
 
 def regenerate_all(db: Session, user_id: int | None = None, trigger: str = "manual",
-                   types: list[str] | None = None) -> dict:
+                   types: list[str] | None = None, *, project_codes: list[str] | None = None) -> dict:
     t0 = time.perf_counter()
     results = []
     for rtype, period in regenerate_plan():
         if types and rtype not in types:
             continue
+        scoped_codes = project_codes if rtype in {"weekly_profit", "project_operation", "company_weekly"} else None
+        if scoped_codes == []:
+            continue
         sp = db.begin_nested()
         try:
-            r = generate(db, rtype, period, trigger, user_id)
+            r = generate(db, rtype, period, trigger, user_id, scoped_codes)
             sp.commit()
             results.append({"report_type": rtype, "period": r.period, "id": r.id, "version": r.version,
                             "title": r.title, "cost_ms": r.cost_ms, "ok": True,

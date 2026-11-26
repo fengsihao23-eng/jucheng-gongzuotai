@@ -37,8 +37,9 @@ def history(record: Record, p: Actor, db: DB, before: Annotated[int | None, Quer
 
 
 @router.get("/{kind}/{ident}/recipients")
-def recipients(record: Record, p: Actor, db: DB, keyword: Annotated[str, Query(max_length=60)] = ""):
-    return ok(service.recipients(db, p, record, keyword.strip()), headers=HEADERS)
+def recipients(record: Record, p: Actor, db: DB, keyword: Annotated[str, Query(max_length=60)] = "",
+               selected_id: Annotated[int | None, Query(gt=0, lt=10**18)] = None):
+    return ok(service.recipients(db, p, record, keyword.strip(), selected_id=selected_id), headers=HEADERS)
 
 
 @router.post("/{kind}/{ident}")

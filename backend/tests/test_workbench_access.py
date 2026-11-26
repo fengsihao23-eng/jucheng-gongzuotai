@@ -117,7 +117,6 @@ def test_global_roles_buttons_scope_and_reviewer_assignment_do_not_bypass_member
     principal = build_principal(outsider)
     principal.buttons.update({"operations:manage", "operations:view_all", "operations:approve"})
     assert principal.data_scope == "all"
-    assert not ops.can_view_all(principal)
     project = db.get(OpsProject, own_project["id"])
     assert ops.role(db, principal, project) is None
     task = OpsTask(project_id=project.id, owner_id=project.owner_id, creator_id=project.owner_id,
@@ -142,19 +141,23 @@ def test_global_roles_buttons_scope_and_reviewer_assignment_do_not_bypass_member
 
 
 @pytest.mark.parametrize("userid,name", [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员")])
-def test_only_verified_superusers_cross_projects(db, own_project, userid, name):
+def test_verified_admins_need_team_membership_for_project_access(db, own_project, userid, name):
     target = user(db, userid)
     if target is None:
         target = SysUser(wecom_userid=userid, name=name, workbench_enabled=True)
         db.add(target)
         db.flush()
     principal = build_principal(target)
-    assert ops.can_view_all(principal)
+    assert ops.is_superuser(principal)
+    with pytest.raises(BizError):
+        ops.get_project(db, principal, own_project["id"])
+    db.add(OpsMember(project_id=own_project["id"], user_id=target.id, role="member"))
+    db.flush()
     assert ops.get_project(db, principal, own_project["id"]).id == own_project["id"]
     # 改成相同显示名不会获得三位最高权限人员身份。
     other = user(db, "chenjing")
     other.name = name
-    assert not ops.can_view_all(build_principal(other))
+    assert not ops.is_superuser(build_principal(other))
     db.rollback()
 
 
@@ -243,6 +246,9 @@ def test_project_delete_password_is_checked_on_server(client, login, db, own_pro
     db.commit()
     headers = {"Authorization": "Bearer " + create_jwt(target.id)[0]}
     endpoint = f"{BASE}/{own_project['id']}"
+    assert client.get(endpoint, headers=headers).status_code == 404
+    db.add(OpsMember(project_id=own_project["id"], user_id=target.id, role="manager"))
+    db.commit()
     assert client.delete(endpoint, headers=headers).status_code == 400
     assert client.request("DELETE", endpoint, headers=headers, json={"password": "wrong"}).status_code == 400
     assert client.get(endpoint, headers=headers).status_code == 200

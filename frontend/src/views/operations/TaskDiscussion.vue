@@ -41,6 +41,9 @@ const requests = computed(() => (props.task.discussions || []).filter(item => it
 const recipients = computed(() => (props.task.participants || []).filter(u => u.id !== auth.profile?.id))
 const defaultNoteRecipients = computed(() => (props.task.default_note_recipients || []).map(u => u.name).join('、'))
 watch(() => props.task.id, () => { content.value = ''; replyTo.value = null; recipient.value = null; node.value = null; kind.value = 'note' })
+watch(recipients, users => {
+  if (recipient.value && !users.some(user => user.id === recipient.value)) recipient.value = null
+})
 function reply(item) { replyTo.value = item; content.value = '' }
 async function submit() {
   if (saving.value || !content.value.trim()) return

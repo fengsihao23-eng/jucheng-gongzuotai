@@ -84,7 +84,8 @@ def setup_import(db, *, held=False, duplicate=False, multi=False):
     contracts = []
     for amount in ([600, 400] if multi else [1000]):
         uid = uuid.uuid4().hex[:12]
-        project = BizProject(project_code=f'JC-XY-PR-{uid}', name='测试报表项目', business_line='XY', customer_name='测试客户', status=2)
+        project = BizProject(project_code=f'JC-XY-PR-{uid}', name='测试报表项目', business_line='XY',
+                             customer_name='测试客户', status=2, owner_id=user(db).id)
         db.add(project)
         db.flush()
         c = BizContract(contract_no=f'PR-{uid}', name=f'来源测试合同{uid}', amount=Decimal(amount), sign_date=date(2026, 1, 1),

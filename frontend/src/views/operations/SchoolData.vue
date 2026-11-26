@@ -47,8 +47,10 @@
     <Panel v-if="mode === 'income' && project.financials.daily.length" title="每日收入" class="mt-16"><Chart :option="incomeChart" height="240px" /></Panel>
     <Panel v-if="mode === 'income' && project.unassigned_incomes?.length" title="项目公共收入（未分摊学校）" :sub="`合计 ${money(project.financials.unassigned_income)}，已计入累计登记收入`" class="mt-16"><el-table :data="project.unassigned_incomes" max-height="300" @row-contextmenu="projectIncomeMenu"><el-table-column prop="income_date" label="收款日期" width="130" /><el-table-column label="金额（元）" width="130"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="note" label="来源与说明" min-width="300" show-overflow-tooltip /></el-table></Panel>
 
-    <el-drawer :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }" :title="selected?.name || '学校资料'" size="min(900px, 100vw)" destroy-on-close>
-      <template v-if="selected">
+    <el-dialog :model-value="!!selected" @update:model-value="v => { if (!v) selectedId = null }"
+      :title="selected?.name || '学校资料'" class="ops-task-dialog" width="min(1050px, calc(100vw - 40px))"
+      align-center append-to-body destroy-on-close :close-on-click-modal="false">
+      <div v-if="selected" class="school-details">
         <div class="jc-row between"><p><span v-if="can('procurement')">合计投入 <b>{{ money(selected.total_investment) }} 元</b> </span><span v-if="can('income')">· 累计收入 <b>{{ money(selected.total_income) }} 元</b></span></p><el-button v-if="project.can_manage" @click="editSchool(selected)">编辑学校资料</el-button></div>
         <p v-if="can('outreach')" class="jc-muted">{{ STAGES[selected.stage] }} · 下一步：{{ selected.next_action || '待补充' }}</p>
         <div v-if="project.can_manage && mode !== 'procurement'" class="jc-row"><span>学校区域</span><el-select :model-value="selected.region || '待定'" aria-label="学校区域" style="width:160px" @change="saveRegion"><el-option v-for="r in REGIONS" :key="r" :label="r" :value="r" /></el-select></div>
@@ -89,8 +91,9 @@
             <el-table :data="selected.incomes" @row-contextmenu="incomeMenu"><el-table-column prop="income_date" label="收入日期" width="140" /><el-table-column label="金额（元）" width="160"><template #default="{ row }">{{ money(row.amount) }}</template></el-table-column><el-table-column prop="source" label="数据来源" min-width="140" /><el-table-column prop="note" label="备注" min-width="140" /><el-table-column v-if="project.can_manage" width="80"><template #default="{ row }"><el-button link type="primary" @click="editIncome(row)">编辑</el-button></template></el-table-column></el-table>
           </el-tab-pane>
         </el-tabs>
-      </template>
-    </el-drawer>
+      </div>
+      <template #footer><el-button @click="selectedId = null">关闭</el-button></template>
+    </el-dialog>
 
     <el-dialog v-model="dialog" :title="dialogTitle" width="min(620px, 94vw)" destroy-on-close>
       <el-form ref="formRef" :model="form" label-position="top">
@@ -130,6 +133,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
 import IncomeFile from './IncomeFile.vue'
 import SchoolFollowup from './SchoolFollowup.vue'
+import './task-dialog.css'
 import OutreachGoals from './OutreachGoals.vue'
 import IncomeOverview from './IncomeOverview.vue'
 import { money, datetime } from '@/utils/format'
@@ -204,6 +208,8 @@ async function save() {
 }
 </script>
 <style scoped>
+.school-details { padding: 16px clamp(14px, 4vw, 23px) 22px; min-width: 0; }
+.school-details > .jc-row { flex-wrap: wrap; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 22px 0 16px; }.section-head { margin: 12px 0 20px; gap: 16px; flex-wrap: wrap; }.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }.plain { white-space: pre-wrap; line-height: 1.8; }
 .follow-task { border: 1px solid var(--jc-line); padding: 12px 16px; margin: 12px 0; cursor: pointer; border-radius: var(--jc-radius); }
 .prospect-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,270px),1fr)); gap: 14px; }

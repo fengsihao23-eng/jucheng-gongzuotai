@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.integration.wecom.base import SendResult
 from app.models import BizProject, ContractWorkbook, SysNotify, SysUser
 from app.services import business_workbook, dict_service, notify_service
-from tests.conftest import data
+from tests.conftest import add_project_test_members, data
 from tests.test_contract_workbook import tender
 
 BASE = "/api/v1/record-followups"
@@ -28,6 +28,7 @@ def test_lead_requests_owner_replies_and_progress_is_visible_in_original_project
     owner = db.scalar(select(SysUser).where(SysUser.wecom_userid == "xuhao"))
     project = data(client.post("/api/v1/projects", headers=admin, json={"name": "共享跟进验收-" + uuid4().hex[:8],
         "business_line": "XY", "customer_name": "合成客户", "owner_id": owner.id, "milestone_template": "none"}))
+    add_project_test_members(db, [project["project_code"]], "zhangzhenhua")
     url = f"{BASE}/project/{project['project_code']}"
     assert client.get(url, headers=outsider).status_code == 403
     assert client.get(url + "/recipients", headers=outsider).status_code == 403
@@ -56,8 +57,11 @@ def test_lead_requests_owner_replies_and_progress_is_visible_in_original_project
     assert send(client, leader, url, "progress", "阻碍", status="blocked", expected_progress=first["progress_revision"]).status_code == 400
     project_data = data(client.get(f"/api/v1/projects/{project['project_code']}", headers=admin))
     assert project_data["feedbacks"][0]["content"] == body["content"]
-    assert [users for users, _ in deliveries] == [["xuhao"], ["zhangzhenhua"], ["zhangzhenhua"]]
-    assert all(msg.msg_type == "textcard" and "/record-followups/" in msg.url for _, msg in deliveries)
+    assert [users for users, _ in deliveries[:2]] == [["xuhao"], ["zhangzhenhua"]]
+    assert set(deliveries[2][0]) == {"zhangzhenhua", "admin"}
+    assert len(deliveries) == 3
+    assert all(msg.msg_type == "textcard" for _, msg in deliveries)
+    assert all("/record-followups/" in msg.url for _, msg in deliveries[:2])
 
 
 def test_note_routes_to_owner_or_selected_person_and_retry_rechecks_scope(client, login, db, monkeypatch):
@@ -73,6 +77,7 @@ def test_note_routes_to_owner_or_selected_person_and_retry_rechecks_scope(client
     project = data(client.post("/api/v1/projects", headers=login("admin"), json={
         "name": "留言通知验收", "business_line": "XY", "customer_name": "合成客户",
         "owner_id": owner.id, "milestone_template": "none"}))
+    add_project_test_members(db, [project["project_code"]], "zhangzhenhua")
     url = f"{BASE}/project/{project['project_code']}"
     body = {"client_id": str(uuid4()), "action": "note", "content": "业务留言的验收正文"}
     result = data(client.post(url, headers=login("admin"), json=body))

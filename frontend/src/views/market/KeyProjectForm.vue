@@ -80,11 +80,10 @@ const scope = computed(() => props.general ? 'general' : undefined)
 const emit = defineEmits(['update:modelValue', 'saved'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const auth = useAuth(), form = reactive({ tasks: [] }), users = ref([]), formRef = ref(), saving = ref(false)
-const teamUsers = ref([]), teamMemberIds = ref([]), initialTaskUsers = ref([])
+const teamUsers = ref([]), teamMemberIds = ref([])
 const taskUsers = computed(() => {
-  const assignees = props.general ? initialTaskUsers.value : users.value
-  const listed = new Set(assignees.map(user => user.id))
-  return [...assignees, ...teamUsers.value.filter(user => teamMemberIds.value.includes(user.id) && !listed.has(user.id))]
+  const allowed = new Set([form.owner_id, auth.profile?.id, ...teamMemberIds.value])
+  return teamUsers.value.filter(user => allowed.has(user.id))
 })
 let nextTaskKey = 0, optionsVersion = 0
 
@@ -94,7 +93,6 @@ watch(visible, async open => {
   const project = props.initial
   teamMemberIds.value = []
   teamUsers.value = []
-  initialTaskUsers.value = []
   Object.assign(form, { name: project?.name || '', content: project?.content || '',
     owner_id: project?.owner_id || auth.profile?.id, preparation_on: project?.start_date || null,
     due_on: project?.plan_end_date || null, customer_name: project?.customer_name || '',
@@ -105,7 +103,6 @@ watch(visible, async open => {
     if (version !== optionsVersion) return
     users.value = options.users
     teamUsers.value = options.team_users || []
-    initialTaskUsers.value = options.task_users || []
     if (!form.preparation_on) form.preparation_on = options.today
   } catch { /* 请求错误由接口提示统一显示。 */ }
 })

@@ -221,12 +221,14 @@ def test_task_notes_notify_default_or_selected_people_immediately(client, login,
 
 
 def test_linked_funds_keep_original_permission_and_approval_payment_distinction(client,login,db,setup):
+    from tests.conftest import add_project_test_members
     project,school,task=setup
     code='JC-FUND-'+uuid.uuid4().hex[:8]
     business=BizProject(project_code=code,name='关联经费样例',customer_name='样例学校',business_line='XY',owner_id=uid(db,'wujun'),status=2)
     db.add(business);db.flush()
     db.add(BizExpenseReport(approval_no='FUND-'+uuid.uuid4().hex,applicant_id=uid(db,'chenjing'),project_code=code,amount=Decimal('123.45'),expense_date=today(),category='采购',status=4,pay_status=0,reason='已批未付款'))
     db.commit()
+    add_project_test_members(db, [code], "admin")
     base=f"{BASE}/{project['id']}"
     data(client.put(base+'/controls',headers=login('admin'),json={'expected_revision':0,'business_project_code':code}))
     result=data(client.get(base+'/funds',headers=login('admin')))

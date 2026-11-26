@@ -222,8 +222,13 @@ def t_daily_expense(db, p, date: str | None = None, project_code: str | None = N
 def t_project_profit(db, p, week: str | None = None):
     from app.core.timeutil import last_week
     from app.services import report_service
+    from app.services.project_service import visible_query
+    from app.models import BizProject
     wk = week or last_week()
-    rpt = report_service.generate(db, "weekly_profit", wk, trigger="mcp", user_id=p.id)
+    codes = list(db.scalars(visible_query(p).with_only_columns(BizProject.project_code)))
+    if not codes:
+        return {"summary": "当前没有已加入团队的项目可生成利润表。", "data": {"rows": []}, "files": []}
+    rpt = report_service.generate(db, "weekly_profit", wk, trigger="mcp", user_id=p.id, project_codes=codes)
     m = rpt.metrics or {}
     t = m.get("totals") or {}
     gm = t.get("gross_margin")
@@ -439,7 +444,7 @@ def t_market_weekly(db, p, period_type: str = "weekly", period: str | None = Non
     from app.core.timeutil import month_of, today, week_no
     from app.services import market_service
     period = period or (week_no(today()) if period_type == "weekly" else month_of(today()))
-    r = market_service.build_market_report(db, period_type, period)
+    r = market_service.build_market_report(db, period_type, period, user_scope=p, trigger="mcp", created_by=p.id)
     f = r.get("file") or r.get("file_id")
     return {"summary": r.get("text") or r.get("summary"), "data": {k: v for k, v in r.items() if k not in ("file",)},
             "files": _files(f["id"] if isinstance(f, dict) else f) if f else []}

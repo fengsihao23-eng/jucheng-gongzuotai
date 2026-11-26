@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.timeutil import TZ
 from app.models import (BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting,
-                        KeyProjectTaskNode, KeyProjectTaskPlan, LogOperation, SysNotify, SysUser, SysUserPermission)
+                        KeyProjectMember, KeyProjectTaskNode, KeyProjectTaskPlan, LogOperation, SysNotify, SysUser, SysUserPermission)
 from app.services import key_projects as keys
 from tests.conftest import data
 
@@ -25,7 +25,8 @@ def key_project(client, login, db, monkeypatch):
     body = {"name": "重点项目验收-" + uuid4().hex[:8], "content": "明确准备、阶段计划与完成要求",
             "customer_name": "合成验收客户", "business_line": "XY", "owner_id": ident(db, "wujun"),
             "preparation_on": "2026-11-10", "due_on": "2026-12-10"}
-    project = data(client.post(BASE + "/projects", headers=login("admin"), json=body))
+    project = data(client.post(BASE + "/projects", headers=login("admin"), json={
+        **body, "team_member_ids": [ident(db, "xuhao"), ident(db, "dingrui")]}))
     path = BASE + f"/projects/{project['project_code']}"
     return path, project, body
 
@@ -76,7 +77,8 @@ def test_create_project_with_tasks_and_notify_each_assignee(client, login, db, k
         task_body(db, title="核对设备", feedback_due_at="2026-11-24T16:30:00+08:00"),
         task_body(db, title="校方确认", owner_id=ident(db, "dingrui"), nodes=[]),
     ]
-    result = data(client.post(BASE + "/projects", headers=login("admin"), json={**fields, "name": "一次创建项目和任务", "tasks": plans}))
+    result = data(client.post(BASE + "/projects", headers=login("admin"), json={**fields, "name": "一次创建项目和任务", "tasks": plans,
+        "team_member_ids": [plan["owner_id"] for plan in plans]}))
     route = f"/market/projects/{result['project_code']}"
     project = data(client.get(f"/api/v1{route}", headers=login("admin")))
     assert [task["title"] for task in project["tasks"]] == [plan["title"] for plan in plans]
@@ -142,6 +144,8 @@ def test_only_named_enterprise_accounts_can_change_follow_pause(client, login, d
         permission = permission or SysUserPermission(user_id=actor.id)
         permission.menus, permission.buttons, permission.data_scope = ["market", "projects"], [], "all"
         db.add(permission)
+        membership = KeyProjectMember(project_id=project["id"], user_id=actor.id)
+        db.add(membership)
         db.commit()
         headers = {"Authorization": "Bearer " + create_jwt(actor.id)[0]}
         try:
@@ -160,6 +164,7 @@ def test_only_named_enterprise_accounts_can_change_follow_pause(client, login, d
                 db.delete(permission)
             else:
                 permission.menus, permission.buttons, permission.data_scope = previous
+            db.delete(membership)
             db.commit()
 
 
@@ -194,7 +199,8 @@ def test_team_membership_grants_only_that_projects_workspace_and_notices(client,
     item = data(client.post(path + "/tasks", headers=admin, json=task_body(db)))
     task_path = f"{path}/tasks/{item['id']}"
     detail = data(client.get(path, headers=member))
-    assert [u["id"] for u in detail["team"]] == [fields["owner_id"], person]
+    assert detail["team"][0]["id"] == fields["owner_id"]
+    assert {u["id"] for u in detail["team"]} == {fields["owner_id"], person, ident(db, "admin"), ident(db, "xuhao"), ident(db, "dingrui")}
     assert not detail["can_manage"] and not detail["can_delete"]
     assert detail["money"] is None and detail["financials"] is None and "budget_amount" not in detail
     assert [t["id"] for t in detail["tasks"]] == [item["id"]]
@@ -213,9 +219,9 @@ def test_team_membership_grants_only_that_projects_workspace_and_notices(client,
     pending = keys.queue_team_notice(db, db.get(BizProject, project["id"]), "等待投递的进展")
     db.commit()
     assert client.request("DELETE", f"{path}/team/{person}", headers=admin, json=deletion_password()).status_code == 200
-    assert notify_service.deliver_pending(db, pending) == 1
+    assert notify_service.deliver_pending(db, pending) == len(pending)
     db.commit()
-    assert db.get(SysNotify, pending[0]).send_status == 2
+    assert next(db.get(SysNotify, notice_id) for notice_id in pending if db.get(SysNotify, notice_id).user_id == person).send_status == 2
     assert not data(client.get("/api/v1/auth/me", headers=member))["key_project_team"]
     assert client.get(task_path, headers=member).status_code == 403
     assert client.get(f"/api/v1/record-followups/key-task/{item['id']}", headers=member).status_code == 403
@@ -322,8 +328,8 @@ def test_delete_key_project_requires_management_permission_and_visible_scope(cli
     if card:
         assert card["can_delete"] is granted
     else:
-        assert scope == "self" and not owned
-    allowed = granted and (scope == "all" or owned)
+        assert not owned
+    allowed = granted and owned
     response = client.request("DELETE", path, headers=headers, json=deletion_password())
     assert response.status_code == (200 if allowed else 403)
     db.expire_all()

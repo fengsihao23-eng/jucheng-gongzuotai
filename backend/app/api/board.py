@@ -27,7 +27,7 @@ def overview(period: str = "", refresh: int = 0, p: Principal = Board, db: Sessi
         except ValueError as exc:
             raise bad_request("period 格式应为 YYYY-MM") from exc
         ref = min(e, today())
-    data = board_service.overview(db, ref=ref, refresh=bool(refresh))
+    data = board_service.overview(db, ref=ref, refresh=bool(refresh), principal=p)
     receivables = None
     if p.has_menu("receivables") and p.data_scope == "all":
         from app.services import receivables_service

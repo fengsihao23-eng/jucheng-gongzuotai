@@ -267,12 +267,14 @@ async function loadRecipients(keyword = '') {
   const current = ++peopleVersion
   finding.value = true
   try {
-    const results = await api.get(endpoint.value + '/recipients', { ...params.value, keyword }, { silent: true })
+    const results = await api.get(endpoint.value + '/recipients', { ...params.value, keyword, selected_id: discussion.recipient }, { silent: true })
     if (current === peopleVersion) {
-      const selected = people.value.find(person => person.id === discussion.recipient)
-      people.value = selected && !results.some(person => person.id === selected.id) ? [selected, ...results] : results
+      people.value = results
+      if (discussion.recipient && !results.some(person => person.id === discussion.recipient)) discussion.recipient = null
     }
-  } catch {} finally { if (current === peopleVersion) finding.value = false }
+  } catch (error) {
+    if (current === peopleVersion && [40301, 40401].includes(error.code)) people.value = []
+  } finally { if (current === peopleVersion) finding.value = false }
 }
 function openRecipients(open) { if (open) loadRecipients() }
 function beginReply(item) { replyTo.value = item; discussion.content = '' }

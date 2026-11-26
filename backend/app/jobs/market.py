@@ -5,16 +5,15 @@
 - market_weekly_report    每周一 10:30：生成上周市场部重点项目周报，推送 SC-01/SC-02/ZB-01
 - market_monthly_report   每月 1 日 11:00：生成上月市场部重点项目月报
 """
-from collections import defaultdict
 from datetime import date, timedelta
 
 from sqlalchemy import or_, select
 
-from app.core.storage import save_bytes
+from app.core.deps import build_principal
 from app.core.timeutil import last_week, prev_month, today, week_no
 from app.jobs.registry import job
-from app.models import BizMilestoneLog, BizProject, BizProjectFollowSetting, BizProjectMilestone, KeyProjectTaskPlan, RptReport, SysUser
-from app.services import market_service, notify_service
+from app.models import BizMilestoneLog, BizProject, BizProjectFollowSetting, BizProjectMilestone, KeyProjectTaskPlan, SysUser
+from app.services import key_projects, market_service, notify_service
 from app.services import project_service as ps
 
 DUE_LEAD_DAYS = 3
@@ -61,7 +60,7 @@ def project_milestone_scan(db, params: dict) -> dict:
     sent = 0
     for m, proj in due_soon:
         u = users.get(m.owner_id)
-        if u and not proj.is_key:
+        if u and not proj.is_key and ps.can_view(db, build_principal(u), proj):
             notify_service.send(db, [u], "milestone_due", "项目节点即将到期",
                                 f"**{proj.name}**\n节点「{m.node_name}」计划 {m.plan_date} 完成，"
                                 f"剩余 {(m.plan_date - T).days} 天。\n岗位职责：{m.duty or '—'}",
@@ -69,7 +68,7 @@ def project_milestone_scan(db, params: dict) -> dict:
             sent += 1
     for m, proj in newly_delayed:
         targets = {uid for uid in (m.owner_id, proj.owner_id) if uid}
-        us = [users[i] for i in targets if i in users]
+        us = [users[i] for i in targets if i in users and ps.can_view(db, build_principal(users[i]), proj)]
         if us and not proj.is_key:
             notify_service.send(db, us, "milestone_delay", "项目节点延期",
                                 f"**{proj.name}**（{proj.project_code}）\n<font color=\"warning\">节点「{m.node_name}」"
@@ -89,33 +88,18 @@ def project_weekly_progress(db, params: dict) -> dict:
     week = params.get("week") or last_week()
     projects = db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.status.in_([2, 3, 4]))
                           .order_by(BizProject.project_code)).unique().all()
-    by_pm: dict[int, list] = defaultdict(list)
-    for x in projects:
-        if x.owner_id:
-            by_pm[x.owner_id].append(x)
     n = 0
-    for uid, ps_ in by_pm.items():
-        u = db.get(SysUser, uid)
-        data = ps.weekly_progress(db, ps_, week)
-        notify_service.send(db, [u], "project_weekly", f"我负责的项目周进度 {data['week']}", ps.weekly_text(data),
-                            link="/projects?mine=1", ref_type="project_weekly", ref_id=data["week"])
+    for project in projects:
+        user = project.owner
+        if not user or not ps.can_view(db, build_principal(user), project) or key_projects.is_paused(db, project):
+            continue
+        data = ps.weekly_progress(db, [project], week)
+        notify_service.send(db, [user], "project_weekly", f"我负责的项目周进度 {data['week']}", ps.weekly_text(data),
+                            link=key_projects.project_link(project), ref_type="project_weekly", ref_id=str(project.id))
         n += 1
     content, fname, data = ps.export_weekly_xlsx(db, list(projects), week, title=f"项目周进度汇总 {week}")
-    f = save_bytes(db, data=content, filename=fname, category="report",
-                   key=f"report/project_weekly/{data['end']:%Y-%m}/{fname}")
-    ver = (db.scalar(select(RptReport.version).where(RptReport.report_type == "project_weekly", RptReport.period == week)
-                     .order_by(RptReport.version.desc()).limit(1).execution_options(include_removed_records=True)) or 0) + 1
+    ps.save_weekly_xlsx(db, content, fname, data, trigger=params.get("trigger", "schedule"))
     delayed = sum(len(r["delayed"]) for r in data["projects"])
-    db.add(RptReport(report_type="project_weekly", period=week, title=f"项目周进度汇总 {week}", version=ver,
-                     metrics={"projects": len(projects), "delayed_nodes": delayed,
-                              "done_nodes": sum(len(r["done"]) for r in data["projects"])},
-                     file_ids=[f.id], trigger=params.get("trigger", "schedule")))
-    summary = (f"**项目周进度汇总 {week}**\n在建/验收/运维项目 {len(projects)} 个，本周完成节点 "
-               f"{sum(len(r['done']) for r in data['projects'])} 个，<font color=\"warning\">延期节点 {delayed} 个</font>。\n"
-               + "\n".join(f"> {r['name']}：延期 {'、'.join(x['node_name'] for x in r['delayed'])}"
-                           for r in data["projects"] if r["delayed"])[:1500])
-    leaders = notify_service.users_by_roles(db, ["SC-01", "SC-02", "ZB-01"])
-    notify_service.send(db, leaders, "project_weekly", f"项目周进度汇总 {week}", summary, link="/market")
     db.commit()
     return {"rows": n, "message": f"推送项目经理 {n} 人，汇总 {len(projects)} 个项目（延期节点 {delayed}）"}
 
@@ -125,7 +109,8 @@ def _push_report(db, res, title: str) -> int:
     content = (f"**{title}**\n重点项目 {t['projects']} 个，异常 {t['alert_projects']} 个；完成节点 {t['done_nodes']} 个，"
                f"延期节点 {t['delayed_nodes']} 个；本期新签 {market_service._wan(t['period_signed'])}，"
                f"本期回款 {market_service._wan(t['period_received'])}。\n初稿已生成，请润色后发布。")
-    users = notify_service.users_by_roles(db, ["SC-01", "SC-02", "ZB-01"])
+    users = [u for u in notify_service.users_by_roles(db, ["SC-01", "SC-02", "ZB-01"])
+             if market_service.can_read_project_report(db, build_principal(u), res["report"])]
     notify_service.send(db, users, "report", title, content, link="/market?tab=reports",
                         ref_type="rpt_report", ref_id=str(res["report"].id))
     return len(users)

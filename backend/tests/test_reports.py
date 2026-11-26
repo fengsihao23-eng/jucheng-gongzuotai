@@ -11,15 +11,24 @@ import openpyxl
 import pytest
 from sqlalchemy import delete, func, select
 
-from tests.conftest import data
+from tests.conftest import add_project_test_members, data
 
 D = Decimal
 TYPES = ["daily_expense", "daily_bankflow", "weekly_profit", "company_weekly", "company_monthly", "project_operation"]
 FIN = "chenjing"  # CW-01
 
 
-def _download(client, f) -> bytes:
-    r = client.get(f["url"])
+@pytest.fixture(scope="module", autouse=True)
+def finance_report_team(seeded):
+    from app.core.db import SessionLocal
+    from app.models import BizProject
+    with SessionLocal() as db:
+        codes = list(db.scalars(select(BizProject.project_code).where(BizProject.is_deleted.is_(False))))
+        add_project_test_members(db, codes, FIN)
+
+
+def _download(client, login, f) -> bytes:
+    r = client.get(f["url"], headers=login(FIN))
     assert r.status_code == 200, r.text[:200]
     return r.content
 
@@ -47,7 +56,7 @@ def test_generate_each_type_files_valid(client, login, rtype):
     assert r["version"] >= 1 and r["summary"] and r["files"]
     for f in r["files"]:
         assert f["filename"].endswith((".xlsx", ".docx"))
-        blob = _download(client, f)
+        blob = _download(client, login, f)
         if f["filename"].endswith(".xlsx"):
             wb = openpyxl.load_workbook(io.BytesIO(blob))
             assert "口径说明" in wb.sheetnames
@@ -94,7 +103,7 @@ def test_daily_expense_total_equals_db(db, client, login, back):
     assert sum(s.total_amount for s in snaps if s.dimension == "dept") == exp + flow
     assert sum(s.total_amount for s in snaps if s.dimension == "project") == exp + flow
     # xlsx 明细合计行与数据库一致
-    wb = openpyxl.load_workbook(io.BytesIO(_download(client, r["files"][0])))
+    wb = openpyxl.load_workbook(io.BytesIO(_download(client, login, r["files"][0])))
     ws = wb["支出明细"]
     total_row = [row for row in ws.iter_rows(values_only=True) if row[0] == "合计"][0]
     assert D(str(total_row[9])) == exp + flow
@@ -126,7 +135,7 @@ def test_expense_consistent_across_allocation_daily_and_weekly_profit(db, client
         m = data(client.get(f"/api/v1/reports/{r['id']}", headers=login(FIN)))["metrics"]
         hit = [i for i in m["items"] if i["ref"] == e.approval_no]
         assert len(hit) == 1 and D(hit[0]["amount"]) == amt and hit[0]["project_key"] == code
-        wb = openpyxl.load_workbook(io.BytesIO(_download(client, r["files"][0])))
+        wb = openpyxl.load_workbook(io.BytesIO(_download(client, login, r["files"][0])))
         xl = [row for row in wb["支出明细"].iter_rows(values_only=True) if row[1] == e.approval_no]
         assert len(xl) == 1 and D(str(xl[0][9])) == amt
         # ③ 周利润表：该项目本周报销费用增加同一金额；与 profit_service 一致
@@ -141,7 +150,7 @@ def test_expense_consistent_across_allocation_daily_and_weekly_profit(db, client
         dr = data(client.get(f"/api/v1/reports/profit/{code}", params={"week": wk}, headers=login(FIN)))
         dx = [x for x in dr["detail"]["expenses"] if x["approval_no"] == e.approval_no]
         assert len(dx) == 1 and D(dx[0]["amount"]) == amt and dx[0]["in_period"]
-        wbx = openpyxl.load_workbook(io.BytesIO(_download(client, w["files"][0])))
+        wbx = openpyxl.load_workbook(io.BytesIO(_download(client, login, w["files"][0])))
         hdr = [c.value for c in wbx["项目利润表"][1]]
         row = [r_ for r_ in wbx["项目利润表"].iter_rows(values_only=True) if r_[0] == code][0]
         assert D(str(row[hdr.index("本周报销费用")])) == D(prow["period_expense"])
@@ -211,7 +220,7 @@ def test_generate_by_project(client, login):
     assert [x["project_code"] for x in m["rows"]] == ["JC-XY-2026-001"]
     bad = client.post("/api/v1/reports/generate", headers=login(FIN),
                       json={"report_type": "weekly_profit", "project_codes": ["JC-NOPE"]})
-    assert bad.json()["code"] == 40001
+    assert bad.json()["code"] == 40301
 
 
 # ---------------------------------------------------------------- 版本 / 耗时 / 列表去重
@@ -256,7 +265,7 @@ def test_monthly_marks_missing_lemon_data(db, client, login):
         datetime(2026, 4, 1).date(), datetime(2026, 4, 30).date())))
     if not has:
         assert "柠檬云凭证" in m["missing"]
-        wb = openpyxl.load_workbook(io.BytesIO(_download(client, next(f for f in r["files"] if f["filename"].endswith("xlsx")))))
+        wb = openpyxl.load_workbook(io.BytesIO(_download(client, login, next(f for f in r["files"] if f["filename"].endswith("xlsx")))))
         assert wb["凭证汇总-科目大类"]["A2"].value == "数据缺失"
 
 
@@ -369,7 +378,7 @@ def test_rbac_market_staff_cannot_access_profit(client, login):
     assert r.json()["code"] == 40301
 
 
-def test_rbac_detail_and_generate_buttons(client, login):
+def test_rbac_detail_and_generate_buttons(client, login, db):
     lst = data(client.get("/api/v1/reports", params={"report_type": "weekly_profit"}, headers=login(FIN)))
     rid = lst["items"][0]["id"]
     assert client.get(f"/api/v1/reports/{rid}", headers=login("zhengyu")).json()["code"] == 40301
@@ -380,6 +389,7 @@ def test_rbac_detail_and_generate_buttons(client, login):
     assert client.post("/api/v1/reports/generate", headers=cashier,
                        json={"report_type": "daily_expense"}).json()["code"] == 40301
     # 总办可访问项目利润
+    add_project_test_members(db, ["JC-XY-2026-001"], "limingyuan")
     assert data(client.get("/api/v1/reports/profit", headers=login("limingyuan")))["rows"]
     # 普通员工无报表中心
     assert client.get("/api/v1/reports/types", headers=login("zengli")).json()["code"] == 40301

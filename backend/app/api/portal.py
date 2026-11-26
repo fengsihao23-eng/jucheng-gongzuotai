@@ -74,11 +74,11 @@ class Ctx:
                 business_workbook.can_access_view(self.p, wb.config, view)
                 for view in ("board", "contracts", "collections", "opportunities", "tender"))
             if not allowed:
-                self._board = {"key_projects": board_service._key_projects(self.db, self.T),
+                self._board = {"key_projects": board_service._key_projects(self.db, self.T, self.p),
                                "submission": board_service._submission_block(self.db, self.T),
-                               "profit": board_service._profit_block(self.db, self.T)}
+                               "profit": board_service._profit_block(self.db, self.T, self.p)}
                 return self._board
-            self._board = board_service.overview(self.db, self.T)
+            self._board = board_service.overview(self.db, self.T, principal=self.p)
         return self._board
 
 
@@ -273,7 +273,8 @@ def _(c: Ctx):
 @card("market_key_projects", "list", "重点项目跟进", span=2, menu="market")
 def _(c: Ctx):
     from app.models import BizProjectFeedback
-    q = select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.is_key.is_(True))
+    from app.services.project_service import visible_query
+    q = visible_query(c.p).where(BizProject.is_key.is_(True))
     if "SC-01" not in c.p.role_codes and c.p.dept_code == "SC":
         q = q.where(BizProject.market_owner_id == c.p.id)
     projects = c.db.scalars(q.order_by(BizProject.project_code)).unique().all()
@@ -320,7 +321,8 @@ def _(c: Ctx):
 @card("market_feedback_reminder", "reminder", "跟进提醒", menu="market")
 def _(c: Ctx):
     from app.models import BizProjectFeedback
-    q = select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.is_key.is_(True))
+    from app.services.project_service import visible_query
+    q = visible_query(c.p).where(BizProject.is_key.is_(True))
     if "SC-01" not in c.p.role_codes:
         q = q.where(BizProject.market_owner_id == c.p.id)
     items = []
@@ -409,7 +411,8 @@ def _(c: Ctx):
 
 @card("prod_bidding_deadlines", "reminder", "招标截止提醒")
 def _(c: Ctx):
-    rows = c.db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.status == 1,
+    from app.services.project_service import visible_query
+    rows = c.db.scalars(visible_query(c.p).where(BizProject.status == 1,
                                                  BizProject.bid_deadline >= c.T).order_by(BizProject.bid_deadline)).unique().all()
     return {"items": [{"text": f"{x.name}：{x.bid_deadline:%m-%d} 截止（剩 {(x.bid_deadline - c.T).days} 天）",
                        "level": "down" if (x.bid_deadline - c.T).days <= 7 else "info"} for x in rows],
@@ -463,8 +466,9 @@ def _(c: Ctx):
 
 # ---------- 项目部 ----------
 def _my_nodes(c: Ctx):
+    from app.services.project_service import visible_filter
     return c.db.execute(select(BizProjectMilestone, BizProject).join(BizProject)
-                        .where(BizProject.is_deleted.is_(False), BizProjectMilestone.status != 3,
+                        .where(BizProject.is_deleted.is_(False), visible_filter(c.p), BizProjectMilestone.status != 3,
                                (BizProjectMilestone.owner_id == c.p.id) | (BizProject.owner_id == c.p.id))
                         .order_by(BizProjectMilestone.plan_date)).all()
 

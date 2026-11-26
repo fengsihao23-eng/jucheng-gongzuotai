@@ -164,6 +164,9 @@ def period_bounds(period_type: str, period: str | None) -> tuple[str, date, date
 
 
 GENERAL_REPORT_TYPES = ("general_weekly", "general_monthly")
+KEY_REPORT_TYPES = ("market_weekly", "market_monthly")
+PROJECT_REPORT_TYPES = (*KEY_REPORT_TYPES, *GENERAL_REPORT_TYPES, "project_weekly")
+TEAM_SCOPED_REPORT_TYPES = (*PROJECT_REPORT_TYPES, "weekly_profit", "project_operation", "company_weekly", "morning_report")
 
 
 def _report_data(db: Session, period_type: str, period: str | None, user_scope=None, *, is_key=True) -> dict:
@@ -359,7 +362,7 @@ def build_market_report(db: Session, period_type: str = "weekly", period: str | 
     name = "周报" if period_type == "weekly" else "月报"
     label = "市场部重点项目" if is_key else "一般项目"
     fname = f"{label}{name}_{data['period']}_v{ver}.docx"
-    f = save_bytes(db, data=_docx_report(data), filename=fname, category="report" if is_key else "general_project_report",
+    f = save_bytes(db, data=_docx_report(data), filename=fname, category="project_team_report",
                    key=f"report/{rtype}/{data['end']:%Y-%m}/{fname}", uploader_id=created_by)
     r = RptReport(report_type=rtype, period=data["period"], title=f"{label}{name} {data['period']}", version=ver,
                   metrics=encode({**data["totals"], "project_count": data["totals"]["projects"], "start": data["start"], "end": data["end"], "text": text,
@@ -373,16 +376,35 @@ def build_market_report(db: Session, period_type: str = "weekly", period: str | 
     return out
 
 
-def can_read_general_report(db, p, report):
-    if not p.has_menu("projects") or report.report_type not in GENERAL_REPORT_TYPES:
+def can_read_project_report(db, p, report):
+    if report.report_type not in TEAM_SCOPED_REPORT_TYPES:
         return False
-    if p.data_scope == "all":
-        return True
-    if report.created_by != p.id:
-        return False
-    codes = {item["project_code"] for item in (report.metrics or {}).get("projects", [])}
+    if report.report_type in PROJECT_REPORT_TYPES:
+        if not p.has_menu("market" if report.report_type in KEY_REPORT_TYPES else "projects"):
+            return False
+    else:
+        from app.services.report_service import allowed
+        if not allowed(p, report.report_type):
+            return False
+    metrics = report.metrics or {}
+    if report.report_type == "morning_report":
+        return p.has_menu("board") and metrics.get("key_projects") == []
+    if report.report_type == "company_weekly":
+        codes = {item["project_code"] for key in ("key_projects", "delays") for item in metrics.get(key, [])}
+    elif "project_codes" in metrics:
+        codes = set(metrics["project_codes"])
+    elif isinstance(metrics.get("projects"), list):
+        codes = {item["project_code"] for item in metrics["projects"]}
+    elif isinstance(metrics.get("rows"), list):
+        codes = {code for item in metrics["rows"] for code in (item.get("group_codes") or [item.get("project_code")]) if code}
+    else:
+        return False  # Older aggregate files without a project manifest cannot be authorized.
     visible = db.scalars(ps.visible_query(p).with_only_columns(BizProject.project_code).where(BizProject.project_code.in_(codes)))
     return codes.issubset(visible)
+
+
+def can_read_general_report(db, p, report):
+    return report.report_type in GENERAL_REPORT_TYPES and can_read_project_report(db, p, report)
 
 
 def summarize_week_text(db: Session, user_scope=None, period: str | None = None) -> str:

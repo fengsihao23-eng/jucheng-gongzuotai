@@ -31,7 +31,7 @@ def test_individual_grant_enables_deletion_without_creating_write_permissions(cl
     db.commit()
     headers = {"Authorization": f"Bearer {create_jwt(actor.id)[0]}"}
     project_body = {"name": f"专项删除验收-{uuid4().hex[:6]}", "owner_id": owner, "business_line": "TD",
-                    "preparation_on": "2026-10-01", "due_on": "2026-10-30"}
+                    "preparation_on": "2026-10-01", "due_on": "2026-10-30", "team_member_ids": [actor.id]}
     project = data(client.post("/api/v1/market/projects", json=project_body, headers=admin))
     path = f"/api/v1/market/projects/{project['project_code']}"
 
@@ -56,7 +56,6 @@ def test_individual_grant_enables_deletion_without_creating_write_permissions(cl
     payment_path = f"{REMOVE}/sporadic-collection/{sporadic['id']}"
     grant.data_scope = "self"
     db.commit()
-    assert client.request("DELETE", path, headers=headers, json=deletion_body()).status_code == 403
     assert client.request("DELETE", payment_path, headers=headers, json=deletion_body()).status_code == 404
     grant.data_scope = "all"
     db.commit()

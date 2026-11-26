@@ -63,7 +63,7 @@ def view(db, p, project):
         return {"sections": [], "task_scope": "self", "revision": 0, "managed": False}
     if not ops.is_superuser(p):
         enabled = {key for key in enabled if p.has_section("operations", key)}
-    if ops.can_view_all(p) or ops.role(db, p, project) == "manager":
+    if ops.role(db, p, project) == "manager":
         return {"sections": [key for key in SECTIONS if key in enabled], "task_scope": "team", "revision": 0, "managed": True}
     enabled.discard("settings")
     member = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))

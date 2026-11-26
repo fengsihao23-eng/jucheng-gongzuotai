@@ -109,12 +109,12 @@ def tender(wb, end):
                       "building": {"path": "/tender-projects", "query": {"sheet": pid}}, "alert": None}}
 
 
-def overview(db, wb, end):
+def overview(db, wb, end, *, principal=None):
     from app.services import board_service as board
     return {"date": end, "_cached_at": wb.synced_at, "source": source.source_info(wb, None),
             "payment": payment(db, wb, end), "sign": signing(wb, end), "opportunity": opportunities(wb, end),
-            "tender": tender(wb, end), "key_projects": board._key_projects(db, end),
-            "submission": board._submission_block(db, end), "profit": board._profit_block(db, end)}
+            "tender": tender(wb, end), "key_projects": board._key_projects(db, end, principal),
+            "submission": board._submission_block(db, end), "profit": board._profit_block(db, end, principal)}
 
 
 def monthly(wb, year):

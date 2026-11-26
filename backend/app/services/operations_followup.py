@@ -37,9 +37,9 @@ def node_links(db, update_ids):
 
 
 def participants(db, p, project, task):
-    ids = {m["user_id"] for m in ops.members(db, project) if m["active"]} | {project.owner_id, task.owner_id, task.creator_id}
     rows = []
-    for u in db.scalars(select(SysUser).where(SysUser.id.in_(ids), SysUser.status == 1, SysUser.is_deleted.is_(False))):
+    for u in db.scalars(select(SysUser).where(SysUser.id.in_(policy.team_user_ids(project.id)),
+        SysUser.status == 1, SysUser.is_deleted.is_(False), SysUser.workbench_enabled.is_(True)).order_by(SysUser.name, SysUser.id)):
         principal = build_principal(u)
         if principal.has_menu("operations") and db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(principal))):
             rows.append({"id": u.id, "name": u.name})
@@ -65,7 +65,7 @@ def discussions(db, p, task):
 
 def add_discussion(db, p, task_id, body, *, notice_ids=None):
     task = ops.get_task(db, p, task_id, lock=True)
-    project = ops.get_project(db, p, task.project_id)
+    project = ops.get_project(db, p, task.project_id, lock=True)
     ops.active(project)
     if ops.role(db, p, project) not in {"manager", "member", "reviewer"}:
         raise forbidden("仅项目执行成员可参与讨论")
@@ -106,12 +106,7 @@ def add_discussion(db, p, task_id, body, *, notice_ids=None):
     targets = [target] if target and target != p.id else []
     if body.kind == "note" and target is None:
         targets = [uid for uid in default_note_recipient_ids(project, task, p.id) if uid in available]
-    recipients = []
-    for uid in targets:
-        user = db.get(SysUser, uid)
-        if user and (uid in available or db.scalar(select(OpsTask.id).where(
-                OpsTask.id == task.id, policy.task_access(build_principal(user))))):
-            recipients.append(user)
+    recipients = [db.get(SysUser, uid) for uid in targets if uid in available]
     if recipients:
         from app.services import notify_service
         title = {"request": "任务有待回复要求", "reply": "你的任务要求收到回复", "note": "运营任务有新留言"}[body.kind]

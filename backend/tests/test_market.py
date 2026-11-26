@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from tests.conftest import data, deletion_body
+from tests.conftest import add_project_test_members, data, deletion_body
 
 API = "/api/v1"
 T = date(2026, 10, 20)
@@ -132,6 +132,7 @@ def test_milestone_scan_delay_remind_idempotent(client, login, db):
     xu = db.scalar(select(SysUser).where(SysUser.wecom_userid == "xuhao"))
     peng = db.scalar(select(SysUser).where(SysUser.wecom_userid == "pengbo"))
     data(client.put(f"{API}/projects/{code}", json={"owner_id": peng.id}, headers=h))
+    add_project_test_members(db, [code], "xuhao")
     # 节点1：计划日即将过去（扫描日 T+1 时已过期），责任人 xuhao；节点2：扫描日后 2 天到期
     data(client.put(f"{API}/projects/{code}/milestones/{ms[0]['id']}",
                     json={"plan_date": str(T), "owner_id": xu.id, "status": 2}, headers=h))
@@ -175,24 +176,23 @@ def test_milestone_scan_delay_remind_idempotent(client, login, db):
 
 # ---------------------------------------------------------------- 数据范围
 def test_pm_data_scope(client, login, db):
-    from app.models import BizProject, BizProjectMilestone, SysUser
+    from app.models import BizProject, KeyProjectMember, SysUser
     xu = db.scalar(select(SysUser).where(SysUser.wecom_userid == "xuhao"))
     items = data(client.get(f"{API}/projects", headers=login("xuhao")))["items"]
     codes = {i["project_code"] for i in items}
     assert {"JC-XY-2026-001", "JC-KP-2026-001", "JC-KP-2025-001"} <= codes
-    # 只看到自己负责或自己是节点责任人的项目
+    # 负责人及明确加入的项目团队成员才有访问权。
     for c in codes:
         p = db.scalar(select(BizProject).where(BizProject.project_code == c))
-        assert p.owner_id == xu.id or db.scalar(select(func.count()).where(
-            BizProjectMilestone.project_id == p.id, BizProjectMilestone.owner_id == xu.id))
+        assert p.owner_id == xu.id or db.get(KeyProjectMember, (p.id, xu.id))
     assert "JC-AF-2026-001" not in codes  # 蒋涛负责
     r = client.get(f"{API}/projects/JC-AF-2026-001", headers=login("xuhao"))
     assert r.status_code in (403, 404) and r.json()["code"] in (40301, 40401)
     r = client.put(f"{API}/projects/JC-AF-2026-001/milestones-order", json={"ids": []}, headers=login("xuhao"))
     assert r.json()["code"] in (40301, 40401)
-    # 市场经理全量
+    # 市场经理拥有全局菜单，项目仍按团队筛选。
     all_items = data(client.get(f"{API}/projects", headers=login("wujun")))["items"]
-    assert len(all_items) > len(items)
+    assert "JC-AF-2026-001" not in {item["project_code"] for item in all_items}
     # 无 projects 菜单 → 403
     assert client.get(f"{API}/projects", headers=login("zhaoli")).json()["code"] == 40301
     # 项目经理只能对自己项目写反馈
@@ -244,6 +244,8 @@ def test_market_weekly_report_consistent(client, login, db):
     from app.core.storage import read_bytes
     from app.models import SysFile
     h = login("wujun")
+    add_project_test_members(db, list(db.scalars(select(BizProject.project_code).where(
+        BizProject.is_key.is_(True), BizProject.is_deleted.is_(False)))), "wujun")
     # 本测试新增反馈 & 回款，确保报告读取到
     data(client.post(f"{API}/market/feedback", json={"project_code": "JC-XY-2026-002", "kind": "risk",
                                                       "content": "甲方要求增加录播教室点位，变更待确认",
@@ -292,13 +294,16 @@ def test_market_weekly_report_consistent(client, login, db):
 
 def test_market_jobs_push(db):
     from app.jobs.registry import run_job
-    from app.models import RptReport, SysNotify
+    from app.models import BizProject, RptReport, SysNotify, SysUser
+    add_project_test_members(db, list(db.scalars(select(BizProject.project_code).where(
+        BizProject.is_key.is_(True), BizProject.is_deleted.is_(False)))), "wujun")
     lg = run_job("market_weekly_report", {"period": "2026-W41"}, trigger="manual")
     assert lg.status == "success", lg.error_msg
     assert db.scalar(select(func.count(RptReport.id)).where(RptReport.report_type == "market_weekly",
                                                             RptReport.period == "2026-W41")) == 1
-    assert db.scalar(select(func.count(SysNotify.id)).where(SysNotify.msg_type == "report",
-                                                            SysNotify.title.contains("2026-W41"))) >= 3
+    recipients = set(db.scalars(select(SysUser.wecom_userid).join(SysNotify, SysNotify.user_id == SysUser.id)
+        .where(SysNotify.msg_type == "report", SysNotify.title.contains("2026-W41"))))
+    assert recipients == {"wujun"}
     assert run_job("market_weekly_report", {"period": "2026-W41"}, trigger="manual").status == "skipped"
     lg = run_job("project_weekly_progress", {"week": "2026-W42"}, trigger="manual")
     assert lg.status == "success", lg.error_msg
@@ -306,7 +311,8 @@ def test_market_jobs_push(db):
     assert run_job("market_monthly_report", {"period": "2026-09"}, trigger="manual").status == "success"
 
 
-def test_board(client, login):
+def test_board(client, login, db):
+    add_project_test_members(db, ["JC-XY-2026-001", "JC-XY-2026-002"], "wujun")
     b = data(client.get(f"{API}/market/board", headers=login("wujun")))
     assert b["summary"]["count"] == len(b["projects"]) > 0
     c = b["projects"][0]
@@ -314,7 +320,9 @@ def test_board(client, login):
               "market_owner_name", "latest_feedback"):
         assert k in c
     assert any(p["alert"] for p in b["projects"])  # 种子存在延期节点
-    assert client.get(f"{API}/market/board", headers=login("xuhao")).json()["code"] == 40301  # 无 market 菜单
+    owned = data(client.get(f"{API}/market/board", headers=login("xuhao")))["projects"]
+    assert any(p["project_code"] == "JC-XY-2026-001" for p in owned) and not any(
+        p["project_code"] == "JC-XY-2026-002" for p in owned)
 
 
 # ---------------------------------------------------------------- 情报
@@ -347,8 +355,10 @@ def test_intel_crud_search_and_brief(client, login):
 
 # ---------------------------------------------------------------- 复盘
 def test_review_auto_generate_on_close(client, login, db):
-    from app.models import BizProjectReview
+    from app.models import BizProject, BizProjectReview
     h = login("admin")
+    add_project_test_members(db, list(db.scalars(select(BizProject.project_code).join(
+        BizProjectReview, BizProjectReview.project_id == BizProject.id))), "admin")
     seeded = data(client.get(f"{API}/market/reviews", headers=h))
     assert sum(1 for r in seeded["items"] if r["status"] == 2) >= 2 and any(r["status"] == 1 for r in seeded["items"])
     code = _new_project(client, login, name="复盘自动生成测试")
@@ -382,7 +392,7 @@ def test_review_auto_generate_on_close(client, login, db):
 
 
 # ---------------------------------------------------------------- 周进度导出
-def test_weekly_progress_xlsx(client, login):
+def test_weekly_progress_xlsx(client, login, db):
     from openpyxl import load_workbook
     r = client.get(f"{API}/projects/weekly/export", headers=login("xuhao"))
     assert r.status_code == 200
@@ -391,6 +401,7 @@ def test_weekly_progress_xlsx(client, login):
     ws = wb["项目周进度"]
     codes = [row[0] for row in ws.iter_rows(min_row=4, values_only=True) if row[0]]
     assert "JC-XY-2026-001" in codes and "JC-AF-2026-001" not in codes  # 只含我负责的项目
+    add_project_test_members(db, ["JC-AF-2026-001", "JC-XY-2026-002"], "wujun")
     r2 = client.get(f"{API}/projects/weekly/export", params={"codes": "JC-AF-2026-001,JC-XY-2026-002"},
                     headers=login("wujun"))
     codes2 = [row[0] for row in load_workbook(io.BytesIO(r2.content))["项目周进度"].iter_rows(min_row=4, values_only=True)
@@ -400,8 +411,9 @@ def test_weekly_progress_xlsx(client, login):
     assert g["file"]["url"] and "项目周进度" in g["text"]
 
 
-def test_key_flag_permission(client, login):
+def test_key_flag_permission(client, login, db):
     code = "JC-XY-2026-004"
+    add_project_test_members(db, [code], "wujun")
     assert client.put(f"{API}/projects/{code}/key", json={"is_key": True}, headers=login("zhengyu")).json()["code"] == 40301
     assert data(client.put(f"{API}/projects/{code}/key", json={"is_key": True}, headers=login("wujun")))["is_key"] is True
     data(client.put(f"{API}/projects/{code}/key", json={"is_key": False}, headers=login("wujun")))

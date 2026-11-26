@@ -154,8 +154,9 @@ def _payment_block(db: Session, T: date) -> dict:
             "drill": {"path": "/contracts", "query": {"paid_month": period}}}
 
 
-def _key_projects(db: Session, T: date) -> dict:
-    projects = db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False), BizProject.is_key.is_(True))
+def _key_projects(db: Session, T: date, principal=None) -> dict:
+    from app.services.project_service import visible_query
+    projects = db.scalars(visible_query(principal).where(BizProject.is_key.is_(True))
                           .order_by(BizProject.project_code)).unique().all()
     ids = [p.id for p in projects]
     latest: dict[int, BizProjectFeedback] = {}
@@ -254,8 +255,9 @@ def _opp_block(db: Session, T: date) -> dict:
             "drill": {"path": "/opportunities"}}
 
 
-def _tender_block(db: Session, T: date) -> dict:
-    projects = db.scalars(select(BizProject).where(BizProject.is_deleted.is_(False))).unique().all()
+def _tender_block(db: Session, T: date, principal=None) -> dict:
+    from app.services.project_service import visible_query
+    projects = db.scalars(visible_query(principal)).unique().all()
     bidding = [p for p in projects if p.status == 1]
     building = [p for p in projects if p.status == 2]
     alerts = []
@@ -299,12 +301,15 @@ def _submission_block(db: Session, T: date) -> dict:
             "drill": {"path": "/submissions", "query": {"type": "weekly", "period": period}}}
 
 
-def _profit_block(db: Session, T: date) -> dict:
+def _profit_block(db: Session, T: date, principal=None) -> dict:
     from app.services.profit_service import project_profit
+    from app.services.project_service import visible_query
     ws, _ = week_range(ref=T)
     r = project_profit(db, ws, T)
     t = r["totals"]
-    top = sorted(r["rows"], key=lambda x: x["gross_profit"], reverse=True)[:5]
+    visible_codes = None if principal is None else set(db.scalars(visible_query(principal).with_only_columns(BizProject.project_code)))
+    top = sorted((row for row in r["rows"] if visible_codes is None or row["project_code"] in visible_codes),
+                 key=lambda row: row["gross_profit"], reverse=True)[:5]
     return {"week_start": ws, "week_end": T, "week_income": t["period_income"], "week_cost": t["period_cost"],
             "week_gross_profit": t["period_income"] - t["period_cost"],
             "income": t["income"], "cost": t["cost"], "gross_profit": t["gross_profit"],
@@ -314,11 +319,12 @@ def _profit_block(db: Session, T: date) -> dict:
             "drill": {"path": "/profit"}}
 
 
-def overview(db: Session, ref: date | None = None, refresh: bool = False) -> dict:
+def overview(db: Session, ref: date | None = None, refresh: bool = False, *, principal=None) -> dict:
     from app.services import business_workbook, workbook_board
     wb = business_workbook.configured_source(db)
     if wb is not None:
-        return workbook_board.overview(db, wb, ref or today())
+        end = ref or today()
+        return workbook_board.overview(db, wb, end, principal=principal)
     global _source_synced_at
     source_synced_at = db.scalar(select(func.max(ContractWorkbook.synced_at)))
     with _lock:
@@ -331,7 +337,12 @@ def overview(db: Session, ref: date | None = None, refresh: bool = False) -> dic
         return {"date": T, "payment": _payment_block(db, T), "key_projects": _key_projects(db, T),
                 "sign": _sign_block(db, T), "opportunity": _opp_block(db, T), "tender": _tender_block(db, T),
                 "submission": _submission_block(db, T), "profit": _profit_block(db, T)}
-    return _cached(f"overview:{T}", build, refresh)
+    data = _cached(f"overview:{T}", build, refresh)
+    if principal is None:
+        return data
+    return {**data, "key_projects": _key_projects(db, T, principal),
+            "tender": _tender_block(db, T, principal), "profit": {**data["profit"],
+                "top": _profit_block(db, T, principal)["top"]}}
 
 
 # ------------------------------------------------------------------ FR-03-04 对比查询
@@ -483,8 +494,7 @@ def morning_summary(db: Session, d: date) -> dict:
         "building_label": tender.get("building_label", "在建"),
         "deadline_soon_count": tender["deadline_soon_count"], "key_project_count": kp["count"],
         "key_delayed_count": kp["delayed_count"],
-        "key_projects": [{"name": r["name"], "current_node": r["current_node"], "delayed": r["delayed"],
-                          "feedback": (r["latest_feedback"] or {}).get("content")} for r in kp["items"]],
+        "key_projects": [],
         "weekly_submit_rate": sub["weekly"]["rate"], "weekly_missing": len(sub["weekly"]["missing"]),
         "by_line": [{"name": x["name"], "amount": x["amount"], "rate": x["rate"]} for x in pay["by_line"]],
         "gross_margin": ov["profit"]["gross_margin"],
@@ -609,7 +619,7 @@ def build_morning_report(db: Session, d: date | None = None, uploader_id: int | 
     s = morning_summary(db, d)
     text = morning_text(s)
     png = morning_image(s)
-    f = save_bytes(db, data=png, filename=f"morning-{d}.png", category="report",
+    f = save_bytes(db, data=png, filename=f"morning-{d}.png", category="board_summary",
                    key=f"report/morning/{d:%Y-%m}/morning-{d}.png", uploader_id=uploader_id, content_type="image/png")
     db.commit()
     return {"text_markdown": text, "summary": s, "image_file": f}

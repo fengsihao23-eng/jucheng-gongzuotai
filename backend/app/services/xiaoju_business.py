@@ -66,11 +66,14 @@ def principal_signature(db, p):
     if p.sections is not None:
         value["sections"] = p.sections
     from app.services import operations_service as ops, operations_scope as scope
-    if p.has_menu("operations") and not ops.can_view_all(p):
+    if p.has_menu("operations"):
         from app.models import OpsProject
         value["operations_access"] = [
             [project.id, scope.view(db, p, project)]
             for project in db.scalars(ops.visible_projects(p).order_by(OpsProject.id))]
+    from app.models import BizProject
+    from app.services.project_service import visible_query
+    value["project_access"] = list(db.scalars(visible_query(p).with_only_columns(BizProject.id).order_by(BizProject.id)))
     return digest(value)
 
 

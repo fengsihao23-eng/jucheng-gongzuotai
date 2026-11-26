@@ -49,6 +49,7 @@ try {
     customer_name: '校园项目验收测试', owner_id: owner.id, start_date: '2026-11-20', milestone_template: 'none' })
   projectPath = `/projects/${project.project_code}`
   generalPath = `/general-projects/${project.project_code}`
+  await call('admin', 'POST', `/market/projects/${project.project_code}/team?scope=general`, { user_ids: [assignee.id] })
   await call('admin', 'POST', `${projectPath}/milestones`, { node_name: existingTitle, owner_id: owner.id,
     plan_date: '2026-12-04', status: 2, duty: '核对智慧教室设备安装位置和供电条件。' })
   await call('admin', 'POST', `${projectPath}/tasks`, { title: overdueTitle, owner_id: assignee.id, cadence: 'node',
@@ -56,11 +57,15 @@ try {
     feedback_due_at: '2026-11-24T16:00:00+08:00', nodes: [{ name: '整理设备签收单', due_on: '2026-11-28' }] })
 
   await step('GEN-01', '从侧栏打开一般项目首页，核对总览、指标、项目卡及原有节点', async () => {
+    const referenceName = '重点项目卡片样式对照'
+    await call('admin', 'POST', '/market/projects', { name: referenceName, owner_id: owner.id,
+      preparation_on: '2026-11-20', due_on: '2026-12-10' })
     await desktop.goto(WEB + '/market')
     const reference = desktop.getByRole('tabpanel', { name: '重点项目总览', exact: true })
-    await reference.locator('.pcard').first().waitFor()
+    const referenceCard = reference.getByRole('button', { name: `查看重点项目：${referenceName}`, exact: true }).last()
+    await referenceCard.waitFor()
     await capture(desktop, '00-重点项目首页对照')
-    const compare = await reference.locator('.pcard').first().evaluate(element => {
+    const compare = await referenceCard.evaluate(element => {
       const style = getComputedStyle(element)
       return [style.borderRadius, style.padding, style.backgroundColor]
     })

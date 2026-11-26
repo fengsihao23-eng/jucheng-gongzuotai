@@ -6,7 +6,20 @@ from sqlalchemy.orm import aliased
 from app.core.response import not_found
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
 
-PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source", "general_project_report"}
+PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source",
+                             "general_project_report", "project_team_report"}
+PROJECT_REPORT_PATHS = tuple(f"report/{name}/" for name in ("market_weekly", "market_monthly", "general_weekly",
+    "general_monthly", "project_weekly", "weekly_profit", "project_operation", "company_weekly"))
+
+
+def is_project_report_file(file):
+    return file.category in {"general_project_report", "project_team_report"} or file.storage_key.startswith(PROJECT_REPORT_PATHS)
+
+
+def needs_file_access(file):
+    return (file.category in PROTECTED_FILE_CATEGORIES or is_project_report_file(file)
+            or file.storage_key.startswith("report/project_review/")
+            or (file.category == "report" and file.storage_key.startswith("report/morning/")))
 
 
 def can_handle_department(p, dept_code):
@@ -62,7 +75,7 @@ def get_clean_job(db, p, job_id, *, lock=False):
 
 def require_file_access(db, p, file):
     """旧版本原件沿用当前文档权限；撤销共享后旧签名也不能绕过权限。"""
-    if file.category not in PROTECTED_FILE_CATEGORIES:
+    if not needs_file_access(file):
         return
     allowed = False
     if file.category == "project_finance_source":
@@ -70,12 +83,17 @@ def require_file_access(db, p, file):
         from app.services.project_report_service import can_view
         report = db.scalar(select(FinProjectReport).where(FinProjectReport.file_id == file.id))
         allowed = report is not None and can_view(db, p, report)
-    elif file.category == "general_project_report":
+    elif is_project_report_file(file):
         from app.models import RptReport
-        from app.services.market_service import GENERAL_REPORT_TYPES, can_read_general_report
-        report = db.scalar(select(RptReport).where(RptReport.report_type.in_(GENERAL_REPORT_TYPES),
+        from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
+        report = db.scalar(select(RptReport).where(RptReport.report_type.in_(TEAM_SCOPED_REPORT_TYPES),
                                                   cast(RptReport.file_ids, JSONB).contains([file.id])))
-        allowed = report is not None and can_read_general_report(db, p, report)
+        allowed = report is not None and can_read_project_report(db, p, report)
+    elif file.storage_key.startswith("report/project_review/"):
+        from app.models import BizProjectReview
+        from app.services.project_service import get_project
+        review = db.scalar(select(BizProjectReview).where(BizProjectReview.file_id == file.id))
+        allowed = bool(review and p.has_menu("reviews") and get_project(db, review.project_id, p))
     elif file.category == "kb":
         from app.services.kb_service import can_view
         current_file = aliased(SysFile)

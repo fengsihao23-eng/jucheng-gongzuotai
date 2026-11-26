@@ -68,6 +68,19 @@ def deletion_body(**fields):
     return {"password": settings.operations_delete_password, **fields}
 
 
+def add_project_test_members(db, codes, *accounts):
+    from sqlalchemy import select
+    from app.models import BizProject, KeyProjectMember, SysUser
+
+    users = list(db.scalars(select(SysUser.id).where(SysUser.wecom_userid.in_(accounts))))
+    projects = db.scalars(select(BizProject).where(BizProject.project_code.in_(codes))).unique().all()
+    for project in projects:
+        for user_id in users:
+            if project.owner_id != user_id and db.get(KeyProjectMember, (project.id, user_id)) is None:
+                db.add(KeyProjectMember(project_id=project.id, user_id=user_id))
+    db.commit()
+
+
 def data(resp, code: int = 0):
     """断言统一响应包并返回 data。"""
     body = resp.json()

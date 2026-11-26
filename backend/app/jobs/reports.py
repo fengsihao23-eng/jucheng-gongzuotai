@@ -5,6 +5,7 @@ params 可传 {"period": "..."} 补跑指定期间，或 {"notify": false} 只�
 """
 from datetime import timedelta
 
+from app.core.deps import build_principal
 from app.core.response import encode
 from app.core.timeutil import last_week, prev_month, today
 from app.jobs.registry import job
@@ -57,6 +58,9 @@ def run_report(db, report_type: str, params: dict) -> dict:
     sent = 0
     if params.get("notify", True):
         users = recipients(db, report_type)
+        from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
+        if report_type in TEAM_SCOPED_REPORT_TYPES:
+            users = [user for user in users if can_read_project_report(db, build_principal(user), r)]
         lines = [f"> {s['label']}：**{_fmt(s)}**" for s in encode(r.metrics.get("summary", []))]
         link = f"/reports?id={r.id}"
         content = f"### {r.title}\n" + "\n".join(lines) + f"\n\n[查看报表与下载]({link})"

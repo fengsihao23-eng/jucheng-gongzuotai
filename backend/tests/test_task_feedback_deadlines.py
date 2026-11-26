@@ -34,7 +34,7 @@ def task_case(request, client, login, db, monkeypatch):
     else:
         base = "/api/v1/market/projects"
         project = data(client.post(base, headers=admin, json={"name": name, "owner_id": manager_id,
-            "preparation_on": "2026-11-25", "due_on": "2026-12-10"}))
+            "preparation_on": "2026-11-25", "due_on": "2026-12-10", "team_member_ids": [owner_id]}))
         create = f"{base}/{project['project_code']}/tasks"
         fields = {"preparation_on": "2026-11-25", "due_on": "2026-12-10"}
     due = clock[0] + timedelta(hours=1)

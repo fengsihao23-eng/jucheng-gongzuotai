@@ -7,7 +7,7 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Body, Depends, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_op
@@ -28,13 +28,23 @@ ProfitMenu = Depends(require_menu("profit", "reports"))
 
 
 def _hidden_types(p: Principal) -> list[str]:
-    from app.services.market_service import GENERAL_REPORT_TYPES
-    return [*GENERAL_REPORT_TYPES, *(t for t in rs.REPORT_TYPES if not rs.allowed(p, t))]
+    from app.services.market_service import PROJECT_REPORT_TYPES
+    return [*PROJECT_REPORT_TYPES, *(t for t in rs.REPORT_TYPES if not rs.allowed(p, t))]
 
 
 def _check_type(p: Principal, report_type: str):
     if not rs.allowed(p, report_type):
         raise forbidden("无权查看该类报表")
+
+
+def _can_read_report(db, p, report):
+    from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
+    return report.report_type not in TEAM_SCOPED_REPORT_TYPES or can_read_project_report(db, p, report)
+
+
+def _report_project_codes(p, db):
+    from app.services.project_service import visible_query
+    return list(db.scalars(visible_query(p).with_only_columns(BizProject.project_code).order_by(BizProject.project_code)))
 
 
 def _brief(db: Session, r: RptReport, versions: int | None = None, names: dict | None = None) -> dict:
@@ -61,12 +71,12 @@ def types(p: Principal = Reports, db: Session = Depends(get_db)):
     for c in rs.catalog(db):
         if not rs.allowed(p, c["report_type"]):
             continue
-        last = db.scalar(select(RptReport).where(RptReport.report_type == c["report_type"])
-                         .order_by(RptReport.created_at.desc(), RptReport.id.desc()).limit(1))
+        query = select(RptReport).where(RptReport.report_type == c["report_type"]).order_by(RptReport.created_at.desc(), RptReport.id.desc())
+        visible = [row for row in db.scalars(query) if _can_read_report(db, p, row)]
+        last = visible[0] if visible else None
         c["latest"] = {"id": last.id, "period": last.period, "title": last.title, "version": last.version,
                        "created_at": last.created_at} if last else None
-        c["count"] = db.scalar(select(func.count(func.distinct(RptReport.period)))
-                               .where(RptReport.report_type == c["report_type"]))
+        c["count"] = len({row.period for row in visible})
         out.append(c)
     return ok({"types": out, "can_generate": p.can("report:generate")})
 
@@ -75,8 +85,13 @@ def types(p: Principal = Reports, db: Session = Depends(get_db)):
 def list_reports(report_type: str = "", period: str = "", page: int = 1, page_size: int = 20,
                  p: Principal = Reports, db: Session = Depends(get_db)):
     page_size = max(1, min(page_size, 100))
+    from app.services.market_service import TEAM_SCOPED_REPORT_TYPES
+    scoped = [row.id for row in db.scalars(select(RptReport).where(
+        RptReport.report_type.in_(TEAM_SCOPED_REPORT_TYPES))) if _can_read_report(db, p, row)]
+    visible = ~RptReport.report_type.in_(TEAM_SCOPED_REPORT_TYPES) | RptReport.id.in_(scoped)
     sub = (select(RptReport.report_type.label("t"), RptReport.period.label("p"),
                   func.max(RptReport.version).label("v"), func.count().label("n"))
+           .where(visible)
            .group_by(RptReport.report_type, RptReport.period))
     hidden = _hidden_types(p)
     if hidden:
@@ -87,7 +102,7 @@ def list_reports(report_type: str = "", period: str = "", page: int = 1, page_si
         sub = sub.where(RptReport.period.like(f"{period}%"))
     sub = sub.subquery()
     q = select(RptReport, sub.c.n).join(sub, (RptReport.report_type == sub.c.t) & (RptReport.period == sub.c.p) &
-                                        (RptReport.version == sub.c.v))
+                                        (RptReport.version == sub.c.v)).where(visible)
     total = db.scalar(select(func.count()).select_from(sub))
     rows = db.execute(q.order_by(RptReport.created_at.desc(), RptReport.id.desc())
                       .offset((page - 1) * page_size).limit(page_size)).all()
@@ -107,10 +122,15 @@ def generate(request: Request, report_type: str = Body(..., embed=True), period:
     _check_type(p, report_type)
     if project_codes and report_type not in ("weekly_profit", "project_operation"):
         raise bad_request("该报表不支持按项目生成")
-    if project_codes:
-        found = set(db.scalars(select(BizProject.project_code).where(BizProject.project_code.in_(project_codes))))
-        if missing := set(project_codes) - found:
-            raise bad_request(f"项目不存在：{'、'.join(sorted(missing))}")
+    if report_type in ("weekly_profit", "project_operation"):
+        available = _report_project_codes(p, db)
+        if project_codes and not set(project_codes).issubset(available):
+            raise forbidden("只能为已加入团队的项目生成报表")
+        project_codes = project_codes or available
+        if not project_codes:
+            raise not_found("可生成报表的项目")
+    elif report_type == "company_weekly":
+        project_codes = _report_project_codes(p, db) or ["__none__"]
     r = rs.generate(db, report_type, period or None, "manual", p.id, project_codes)
     log_op(db, p.id, "report.generate", "rpt_report", r.id,
            after={"report_type": report_type, "period": r.period, "version": r.version}, ip=client_ip(request))
@@ -123,7 +143,7 @@ def regenerate_all(request: Request, p: Principal = Reports, db: Session = Depen
     if not p.can("report:generate"):
         raise forbidden("无报表生成权限")
     allowed_types = [t for t in rs.REPORT_TYPES if rs.allowed(p, t)]
-    res = rs.regenerate_all(db, p.id, "manual", allowed_types)
+    res = rs.regenerate_all(db, p.id, "manual", allowed_types, project_codes=_report_project_codes(p, db))
     for r in res["results"]:
         r["type_name"] = rs.REPORT_TYPES[r["report_type"]]["name"]
     log_op(db, p.id, "report.regenerate_all", "rpt_report", None,
@@ -141,12 +161,7 @@ def _profit_principal(p: Principal) -> Principal:
 
 
 def _scope_codes(p: Principal, db: Session) -> list[str] | None:
-    if p.data_scope == "all":
-        return None
-    q = select(BizProject.project_code).where(BizProject.is_deleted.is_(False))
-    q = q.where(BizProject.owner_id == p.id) if p.data_scope == "self" else \
-        q.join(SysUser, SysUser.id == BizProject.owner_id).where(SysUser.department_id == p.user.department_id)
-    return list(db.scalars(q)) or ["__none__"]
+    return _report_project_codes(p, db) or ["__none__"]
 
 
 def _range(week: str | None, start: date | None, end: date | None) -> tuple[date, date, str]:
@@ -235,7 +250,10 @@ def profit(week: str | None = None, start: date | None = None, end: date | None 
                    "public_expense": pr["public_expense"], "low_margin_count": sum(1 for r in rows if r["low_margin"])},
            "report": None}
     if not (start and end) and not project_code:
-        r = rs.latest(db, "weekly_profit", label)
+        candidates = select(RptReport).where(RptReport.report_type == "weekly_profit",
+            or_(RptReport.period == label, RptReport.period.startswith(f"{label}:"))).order_by(RptReport.id.desc())
+        r = next((row for row in db.scalars(candidates) if _can_read_report(db, p, row) and
+            (row.metrics or {}).get("_meta", {}).get("project_codes") in (None, sorted(scope))), None)
         if r:
             out["report"] = {"id": r.id, "version": r.version, "created_at": r.created_at,
                              "files": [file_brief(f) for f in rs.report_files(db, r)]}
@@ -305,8 +323,11 @@ def detail(report_id: int, p: Principal = Reports, db: Session = Depends(get_db)
     if not r:
         raise not_found("报表")
     _check_type(p, r.report_type)
+    if not _can_read_report(db, p, r):
+        raise forbidden("报表包含未加入团队的项目")
     hist = db.scalars(select(RptReport).where(RptReport.report_type == r.report_type, RptReport.period == r.period)
                       .order_by(RptReport.version.desc())).all()
+    hist = [item for item in hist if _can_read_report(db, p, item)]
     names = _names(db, hist)
     spec = rs.REPORT_TYPES.get(r.report_type)
     return ok({**_brief(db, r, len(hist), names), "metrics": r.metrics,
@@ -320,7 +341,10 @@ def versions(report_id: int, p: Principal = Reports, db: Session = Depends(get_d
     if not r:
         raise not_found("报表")
     _check_type(p, r.report_type)
+    if not _can_read_report(db, p, r):
+        raise forbidden("报表包含未加入团队的项目")
     hist = db.scalars(select(RptReport).where(RptReport.report_type == r.report_type, RptReport.period == r.period)
                       .order_by(RptReport.version.desc())).all()
+    hist = [item for item in hist if _can_read_report(db, p, item)]
     names = _names(db, hist)
     return ok([_brief(db, h, None, names) for h in hist])

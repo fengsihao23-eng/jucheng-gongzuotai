@@ -11,7 +11,7 @@ from app.core.deps import build_principal
 from app.core.timeutil import utcnow
 from app.integration.wecom import get_wecom
 from app.integration.wecom.base import MessageDto
-from app.models import SysNotify, SysRole, SysUser, SysUserRole
+from app.models import RptReport, SysNotify, SysRole, SysUser, SysUserRole
 
 log = logging.getLogger("notify")
 MAX_RETRY = 3
@@ -70,6 +70,7 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
     from app.services.collection_followups import NOTICE_TYPES as COLLECTION_TYPES, eligible_notice as collection_eligible
     from app.services.collection_reminders import NOTICE as REMINDER_TYPE, PAYMENT_NOTICE, eligible as reminder_eligible
     from app.services import key_projects
+    from app.services.market_service import TEAM_SCOPED_REPORT_TYPES, can_read_project_report
     from app.services.task_feedback_deadlines import KEY_OVERDUE, PROJECT_OVERDUE
     project_checks = {
         key_projects.NOTICE: key_projects.eligible_notice,
@@ -81,9 +82,21 @@ def _deliver(db: Session, rows: list[SysNotify], msg_type: str = "markdown") -> 
         key_projects.TEAM_NOTICE: key_projects.eligible_team_notice,
         KEY_OVERDUE: key_projects.eligible_feedback_deadline,
         PROJECT_OVERDUE: key_projects.eligible_feedback_deadline,
+        "milestone_due": key_projects.eligible_workflow_notice,
+        "milestone_delay": key_projects.eligible_workflow_notice,
+        "project_weekly": key_projects.eligible_workflow_notice,
     }
     pending_rows = []
     for r in rows:
+        if r.ref_type == "morning_report":
+            r.send_status, r.error_msg, r.retry_count = 2, "旧版晨报未按项目团队授权", MAX_RETRY
+            continue
+        if r.ref_type == "rpt_report":
+            report = db.get(RptReport, int(r.ref_id)) if (r.ref_id or "").isdigit() else None
+            if not report or (report.report_type in TEAM_SCOPED_REPORT_TYPES and
+                              not can_read_project_report(db, build_principal(by_user[r.user_id]), report)):
+                r.send_status, r.error_msg, r.retry_count = 2, "已无权查看项目报告", MAX_RETRY
+                continue
         if r.msg_type in project_checks and not project_checks[r.msg_type](db, r):
             r.send_status, r.error_msg, r.retry_count = 2, "项目、负责人或节点状态已变化", MAX_RETRY
             continue

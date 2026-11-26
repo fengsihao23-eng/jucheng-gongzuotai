@@ -55,7 +55,7 @@ def standard_scope(p, *, overview=False, is_key=True):
 def membership_scope(p, *, is_key=True):
     if p is None or not p.workbench_enabled:
         return false()
-    membership = BizProject.id.in_(select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id))
+    membership = ps.visible_filter(p)
     return membership if is_key is None else membership & BizProject.is_key.is_(is_key)
 
 
@@ -69,7 +69,7 @@ def has_team(db, p, *, is_key=True):
 
 
 def is_member(db, p, row):
-    return not row.is_deleted and p.workbench_enabled and db.get(KeyProjectMember, (row.id, p.id)) is not None
+    return ps.can_view(db, p, row)
 
 
 def standard_access(db, p, row):
@@ -153,12 +153,7 @@ def person_info(person):
 
 
 def can_assign_to(db, row, assignee):
-    if is_member(db, assignee, row):
-        return True
-    if row.is_key:
-        return (has_project_menu(assignee) and
-            (can_create(assignee) or ps.can_edit(assignee, row) or assignee.can("feedback:write")))
-    return assignee.has_menu("projects") and (ps.can_edit(assignee, row) or assignee.can("feedback:write"))
+    return is_member(db, assignee, row)
 
 
 def general_task_options(db, p, row):
@@ -177,18 +172,15 @@ def options(db, p, code=None, include_team=False, *, is_key=True):
         raise forbidden()
     people = list(available_people(db))
     team_ids = set(db.scalars(select(KeyProjectMember.user_id).where(KeyProjectMember.project_id == row.id))) if row else set()
-    if is_key:
-        users = [person_info(u) for u in people if u.id in team_ids or has_project_menu(build_principal(u))]
+    if row:
+        users = [person_info(u) for u in people if u.id in team_ids or u.id == row.owner_id]
+    elif is_key:
+        users = [person_info(u) for u in people if has_project_menu(build_principal(u))]
     else:
         users = [person_info(u) for u in people if build_principal(u).has_menu("projects") and within_owner_scope(p, u)]
     result = {"users": users, "can_create": can_create(p, is_key=is_key), "today": today()}
     if include_team:
         result["team_users"] = [person_info(u) for u in people]
-        if not is_key:
-            owner_ids = {u["id"] for u in users}
-            assignees = (build_principal(u) for u in people)
-            result["task_users"] = [person_info(a.user) for a in assignees if a.has_menu("projects") and
-                (a.id in owner_ids or a.can("feedback:write") or a.can("milestone:write") or a.is_admin)]
     return result
 
 
@@ -237,9 +229,11 @@ def add_team(db, p, row, user_ids, *, creating=False):
         raise bad_request("请选择在职且已获工作台使用权限的员工")
     for person in people:
         db.add(KeyProjectMember(project_id=row.id, user_id=person.id))
+    db.flush()
     log_op(db, p.id, "market.key_project.team.add" if row.is_key else "project.team.add", "biz_project", row.project_code,
            after={"user_ids": sorted(additions)})
-    return len(additions), queue_team_notice(db, row, f"你已加入{project_label(row)}团队", recipients=people)
+    return len(additions), queue_team_notice(db, row, f"你已加入{project_label(row)}团队",
+        recipients=[person for person in people if person.id != p.id])
 
 
 def remove_team_member(db, p, row, user_id):
@@ -249,10 +243,7 @@ def remove_team_member(db, p, row, user_id):
     member = db.get(KeyProjectMember, (row.id, user_id))
     if member is None:
         return
-    person = db.get(SysUser, user_id)
-    assignee = build_principal(person)
-    independent = standard_access(db, assignee, row) and (can_manage(db, assignee, row) or assignee.can("feedback:write"))
-    if not independent and person.status == 1 and not person.is_deleted and assignee.workbench_enabled and db.scalar(
+    if db.scalar(
         select(BizProjectMilestone.id).where(BizProjectMilestone.project_id == row.id, BizProjectMilestone.owner_id == user_id,
             BizProjectMilestone.status != 3).limit(1)) is not None:
         raise conflict("请先转交该成员负责的未完成任务，再移除")
@@ -269,7 +260,9 @@ def eligible_team_notice(db, notice):
         item = db.get(BizProjectMilestone, ident)
         ident = item.project_id if item else None
     row = db.get(BizProject, ident) if ident else None
-    return bool(row and not row.is_deleted and db.get(KeyProjectMember, (row.id, notice.user_id)))
+    if not row or row.is_deleted or notice.link != (task_link(row, item.id) if notice.ref_type in {REF, GENERAL_REF} else project_link(row)):
+        return False
+    return row.owner_id == notice.user_id or db.get(KeyProjectMember, (row.id, notice.user_id)) is not None
 
 
 def within_owner_scope(p, owner):
@@ -362,6 +355,25 @@ def eligible_assignment(db, notice):
         return False
     row = db.get(BizProject, int(notice.ref_id))
     return bool(row and row.is_key == (notice.msg_type != GENERAL_ASSIGNMENT_NOTICE) and assignment_recipient(db, row, notice.user_id))
+
+
+def eligible_workflow_notice(db, notice):
+    if not (notice.ref_id or "").isdigit():
+        return False
+    if notice.ref_type == "milestone":
+        item = db.get(BizProjectMilestone, int(notice.ref_id))
+        if not item or item.status == 3:
+            return False
+        project_id = item.project_id
+    elif notice.ref_type == "project_weekly":
+        project_id = int(notice.ref_id)
+    else:
+        return False
+    user = db.get(SysUser, notice.user_id)
+    row = db.get(BizProject, project_id)
+    if not user or not row or row.status == 5 or not is_member(db, build_principal(user), row):
+        return False
+    return notice.ref_type == "project_weekly" or (not is_paused(db, row) and notice.user_id in {item.owner_id, row.owner_id})
 
 
 def task(db, row, ident):
@@ -483,11 +495,12 @@ def _save_task(db, p, row, body, task_id=None, *, notice_ids=None, announce_team
 def create_project(db, p, body, *, is_key=True):
     row = save_project(db, p, body, is_key=is_key)
     notices = queue_assignment(db, row)
-    if body.team_member_ids:
-        _, team_notices = add_team(db, p, row, body.team_member_ids, creating=not is_key)
+    team_ids = {*body.team_member_ids, p.id} - {row.owner_id}
+    if team_ids:
+        _, team_notices = add_team(db, p, row, team_ids, creating=True)
         notices.extend(team_notices)
     for fields in body.tasks:
-        _save_task(db, p, row, fields, notice_ids=notices, announce_team=False, creating=not is_key)
+        _save_task(db, p, row, fields, notice_ids=notices, announce_team=False, creating=True)
     return row, notices
 
 

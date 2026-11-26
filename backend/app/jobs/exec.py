@@ -29,7 +29,7 @@ def morning_board_push(db, params):
     board_url = settings.public_base_url.rstrip("/") + "/board"
     content = r["text_markdown"] + f"\n\n[查看晨报卡片]({img})　[打开实时看板]({board_url})"
     notify_service.send(db, users, "morning_report", f"经营晨报 {d:%m-%d}", content, link="/board",
-                        ref_type="morning_report", ref_id=str(d))
+                        ref_type="morning_summary", ref_id=str(d))
     try:  # 晨报快照入报表库（可追溯）
         from app.models import RptReport
         db.add(RptReport(report_type="morning_report", period=d.isoformat(), title=f"经营晨报 {d}",

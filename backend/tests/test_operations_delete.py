@@ -2,11 +2,11 @@
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.deps import build_principal
 from app.core.response import BizError
-from app.models import OpsProject, SysUser
+from app.models import OpsMember, OpsProject, SysUser
 from app.services import operations_service as ops
 from tests.conftest import data
 
@@ -18,6 +18,8 @@ WHITELIST = [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成
 def fixtures(db):
     """测试库只种了演示账号，这里补建三个授权账号，用完删掉。"""
     def wipe():
+        db.execute(delete(OpsMember).where(OpsMember.project_id.in_(
+            select(OpsProject.id).where(OpsProject.name.like("删除验收-%")))))
         for project in db.scalars(select(OpsProject).where(OpsProject.name.like("删除验收-%"))).all():
             db.delete(project)
         db.commit()
@@ -53,7 +55,10 @@ def test_delete_is_soft_and_hides_project(client, login, db):
     project = data(client.post(BASE, headers=login("admin"), json={
         "name": f"删除验收-{uuid.uuid4().hex[:6]}", "owner_id": person(db, "songjia").id,
         "objective": "验证删除", "category": "智慧校园"}))
-    result = ops.delete_project(db, person(db, "ken"), db.get(OpsProject, project["id"]))
+    actor = person(db, "ken")
+    db.add(OpsMember(project_id=project["id"], user_id=actor.id, role="manager"))
+    db.commit()
+    result = ops.delete_project(db, actor, db.get(OpsProject, project["id"]))
     assert result["deleted"] is True
 
     db.expire_all()

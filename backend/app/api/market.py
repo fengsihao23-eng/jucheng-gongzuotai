@@ -221,11 +221,15 @@ MARKET_REPORT_TYPES = ("market_weekly", "market_monthly", "intel_brief")
 def _workspace_report(db, p, ident, scope):
     _workspace_menu(p, scope)
     report = get_or_404(db, RptReport, ident, "报告")
-    visible = (report.report_type.startswith(("market_", "intel_")) if scope == "key"
+    visible = (report.report_type in MARKET_REPORT_TYPES and _report_visible(db, p, report) if scope == "key"
                else ms.can_read_general_report(db, p, report))
     if not visible:
         raise not_found("报告")
     return report
+
+
+def _report_visible(db, p, report):
+    return report.report_type not in ms.PROJECT_REPORT_TYPES or ms.can_read_project_report(db, p, report)
 
 
 def _report_out(db: Session, r: RptReport, with_text: bool = False) -> dict:
@@ -265,12 +269,8 @@ def list_reports(report_type: str | None = None, page: int = 1, page_size: int =
         q = q.where(RptReport.report_type == report_type)
     ordered = q.order_by(RptReport.created_at.desc(), RptReport.id.desc())
     offset = (page - 1) * page_size
-    if scope == "general" and p.data_scope != "all":
-        rows = [r for r in db.scalars(ordered.where(RptReport.created_by == p.id)) if ms.can_read_general_report(db, p, r)]
-        return ok(page_data([_report_out(db, r) for r in rows[offset:offset + page_size]], len(rows), page, page_size))
-    total = db.scalar(select(func.count()).select_from(q.subquery()))
-    rows = db.scalars(ordered.offset(offset).limit(page_size)).all()
-    return ok(page_data([_report_out(db, r) for r in rows], total, page, page_size))
+    rows = [r for r in db.scalars(ordered) if _report_visible(db, p, r)]
+    return ok(page_data([_report_out(db, r) for r in rows[offset:offset + page_size]], len(rows), page, page_size))
 
 
 @router.get("/reports/summary")
@@ -448,7 +448,9 @@ class ReviewIn(BaseModel):
 @router.get("/reviews")
 def list_reviews(keyword: str | None = None, tag: str | None = None, status: int | None = None,
                  business_line: str | None = None, p: Principal = Reviews, db: Session = Depends(get_db)):
-    q = select(BizProjectReview).join(BizProject, BizProject.id == BizProjectReview.project_id)
+    scoped = select(BizProjectReview).join(BizProject, BizProject.id == BizProjectReview.project_id).where(
+        BizProject.is_deleted.is_(False), ps.visible_filter(p))
+    q = scoped
     if keyword:
         kw = f"%{keyword}%"
         q = q.where(or_(BizProjectReview.title.ilike(kw), BizProjectReview.lessons.ilike(kw), BizProject.name.ilike(kw)))
@@ -459,8 +461,8 @@ def list_reviews(keyword: str | None = None, tag: str | None = None, status: int
     rows = db.scalars(q.order_by(BizProjectReview.updated_at.desc())).all()
     if tag:
         rows = [r for r in rows if tag in (r.tags or [])]
-    alltags = Counter(t for r in db.scalars(select(BizProjectReview)).all() for t in (r.tags or []))
-    candidates = db.scalars(select(BizProject).where(BizProject.status.in_([3, 5]), BizProject.is_deleted.is_(False))
+    alltags = Counter(t for r in db.scalars(scoped).all() for t in (r.tags or []))
+    candidates = db.scalars(ps.visible_query(p).where(BizProject.status.in_([3, 5]))
                             .order_by(BizProject.project_code)).all()
     reviewed = set(db.scalars(select(BizProjectReview.project_id)).all())
     return ok({"items": [ms.review_dict(db, r) for r in rows], "total": len(rows),
@@ -475,7 +477,7 @@ def generate_review(project_code: str = Body(embed=True), force: bool = Body(Fal
                     p: Principal = Reviews, db: Session = Depends(get_db)):
     if not p.can("review:write"):
         raise forbidden("无复盘编辑权限")
-    proj = ps.get_project(db, project_code)
+    proj = ps.get_project(db, project_code, p)
     r = ms.generate_review(db, proj, author_id=p.id, force=force)
     db.commit()
     return ok(ms.review_dict(db, r))
@@ -483,14 +485,20 @@ def generate_review(project_code: str = Body(embed=True), force: bool = Body(Fal
 
 @router.get("/reviews/{rid}")
 def get_review(rid: int, p: Principal = Reviews, db: Session = Depends(get_db)):
-    return ok(ms.review_dict(db, get_or_404(db, BizProjectReview, rid, "复盘")))
+    return ok(ms.review_dict(db, _project_review(db, p, rid)))
+
+
+def _project_review(db, p, rid):
+    review = get_or_404(db, BizProjectReview, rid, "复盘")
+    ps.get_project(db, review.project_id, p)
+    return review
 
 
 @router.put("/reviews/{rid}")
 def update_review(rid: int, body: ReviewIn, request: Request, p: Principal = Reviews, db: Session = Depends(get_db)):
     if not p.can("review:write"):
         raise forbidden("无复盘编辑权限")
-    r = get_or_404(db, BizProjectReview, rid, "复盘")
+    r = _project_review(db, p, rid)
     fields = ["title", "goal", "result", "lessons", "tags", "status"]
     before = snapshot(r, fields)
     for k, v in body.model_dump(exclude_unset=True).items():
@@ -506,7 +514,7 @@ def update_review(rid: int, body: ReviewIn, request: Request, p: Principal = Rev
 
 @router.get("/reviews/{rid}/export")
 def export_review(rid: int, request: Request, p: Principal = Reviews, db: Session = Depends(get_db)):
-    r = get_or_404(db, BizProjectReview, rid, "复盘")
+    r = _project_review(db, p, rid)
     data = ms.review_docx(db, r)
     fname = f"{r.title}.docx".replace("/", "_")
     f = save_bytes(db, data=data, filename=fname, category="report",

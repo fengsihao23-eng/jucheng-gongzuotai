@@ -29,6 +29,10 @@ def test_general_task_uses_existing_nodes_permissions_and_process_history(client
     assert client.get(task_list, headers=worker).status_code == 403
     assert client.get(task_list, headers=reader).status_code == 403
     options = data(client.get(task_list + "/options", headers=manager))
+    assert worker_id not in {row["id"] for row in options["users"]}
+    code = path.rsplit("/", 1)[1]
+    data(client.post(f"/api/v1/market/projects/{code}/team?scope=general", headers=manager, json={"user_ids": [worker_id]}))
+    options = data(client.get(task_list + "/options", headers=manager))
     assert worker_id in {row["id"] for row in options["users"]}
 
     plan = {"title": "核验新设备", "owner_id": worker_id, "preparation_on": "2026-11-20", "due_on": "2026-12-10",
@@ -59,7 +63,6 @@ def test_general_task_uses_existing_nodes_permissions_and_process_history(client
     assert any(node["id"] == task["id"] and node["status"] == 3 for node in detail["milestones"])
     assert any("清单已核验" in feedback["content"] for feedback in detail["feedbacks"])
 
-    code = path.rsplit("/", 1)[1]
     assert client.get(f"/api/v1/market/projects/{code}/tasks/{task['id']}", headers=admin).status_code == 404
     data(client.put(path + "/key", headers=admin, json={"is_key": True}))
     assert client.get(task_path, headers=admin).status_code == 404
@@ -81,6 +84,8 @@ def test_general_assignment_and_overdue_wecom_cards_open_the_same_task(client, l
     admin_id = data(client.get("/api/v1/auth/me", headers=admin))["id"]
     worker_id = data(client.get("/api/v1/auth/me", headers=worker))["id"]
     path = project(client, admin, "一般项目企微提醒验收", admin_id)
+    code = path.rsplit("/", 1)[1]
+    data(client.post(f"/api/v1/market/projects/{code}/team?scope=general", headers=admin, json={"user_ids": [worker_id]}))
     task = data(client.post(path + "/tasks", headers=admin, json={"title": "反馈设备台账", "owner_id": worker_id,
         "preparation_on": "2026-11-20", "due_on": "2026-11-28", "cadence": "node", "feedback_due_at": "2026-11-26T10:00:00+08:00"}))
     link = f"/general-projects/{path.rsplit('/', 1)[1]}?task={task['id']}"

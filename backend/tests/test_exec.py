@@ -57,11 +57,14 @@ def test_board_payment_baseline_and_sql_consistency(client, login, db):
     assert ov["opportunity"]["month"]["count"] == n
     assert {f["stage"] for f in ov["opportunity"]["funnel"]} >= {"lead", "contact", "quote", "negotiation", "won"}
     # ⑤ 招标/在建
-    from app.models import BizProject
+    from app.models import BizProject, KeyProjectMember, SysUser
+    viewer = db.scalar(select(SysUser.id).where(SysUser.wecom_userid == "limingyuan"))
+    team_scope = (BizProject.owner_id == viewer) | BizProject.id.in_(
+        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == viewer))
     assert ov["tender"]["bidding_count"] == db.scalar(select(func.count()).select_from(BizProject).where(
-        BizProject.status == 1, BizProject.is_deleted.is_(False)))
+        BizProject.status == 1, BizProject.is_deleted.is_(False), team_scope))
     assert ov["tender"]["building_count"] == db.scalar(select(func.count()).select_from(BizProject).where(
-        BizProject.status == 2, BizProject.is_deleted.is_(False)))
+        BizProject.status == 2, BizProject.is_deleted.is_(False), team_scope))
     # ⑥ 提交率 + 毛利摘要 + 下钻目标
     assert ov["submission"]["weekly"]["required"] > 0 and ov["submission"]["weekly"]["by_dept"]
     assert ov["profit"]["gross_margin"] is not None
@@ -93,6 +96,8 @@ def test_delay_rule_marks_red(client, login, db):
     """finish_date > plan_date 或计划日已过未完成 → 延期▲。"""
     from app.models import BizProject
     from app.services.board_service import milestone_delayed
+    from tests.conftest import add_project_test_members
+    add_project_test_members(db, ["JC-XY-2026-001", "JC-XY-2026-002"], "limingyuan")
     ov = _ov(client, login)
     items = {r["project_code"]: r for r in ov["key_projects"]["items"]}
     for code, r in items.items():

@@ -236,7 +236,7 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
     access_notes = []
     if not u.workbench_enabled:
         access_notes.append("当前账号无法查看和使用工作台；请单独配置权限并开启工作台使用权限。")
-    if active and "operations" in runtime["menus"] and not ops.can_view_all(target) and not (owned or joined):
+    if active and "operations" in runtime["menus"] and not (owned or joined):
         access_notes.append("运营项目入口已开放；尚未加入任何运营项目，列表暂为空。请在对应项目的团队里添加此人。")
     from app.services import business_workbook
     try:
@@ -256,7 +256,7 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                "menu_keys": runtime["menus"] if active else [], "access_notes": access_notes,
                "login_permission_revision": runtime["permission_revision"],
                "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
-                "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_view_all(target),
+                "operations_all": False, "operations_manage_all": False,
                "operations_archive": active and (target.is_admin or target.can("operations:archive")),
                 "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in visible_owned] +
                              [{"name": name, "id": pid, "role": role} for name, pid, role in visible_joined]) if active else [],

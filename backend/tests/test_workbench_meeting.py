@@ -23,7 +23,8 @@ def test_role_named_members_and_effective_permissions(client, login, db):
     assert any(x["userid"] == "admin" for x in members["items"])
     assert client.get(url, headers=employee).status_code == 403
     grants = data(client.get(API + f"/admin/users/{uid(db, 'admin')}/effective-permissions", headers=admin))
-    assert grants["operations_all"] and grants["operations_archive"] and grants["last_login"]["at"]
+    assert not grants["operations_all"]
+    assert grants["operations_archive"] and grants["last_login"]["at"]
 
 
 def test_private_task_access_summary_archive_and_assignment(client, login, db):

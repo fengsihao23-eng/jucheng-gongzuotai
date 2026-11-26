@@ -1,0 +1,16 @@
+.ops-task-dialog.el-dialog {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 13px;
+}
+.ops-task-dialog > .el-dialog__header { padding: 15px 23px 13px; border-bottom: 1px solid var(--jc-line); margin: 0; }
+.ops-task-dialog > .el-dialog__header .el-dialog__title { font-size: 14px; font-weight: 600; }
+.ops-task-dialog > .el-dialog__header .el-dialog__headerbtn { top: 1px; right: 4px; }
+.ops-task-dialog > .el-dialog__body { flex: 1; min-height: 0; max-height: min(76vh, calc(100dvh - 124px)); overflow: auto; overscroll-behavior: contain; }
+.ops-task-dialog > .el-dialog__footer { border-top: 1px solid var(--jc-line); padding: 9px 23px; }
+@media (max-width: 600px) {
+  .ops-task-dialog.el-dialog { width: 100vw; height: 100dvh; border-radius: 0; }
+  .ops-task-dialog > .el-dialog__body { max-height: none; }
+}

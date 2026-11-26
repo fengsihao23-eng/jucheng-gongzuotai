@@ -17,31 +17,34 @@ def member_clause(p):
         select(OpsMember.project_id).where(OpsMember.user_id == p.id)))
 
 
+def team_user_ids(project_id):
+    return select(OpsMember.user_id).where(OpsMember.project_id == project_id).union(
+        select(OpsProject.owner_id).where(OpsProject.id == project_id))
+
+
 def task_access(p, *, archive=False):
     from app.services import operations_service as ops
 
-    if not p.has_section("operations", "tasks") and not ops.is_superuser(p):
+    if not p.has_menu("operations") or (not p.has_section("operations", "tasks") and not ops.is_superuser(p)):
         from sqlalchemy import false
         return false()
     disabled_projects = select(OpsProjectFeatures.project_id).where(~cast(OpsProjectFeatures.sections, JSONB).has_key("tasks"))
     base = ((archived() if archive else ~archived())
-            & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted"))
+            & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted", member_clause(p)))
             & OpsTask.project_id.not_in(disabled_projects))
-    if ops.can_view_all(p):
+    if ops.is_superuser(p):
         return base
     owner_project = select(OpsProject.id).where(OpsProject.owner_id == p.id)
     joined = select(OpsMember.project_id).where(OpsMember.user_id == p.id)
     managed = joined.where(OpsMember.role.in_(("manager", "co_owner")))
-    belongs = or_(OpsTask.project_id.in_(owner_project), OpsTask.project_id.in_(joined))
     restricted = exists().where(OpsTaskPolicy.task_id == OpsTask.id, OpsTaskPolicy.restricted.is_(True))
     selected = exists().where(OpsTaskAudience.task_id == OpsTask.id, OpsTaskAudience.user_id == p.id)
     participants = or_(selected, OpsTask.creator_id == p.id, OpsTask.owner_id == p.id,
-                       OpsTask.department_reviewer_id == p.id)
+                       OpsTask.department_reviewer_id == p.id, OpsTask.company_reviewer_id == p.id)
     self_only = exists().where(OpsMemberView.project_id == OpsTask.project_id, OpsMemberView.user_id == p.id,
                                OpsMemberView.task_scope == "self")
     managers = or_(OpsTask.project_id.in_(owner_project), OpsTask.project_id.in_(managed))
-    regular = belongs & or_(~restricted & ~self_only, managers, participants)
-    return base & regular
+    return base & or_(~restricted & ~self_only, managers, participants)
 
 
 def details(db, task_id):

@@ -10,7 +10,7 @@ from app.core.response import BizError, not_found, ok
 from app.core.security import verify_file_sig
 from app.core.storage import file_brief, file_path
 from app.models import SysFile
-from app.services.intake_access import PROTECTED_FILE_CATEGORIES, require_file_access
+from app.services.intake_access import needs_file_access, require_file_access
 
 router = APIRouter(prefix="/files", tags=["文件"])
 
@@ -32,7 +32,7 @@ def download(file_id: int, exp: int, sig: str, request: Request, db: Session = D
     if not f or not file_path(f).exists():
         raise not_found("文件")
     actor_id = None
-    if f.category in PROTECTED_FILE_CATEGORIES:
+    if needs_file_access(f):
         p = get_principal(request, db)
         require_file_access(db, p, f)
         actor_id = p.id

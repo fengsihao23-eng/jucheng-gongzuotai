@@ -139,13 +139,15 @@ def test_config_and_selftest_endpoints(client, login, mcp_token):
     assert st["total"] > 0
 
 
-def test_report_tools_return_file_links(client, mcp_token):
+def test_report_tools_return_file_links(client, mcp_token, login, db):
     """回归：报表类工具必须返回可下载的签名链接（文件在同一事务内生成）。"""
     t = mcp_token("chenjing")
+    from tests.conftest import add_project_test_members
+    add_project_test_members(db, ["JC-XY-2026-001"], "chenjing")
     for tool in ("fin.daily_expense_report", "fin.project_profit"):
         r = call(client, t, tool)
         assert r["ok"] and r["files"], (tool, r)
         url = r["files"][0]["url"]
-        assert client.get(url[url.index("/api/"):]).status_code == 200
+        assert client.get(url[url.index("/api/"):], headers=login("chenjing")).status_code == 200
     r = call(client, t, "fin.daily_expense_report", date="2026-10-19")
     assert "报销" in r["summary"] and "共 0 笔" not in r["summary"]
