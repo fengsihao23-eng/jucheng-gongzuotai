@@ -45,6 +45,7 @@ class SysUser(TimestampMixin, SoftDeleteMixin, Base):
     workbench_enabled: Mapped[bool] = mapped_column(
         Boolean, default=lambda: settings.environment != "prod",
         server_default="false")
+    all_project_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     password_hash: Mapped[str | None] = mapped_column(String(256))
     access_token: Mapped[str | None] = mapped_column(String(128), unique=True)  # MCP 个人令牌（存 sha256）
     access_token_hint: Mapped[str | None] = mapped_column(String(16))

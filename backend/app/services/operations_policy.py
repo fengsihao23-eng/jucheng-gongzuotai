@@ -25,7 +25,7 @@ def team_user_ids(project_id):
 def task_access(p, *, archive=False, team_only=False):
     from app.services import operations_service as ops
 
-    if not p.has_menu("operations") or (not p.has_section("operations", "tasks") and not ops.is_superuser(p)):
+    if not p.has_menu("operations") or (not p.has_section("operations", "tasks") and not ops.can_manage_all(p)):
         from sqlalchemy import false
         return false()
     disabled_projects = select(OpsProjectFeatures.project_id).where(~cast(OpsProjectFeatures.sections, JSONB).has_key("tasks"))
@@ -89,7 +89,7 @@ def update_policy(db, p, project, task, values):
 def can_archive(db, p, project):
     from app.services import operations_service as ops
 
-    return (ops.is_superuser(p) or p.is_admin or p.can("operations:archive")) and ops.role(db, p, project) == "manager"
+    return (p.is_admin or p.can("operations:archive")) and ops.role(db, p, project) == "manager"
 
 
 def archive(db, p, task_id, reason, *, restore=False):

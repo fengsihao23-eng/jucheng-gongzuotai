@@ -33,6 +33,7 @@ def main(reset_files: bool = True) -> None:
         if settings.environment != "prod":
             role = role_by_code(db, SYSTEM_MANAGEMENT_ROLE)
             db.add(SysUserRole(user_id=ctx.users["admin"].id, role_id=role.id))
+            ctx.users["admin"].all_project_access = True
         db.commit()
         for d in DOMAINS:
             try:

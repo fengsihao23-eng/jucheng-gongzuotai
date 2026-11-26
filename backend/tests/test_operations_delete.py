@@ -1,4 +1,4 @@
-"""运营项目删除：点名授权（梁道灿/冯思皓/聚成数智管理员）+ 软删除。"""
+"""运营项目删除：点名授权与软删除。"""
 import uuid
 
 import pytest
@@ -11,7 +11,7 @@ from app.services import operations_service as ops
 from tests.conftest import data
 
 BASE = "/api/v1/operations"
-WHITELIST = [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员")]
+WHITELIST = [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员"), ("ZhuDanDan", "朱丹丹")]
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def person(db, wecom_userid):
     return build_principal(db.scalar(select(SysUser).where(SysUser.wecom_userid == wecom_userid)))
 
 
-def test_only_three_people_can_delete(db):
+def test_only_designated_accounts_can_delete(db):
     for wecom_userid, _ in WHITELIST:
         assert ops.can_delete_project(person(db, wecom_userid))
     assert not ops.can_delete_project(person(db, "songjia"))

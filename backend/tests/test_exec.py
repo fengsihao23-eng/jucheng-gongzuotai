@@ -23,6 +23,8 @@ def _ov(client, login, user="limingyuan", refresh=1):
 # ------------------------------------------------------------------ FR-03 看板数值与台账一致
 def test_board_payment_baseline_and_sql_consistency(client, login, db):
     from app.models import BizContract, BizPayment
+    from tests.conftest import add_project_test_members
+    add_project_test_members(db, ["JC-XY-2026-001", "JC-XY-2026-003"], "limingyuan")
     ov = _ov(client, login)
     pay = ov["payment"]
     assert D(pay["amount"]) == D("4860000") and D(pay["target"]) == D("7000000")
@@ -57,11 +59,14 @@ def test_board_payment_baseline_and_sql_consistency(client, login, db):
     assert ov["opportunity"]["month"]["count"] == n
     assert {f["stage"] for f in ov["opportunity"]["funnel"]} >= {"lead", "contact", "quote", "negotiation", "won"}
     # ⑤ 招标/在建
-    from app.models import BizProject
+    from app.models import BizProject, KeyProjectMember, SysUser
+    viewer_id = db.scalar(select(SysUser.id).where(SysUser.wecom_userid == "limingyuan"))
+    owned_or_joined = (BizProject.owner_id == viewer_id) | BizProject.id.in_(
+        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == viewer_id))
     assert ov["tender"]["bidding_count"] == db.scalar(select(func.count()).select_from(BizProject).where(
-        BizProject.status == 1, BizProject.is_deleted.is_(False)))
+        BizProject.status == 1, BizProject.is_deleted.is_(False), owned_or_joined))
     assert ov["tender"]["building_count"] == db.scalar(select(func.count()).select_from(BizProject).where(
-        BizProject.status == 2, BizProject.is_deleted.is_(False)))
+        BizProject.status == 2, BizProject.is_deleted.is_(False), owned_or_joined))
     # ⑥ 提交率 + 毛利摘要 + 下钻目标
     assert ov["submission"]["weekly"]["required"] > 0 and ov["submission"]["weekly"]["by_dept"]
     assert ov["profit"]["gross_margin"] is not None

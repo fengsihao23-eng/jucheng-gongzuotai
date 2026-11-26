@@ -90,7 +90,7 @@ def require_file_access(db, p, file):
                                                   cast(RptReport.file_ids, JSONB).contains([file.id])))
         allowed = report is not None and can_read_project_report(db, p, report)
     elif file.storage_key.startswith("report/morning/"):
-        allowed = p.has_menu("board") and (p.data_scope == "all" or file.uploader_id == p.id)
+        allowed = p.has_menu("board") and p.can_view_all_projects
     elif file.storage_key.startswith("report/project_review/"):
         from app.models import BizProjectReview
         from app.services.project_service import get_project

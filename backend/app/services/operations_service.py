@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import delete, or_, select, update
 
 from app.core.audit import log_op, snapshot
+from app.core.permissions import PROJECT_PRIVILEGED_ACCOUNTS
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsOutreachGoal, OpsProduct, OpsProject, OpsProjectIncome,
@@ -29,32 +30,20 @@ POLICY_FIELDS = {"visibility", "viewer_ids", "kind"}
 
 
 def can_create(p):
-    return p.has_menu("operations") and (is_superuser(p) or p.is_admin or p.can("operations:manage"))
-
-
-# 删除运营项目是点名授权（2026-11-16 需求）：只给这三个人，不走角色。
-PROJECT_DELETE_USERIDS = {"ken", "FengSiHao", "SZGLY"}
-
-
-def is_superuser(p):
-    from app.core.config import settings
-    # 本地演示管理员仅供测试/开发；生产按已核对的企业账号标识识别三位最高权限人员。
-    return p.workbench_enabled and (p.user.wecom_userid in PROJECT_DELETE_USERIDS or (
-        settings.environment != "prod" and p.user.wecom_userid == "admin" and p.is_admin))
+    return p.has_menu("operations") and (p.is_admin or p.can("operations:manage"))
 
 
 def can_delete_project(p) -> bool:
-    return p.workbench_enabled and p.user.wecom_userid in PROJECT_DELETE_USERIDS
+    return p.workbench_enabled and p.user.wecom_userid in PROJECT_PRIVILEGED_ACCOUNTS
 
 
 def delete_project(db, p, project):
     """软删除运营项目：状态置 deleted，数据保留可追溯，列表与详情不再出现。"""
     if not can_delete_project(p):
-        raise forbidden("只有梁道灿、冯思皓、聚成数智管理员可以删除运营项目")
+        raise forbidden("无删除运营项目权限")
     if project.status == "deleted":
         raise conflict("该项目已删除")
-    if role(db, p, project) is None:
-        raise forbidden("仅项目团队成员可维护该项目")
+    manage(db, p, project)
     before = snapshot(project, PROJECT_FIELDS)
     project.status = "deleted"
     log_op(db, p.id, "operations.project_delete", "ops_project", project.id, before,
@@ -64,7 +53,11 @@ def delete_project(db, p, project):
 
 
 def can_view_all(p):
-    return p.has_menu("operations") and is_superuser(p)
+    return p.has_menu("operations") and p.can_view_all_projects
+
+
+def can_manage_all(p):
+    return can_view_all(p) and can_create(p)
 
 
 def visible_projects(p):
@@ -93,12 +86,12 @@ def get_project(db, p, project_id, *, lock=False):
 def role(db, p, project):
     if not p.has_menu("operations") or project.status == "deleted":
         return None
-    if is_superuser(p) or project.owner_id == p.id:
+    if can_manage_all(p) or project.owner_id == p.id:
         return "manager"
     raw = db.scalar(select(OpsMember.role).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
     if raw and (p.is_admin or p.can("operations:manage")):
         return "manager"
-    return "manager" if raw == "co_owner" else raw  # 联合负责人与项目管理员同权
+    return "manager" if raw == "co_owner" else raw or ("viewer" if can_view_all(p) else None)
 
 
 def manage(db, p, project):
@@ -672,7 +665,7 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
     return {"id": task.id, "project_id": project.id, "project_name": project.name, **snapshot(task, TASK_FIELDS),
             **deadlines.view(p, task, my_role, delay, day),
             **access, "viewer_ids": access["viewer_ids"] if my_role == "manager" else [],
-            "can_archive": (is_superuser(p) or p.is_admin or p.can("operations:archive")) and my_role == "manager",
+            "can_archive": (p.is_admin or p.can("operations:archive")) and my_role == "manager",
             "progress": effective_task_progress(task),
             "owner_name": task.owner.name, "school_name": task.school.name if task.school else "",
             "last_feedback_at": task.last_feedback_at, "overdue": overdue, "needs_update": schedule["needs_feedback"], **cadence, **schedule,
@@ -804,7 +797,7 @@ def project_detail(db, p, project_id):
             (["income"] if can_income else []) + (["equipment"] if can_procurement else []))).order_by(OpsImportBatch.id.desc()))] if shared else []
     return {**project_dict(db, p, project),
             "can_delete": can_delete_project(p),
-            "can_configure": role(db, p, project) == "manager" and (is_superuser(p) or p.has_section("operations", "settings")),
+            "can_configure": role(db, p, project) == "manager" and (can_manage_all(p) or p.has_section("operations", "settings")),
             "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],
             "can_record_visits": "outreach" in sections and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},

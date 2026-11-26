@@ -388,8 +388,8 @@ def can_read_project_report(db, p, report, *, team_only=False):
             return False
     metrics = report.metrics or {}
     if report.report_type == "morning_report":
-        return p.has_menu("board") and (metrics.get("key_projects") == [] or (not team_only and p.data_scope == "all"))
-    if not team_only and p.data_scope == "all":
+        return p.has_menu("board") and (metrics.get("key_projects") == [] or (not team_only and p.can_view_all_projects))
+    if not team_only and p.can_view_all_projects:
         return True
     if report.report_type == "company_weekly":
         codes = {item["project_code"] for key in ("key_projects", "delays") for item in metrics.get(key, [])}
@@ -411,8 +411,7 @@ def can_read_project_report(db, p, report, *, team_only=False):
 
 
 def can_read_general_report(db, p, report):
-    return (report.report_type in GENERAL_REPORT_TYPES and (p.data_scope == "all" or report.created_by == p.id)
-            and can_read_project_report(db, p, report))
+    return report.report_type in GENERAL_REPORT_TYPES and can_read_project_report(db, p, report)
 
 
 def summarize_week_text(db: Session, user_scope=None, period: str | None = None) -> str:

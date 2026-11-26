@@ -29,6 +29,7 @@ class PersonalGrantIn(BaseModel):
     permissions: PersonalPermissionsIn | None = None
     expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
     workbench_enabled: bool | None = None
+    all_project_access: bool | None = None
 
 
 def options(db):
@@ -56,17 +57,18 @@ def view(user):
     inherited = configured(build_principal(user, inherit_only=True))
     saved = individual(user)
     raw = {"user_id": user.id, "active": user.status, "workbench_enabled": user.workbench_enabled,
+           "all_project_access": user.all_project_access,
            "roles": sorted(r.role_code for r in user.roles),
            "inherited": inherited, "individual": saved}
     revision = hashlib.sha256(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {"individual_permissions": saved, "inherited_permissions": inherited,
+    return {"individual_permissions": saved, "inherited_permissions": inherited, "all_project_access": user.all_project_access,
             "permission_revision": revision}
 
 
 def update(db, actor, user, body, keep_admin, ip):
-    db.refresh(user, attribute_names=["status", "workbench_enabled", "roles", "permission_override"])
+    db.refresh(user, attribute_names=["status", "workbench_enabled", "all_project_access", "roles", "permission_override"])
     before = {"role_codes": sorted(r.role_code for r in user.roles), "permissions": individual(user),
-              "workbench_enabled": user.workbench_enabled}
+              "workbench_enabled": user.workbench_enabled, "all_project_access": user.all_project_access}
     if view(user)["permission_revision"] != body.expected_revision:
         raise conflict("此人的权限或角色规则已更新，请重新查看后再保存")
     codes = sorted(set(body.role_codes))
@@ -96,10 +98,12 @@ def update(db, actor, user, body, keep_admin, ip):
 
     enabled = user.workbench_enabled if body.workbench_enabled is None else body.workbench_enabled
     keep_admin(db, user, codes, enabled=enabled)
-    after = {"role_codes": codes, "permissions": saved, "workbench_enabled": enabled}
+    project_access = user.all_project_access if body.all_project_access is None else body.all_project_access
+    after = {"role_codes": codes, "permissions": saved, "workbench_enabled": enabled, "all_project_access": project_access}
     if before == after:
         return
     user.workbench_enabled = enabled
+    user.all_project_access = project_access
     if not enabled:
         user.access_token = user.access_token_hint = None
     if before["role_codes"] != codes:

@@ -96,7 +96,8 @@ def profile(p: Principal, db: Session | None = None) -> dict:
             "roles": [{"code": r.role_code, "name": r.name} for r in u.roles] or [{"code": "EMP", "name": "普通员工"}],
             "menus": menus, "buttons": sorted(p.buttons), "data_scope": p.data_scope,
             "portal": p.portal, "is_admin": p.is_admin, "is_system_manager": p.is_system_manager, "preferences": u.preferences or {},
-            "workbench_enabled": p.workbench_enabled, "sections": p.sections, "key_project_team": key_project_team,
+            "workbench_enabled": p.workbench_enabled, "all_project_access": p.can_view_all_projects,
+            "sections": p.sections, "key_project_team": key_project_team,
             "general_project_team": general_project_team,
             "mcp_token_hint": u.access_token_hint, "permission_revision": permission_revision}
 

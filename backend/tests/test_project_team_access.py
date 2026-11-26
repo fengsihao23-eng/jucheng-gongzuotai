@@ -32,6 +32,55 @@ def test_unassigned_existing_projects_stay_visible_to_authorized_accounts(client
     assert client.get(f"/api/v1/projects/{general.project_code}", headers=login("xuhao")).status_code == 403
 
 
+def test_personal_all_projects_switch_grants_viewing_and_can_be_revoked(client, login, db):
+    admin, ordinary = login("admin"), login("zhengyu")
+    manager = data(client.get("/api/v1/auth/me", headers=admin))
+    viewer = data(client.get("/api/v1/auth/me", headers=ordinary))
+    assert viewer["data_scope"] == "all" and not viewer["all_project_access"]
+    prefs = f"/api/v1/admin/users/{viewer['id']}"
+    original = data(client.get(prefs + "/effective-permissions", headers=admin))
+    plan = {"owner_id": manager["id"], "preparation_on": "2026-10-10", "due_on": "2026-12-10"}
+    projects = [data(client.post(f"/api/v1/market/projects?scope={scope}", headers=admin,
+        json={**plan, "name": f"跨项目授权测试-{scope}"})) for scope in ("key", "general")]
+    operations = data(client.post("/api/v1/operations", headers=admin, json={"name": "跨运营项目授权测试",
+        "owner_id": manager["id"], "enabled_sections": ["tasks", "team", "progress", "outreach"]}))
+    ops_path = f"/api/v1/operations/{operations['id']}"
+    data(client.post(ops_path + "/tasks", headers=admin, json={
+        "title": "跨项目查询任务", "owner_id": manager["id"], "due_date": "2026-12-08"}))
+
+    def project_checks(visible):
+        for scope, row in zip(("key", "general"), projects, strict=True):
+            cards = data(client.get("/api/v1/market/board", params={"scope": scope}, headers=ordinary))["projects"]
+            assert (row["project_code"] in {card["project_code"] for card in cards}) == visible
+            assert client.get(f"/api/v1/market/projects/{row['project_code']}", params={"scope": scope},
+                              headers=ordinary).status_code == (200 if visible else 403)
+        assert client.get(ops_path, headers=ordinary).status_code == (200 if visible else 404)
+
+    project_checks(False)
+    granted = data(client.put(prefs + "/permissions", headers=admin, json={
+        "role_codes": original["assigned_roles"], "permissions": original["individual_permissions"],
+        "expected_revision": original["permission_revision"], "all_project_access": True}))
+    try:
+        assert granted["all_project_access"] and granted["operations_all"] and not granted["operations_manage_all"]
+        assert granted["data_scope"] == original["data_scope"]
+        assert granted["individual_permissions"] == original["individual_permissions"]
+        assert granted["permission_revision"] != original["permission_revision"]
+        project_checks(True)
+        ops = data(client.get(ops_path, headers=ordinary))
+        assert ops["my_role"] == "viewer" and ops["tasks"] and not ops["can_manage"]
+        task_id = ops["tasks"][0]["id"]
+        task = data(client.get(f"/api/v1/operations/tasks/{task_id}", headers=ordinary))
+        assert viewer["id"] not in {u["id"] for u in task["participants"]}
+        assert client.post(ops_path + "/tasks", headers=ordinary, json={
+            "title": "查看授权不授予管理", "owner_id": manager["id"], "due_date": "2026-12-08"}).status_code == 403
+    finally:
+        latest = data(client.get(prefs + "/effective-permissions", headers=admin))
+        data(client.put(prefs + "/permissions", headers=admin, json={
+            "role_codes": original["assigned_roles"], "permissions": original["individual_permissions"],
+            "expected_revision": latest["permission_revision"], "all_project_access": False}))
+    project_checks(False)
+
+
 @pytest.mark.parametrize("kind", ["operations", "key", "general"])
 def test_existing_project_scope_does_not_grant_reminders(client, login, db, monkeypatch, kind):
     monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
@@ -80,6 +129,7 @@ def test_existing_project_scope_does_not_grant_reminders(client, login, db, monk
     assert identity in {row[identity_key] for row in data(client.get(overview, headers=outsider))[overview_key]}
     assert client.get(path, headers=login("caofang")).status_code in {403, 404}
     assert client.get(project, headers=teammate).status_code == 200
+    assert client.get(project, headers=login("zhengyu")).status_code in {403, 404}
     assert client.post(notice_path, headers=leader, json=notice_body(outsider_id, "不得通知给外部成员")).status_code == 403
     accepted = data(client.post(notice_path, headers=leader, json=notice_body(teammate_id, "请核对本项目材料")))
     title = "运营任务有新留言" if kind == "operations" else "有成员在记录中提醒你"

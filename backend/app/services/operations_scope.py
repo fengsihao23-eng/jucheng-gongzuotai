@@ -61,11 +61,13 @@ def view(db, p, project):
     enabled = enabled_features(db, project)
     if not ops.has_project_content(db, p, project):
         return {"sections": [], "task_scope": "self", "revision": 0, "managed": False}
-    if not ops.is_superuser(p):
+    if not ops.can_manage_all(p):
         enabled = {key for key in enabled if p.has_section("operations", key)}
     if ops.role(db, p, project) == "manager":
         return {"sections": [key for key in SECTIONS if key in enabled], "task_scope": "team", "revision": 0, "managed": True}
     enabled.discard("settings")
+    if ops.can_view_all(p):
+        return {"sections": [key for key in SECTIONS if key in enabled], "task_scope": "team", "revision": 0, "managed": False}
     member = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
     if not member:
         return {"sections": [], "task_scope": "self", "revision": 0, "managed": False}
@@ -175,7 +177,7 @@ def content_project_ids(db, p, section):
 
 def require_settings(p):
     from app.services import operations_service as ops
-    if not ops.is_superuser(p) and not p.has_section("operations", "settings"):
+    if not ops.can_manage_all(p) and not p.has_section("operations", "settings"):
         raise forbidden("未授权使用运营项目工作设置")
 
 

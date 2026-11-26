@@ -62,7 +62,8 @@ def actor_signature(user_id):
 
 
 def principal_signature(db, p):
-    value = {"menus": sorted(p.menus), "buttons": sorted(p.buttons), "scope": p.data_scope, "department": p.user.department_id}
+    value = {"menus": sorted(p.menus), "buttons": sorted(p.buttons), "scope": p.data_scope, "department": p.user.department_id,
+             "all_project_access": p.can_view_all_projects}
     if p.sections is not None:
         value["sections"] = p.sections
     from app.services import operations_service as ops, operations_scope as scope

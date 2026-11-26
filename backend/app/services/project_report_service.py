@@ -28,7 +28,7 @@ def contract_rows(db, report):
 def can_view(db, p, report):
     if not finance_viewer(p):
         return False
-    if p.data_scope == "all":
+    if p.can_view_all_projects:
         return True
     codes = {c.project_code for c in contract_rows(db, report)}
     projects = db.scalars(select(BizProject).where(BizProject.project_code.in_(codes), BizProject.is_deleted.is_(False))).unique().all()

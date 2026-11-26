@@ -6,6 +6,8 @@ portal：门户卡片方案键，见 sys_dict(portal_cards)。
 
 SYSTEM_MANAGEMENT_ROLE = "SYS-MGMT"
 RECORD_DELETE_BUTTON = "record:delete"
+PROJECT_MENUS = {"operations", "market", "projects"}
+PROJECT_PRIVILEGED_ACCOUNTS = {"SZGLY", "ken", "ZhuDanDan", "FengSiHao"}
 
 MENUS = {
     "portal": "工作台", "board": "经营看板", "reports": "报表中心",
@@ -21,7 +23,7 @@ MENUS = {
 BUTTONS = {
     "record:manage": "在已授权的业务记录中提出跟进要求",
     RECORD_DELETE_BUTTON: "删除已获准查看的业务记录",
-    "operations:manage": "新建及管理参与的运营项目", "operations:view_all": "跨项目查看（仅三位最高权限人员）",
+    "operations:manage": "新建及管理参与的运营项目", "operations:view_all": "旧版运营项目范围设置",
     "operations:archive": "作废与恢复运营任务", "operations:approve": "审核运营任务",
     "project:key": "管理重点项目", "project:weekly": "导出项目周进度", "milestone:write": "维护项目节点",
     "feedback:write": "登记项目进展", "review:write": "编辑项目复盘", "intel:write": "维护竞品情报",

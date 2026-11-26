@@ -140,15 +140,18 @@ def test_global_roles_buttons_scope_and_reviewer_assignment_do_not_bypass_member
     db.rollback()
 
 
-@pytest.mark.parametrize("userid,name", [("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员")])
+@pytest.mark.parametrize("userid,name", [
+    ("ken", "梁道灿"), ("FengSiHao", "冯思皓"), ("SZGLY", "聚成数智管理员"), ("ZhuDanDan", "朱丹丹")])
 def test_verified_admins_keep_project_access_without_receiving_team_reminders(db, own_project, userid, name):
     target = user(db, userid)
     if target is None:
         target = SysUser(wecom_userid=userid, name=name, workbench_enabled=True)
         db.add(target)
         db.flush()
+    target.all_project_access = True
     principal = build_principal(target)
-    assert ops.is_superuser(principal)
+    principal.buttons.add("operations:manage")
+    assert ops.can_manage_all(principal)
     assert ops.can_view_all(principal)
     assert ops.get_project(db, principal, own_project["id"]).id == own_project["id"]
     project = db.get(OpsProject, own_project["id"])
@@ -159,7 +162,9 @@ def test_verified_admins_keep_project_access_without_receiving_team_reminders(db
     # 改成相同显示名不会获得三位最高权限人员身份。
     other = user(db, "chenjing")
     other.name = name
-    assert not ops.is_superuser(build_principal(other))
+    assert not ops.can_view_all(build_principal(other))
+    target.all_project_access = False
+    assert not ops.can_view_all(principal)
     db.rollback()
 
 
@@ -248,7 +253,7 @@ def test_project_delete_password_is_checked_on_server(client, login, db, own_pro
     db.commit()
     headers = {"Authorization": "Bearer " + create_jwt(target.id)[0]}
     endpoint = f"{BASE}/{own_project['id']}"
-    assert client.get(endpoint, headers=headers).status_code == 200
+    assert client.get(endpoint, headers=headers).status_code == 404
     db.add(OpsMember(project_id=own_project["id"], user_id=target.id, role="manager"))
     db.commit()
     assert client.delete(endpoint, headers=headers).status_code == 400

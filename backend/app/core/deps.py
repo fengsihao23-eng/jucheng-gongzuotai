@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.permissions import MENUS, PUBLIC_MENUS, RECORD_DELETE_BUTTON, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
+from app.core.permissions import MENUS, PROJECT_MENUS, PUBLIC_MENUS, RECORD_DELETE_BUTTON, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
 from app.core.response import BizError, forbidden
 from app.core.security import decode_jwt, password_version
 from app.models import SysUser
@@ -27,6 +27,10 @@ class Principal:
     @property
     def workbench_enabled(self) -> bool:
         return self.user.workbench_enabled is not False
+
+    @property
+    def can_view_all_projects(self) -> bool:
+        return self.workbench_enabled and self.user.all_project_access is True
 
     @property
     def id(self) -> int:
@@ -95,6 +99,8 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
         menus.add("admin")
     else:
         menus.discard("admin")
+    if not inherit_only and user.all_project_access:
+        menus.update(PROJECT_MENUS)
     if not inherit_only and user.workbench_enabled is False:
         menus, buttons, scope = set(), set(), "self"
     return Principal(user=user, role_codes=codes, menus=menus, buttons=buttons, data_scope=scope, portal=portal, sections=sections)

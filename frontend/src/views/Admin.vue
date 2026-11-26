@@ -327,7 +327,7 @@ const matrixLoading = ref(false), matrixError = ref('')
 let matrixRequest = 0, userRequest = 0, sourceResolved = false
 const PRIVILEGES = {
   '*': '全部操作权限',
-  'operations:manage': '新建及管理参与的运营项目', 'operations:view_all': '跨项目查看（仅三位最高权限人员）',
+  'operations:manage': '新建及管理参与的运营项目', 'operations:view_all': '旧版运营项目范围设置',
   'operations:archive': '作废与恢复运营任务', 'operations:approve': '审核运营任务',
   'project:key': '管理重点项目', 'project:weekly': '导出项目周进度', 'milestone:write': '维护项目节点',
   'feedback:write': '登记项目进展', 'review:write': '编辑项目复盘', 'intel:write': '维护竞品情报',

@@ -34,7 +34,7 @@ def validate_reviewers(db, project, owner_id, department_id, company_id):
     if not company_reviewer(build_principal(company)):
         raise bad_request("公司审核人须具有公司审核权限")
     if ops.role(db, build_principal(company), project) is None:
-        raise bad_request("公司审核人须加入本项目团队，或为三位最高权限人员")
+        raise bad_request("公司审核人须有本项目的查看权限")
 
 
 def review_stage(db, p, project, task):

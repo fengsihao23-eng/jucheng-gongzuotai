@@ -31,7 +31,7 @@ def since(db):
 
 def legacy_visibility(p):
     from app.services import operations_service as ops
-    if p is None or ops.is_superuser(p):
+    if p is None or ops.can_manage_all(p):
         return True
     return ~or_(LogOperation.action.startswith("operations."), func.coalesce(LogOperation.target_type, "").startswith("ops_"))
 
@@ -55,9 +55,9 @@ def combined(db, p=None):
     jobs=select(*shape("job",SyncJobLog.id,None,"系统任务",None,"系统任务",SyncJobLog.job_name,"job_history",
         SyncJobLog.status,SyncJobLog.run_at,SyncJobLog.job_name)).where(SyncJobLog.run_at<cutoff)
     from app.services import operations_service as ops
-    if p is not None and not ops.is_superuser(p):
+    if p is not None and not ops.can_manage_all(p):
         # 全局审计可能在一条记录里混有多项目快照，不能按操作人等同项目成员。
-        # 成员在项目内读取本项目历史；跨项目的完整运营审计仅供三位最高权限人员。
+        # 成员在项目内读取本项目历史；跨项目审计由全项目管理权限控制。
         operational_change = select(AuditChange.id).where(AuditChange.event_key == AuditEvent.event_key,
             or_(AuditChange.table_name.startswith("ops_"),
                 func.coalesce(cast(AuditChange.before, String), "").contains('"ops_'),

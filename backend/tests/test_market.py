@@ -176,24 +176,23 @@ def test_milestone_scan_delay_remind_idempotent(client, login, db):
 
 # ---------------------------------------------------------------- 数据范围
 def test_pm_data_scope(client, login, db):
-    from app.models import BizProject, BizProjectMilestone, SysUser
+    from app.models import BizProject, KeyProjectMember, SysUser
     xu = db.scalar(select(SysUser).where(SysUser.wecom_userid == "xuhao"))
     items = data(client.get(f"{API}/projects", headers=login("xuhao")))["items"]
     codes = {i["project_code"] for i in items}
     assert {"JC-XY-2026-001", "JC-KP-2026-001", "JC-KP-2025-001"} <= codes
-    # 原有项目台账的数据范围继续包含本人负责的项目和节点。
+    # 项目负责人或团队成员可见。
     for c in codes:
         p = db.scalar(select(BizProject).where(BizProject.project_code == c))
-        assert p.owner_id == xu.id or db.scalar(select(BizProjectMilestone.id).where(
-            BizProjectMilestone.project_id == p.id, BizProjectMilestone.owner_id == xu.id).limit(1))
+        assert p.owner_id == xu.id or db.get(KeyProjectMember, (p.id, xu.id))
     assert "JC-AF-2026-001" not in codes  # 蒋涛负责
     r = client.get(f"{API}/projects/JC-AF-2026-001", headers=login("xuhao"))
     assert r.status_code in (403, 404) and r.json()["code"] in (40301, 40401)
     r = client.put(f"{API}/projects/JC-AF-2026-001/milestones-order", json={"ids": []}, headers=login("xuhao"))
     assert r.json()["code"] in (40301, 40401)
-    # 全量数据范围继续可以查看存量项目。
+    # 全公司数据范围不能代替项目团队授权。
     all_items = data(client.get(f"{API}/projects", headers=login("wujun")))["items"]
-    assert "JC-AF-2026-001" in {item["project_code"] for item in all_items}
+    assert "JC-AF-2026-001" not in {item["project_code"] for item in all_items}
     # 无 projects 菜单 → 403
     assert client.get(f"{API}/projects", headers=login("zhaoli")).json()["code"] == 40301
     # 项目经理只能对自己项目写反馈

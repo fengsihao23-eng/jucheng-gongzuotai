@@ -133,7 +133,7 @@ def test_only_named_enterprise_accounts_can_change_follow_pause(client, login, d
         assert not data(client.get(path, headers=headers))["can_pause"]
         assert client.put(path + "/pause", headers=headers, json={"paused": True}).status_code == 403
 
-    for account, name in [("ken", "梁道灿"), ("SZGLY", "聚成数智管理员"), ("FengSiHao", "冯思皓"),
+    for account, name in [("ken", "梁道灿"), ("SZGLY", "聚成数智管理员"), ("FengSiHao", "冯思皓"), ("ZhuDanDan", "朱丹丹"),
                           ("pause-namesake-" + uuid4().hex[:8], "梁道灿")]:
         actor = db.scalar(select(SysUser).where(SysUser.wecom_userid == account))
         actor = actor or SysUser(wecom_userid=account, name=name, status=1, workbench_enabled=True)
@@ -149,7 +149,7 @@ def test_only_named_enterprise_accounts_can_change_follow_pause(client, login, d
         db.commit()
         headers = {"Authorization": "Bearer " + create_jwt(actor.id)[0]}
         try:
-            allowed = account in {"ken", "SZGLY"}
+            allowed = account in {"ken", "SZGLY", "FengSiHao", "ZhuDanDan"}
             card = next(p for p in data(client.get(BASE + "/board", headers=headers))["projects"]
                         if p["project_code"] == project["project_code"])
             assert card["can_pause"] is allowed
@@ -328,8 +328,8 @@ def test_delete_key_project_requires_management_permission_and_visible_scope(cli
     if card:
         assert card["can_delete"] is granted
     else:
-        assert scope == "self" and not owned
-    allowed = granted and (scope == "all" or owned)
+        assert not owned
+    allowed = granted and owned
     response = client.request("DELETE", path, headers=headers, json=deletion_password())
     assert response.status_code == (200 if allowed else 403)
     db.expire_all()

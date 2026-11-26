@@ -256,7 +256,7 @@ def effective_permissions(user_id: int, p: Principal = Admin, db: Session = Depe
                "menu_keys": runtime["menus"] if active else [], "access_notes": access_notes,
                "login_permission_revision": runtime["permission_revision"],
                "buttons": sorted(target.buttons) if active else [], "data_scope": target.data_scope,
-                "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_view_all(target),
+               "operations_all": active and ops.can_view_all(target), "operations_manage_all": active and ops.can_manage_all(target),
                "operations_archive": active and (target.is_admin or target.can("operations:archive")),
                 "projects": ([{"name": name, "id": pid, "role": "owner"} for name, pid in visible_owned] +
                              [{"name": name, "id": pid, "role": role} for name, pid, role in visible_joined]) if active else [],

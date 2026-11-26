@@ -98,15 +98,22 @@
                 <el-radio-button value="role">沿用角色</el-radio-button><el-radio-button value="personal">单独配置</el-radio-button>
               </el-radio-group>
             </div>
-            <p v-if="administrator" class="jc-muted jc-small grant-note">平台管理员拥有完整业务权限。系统管理入口由「系统管理授权」角色控制。</p>
+            <p v-if="administrator" class="jc-muted jc-small grant-note">平台管理员继承业务操作权限。系统管理入口由「系统管理授权」角色控制。</p>
             <p v-else class="jc-muted jc-small grant-note">{{ mode === 'personal' ? '以下设置仅作用于这个人，保存后生效。' : '使用所选角色的默认权限；需要单独调整时选择「单独配置」。' }}</p>
+
+            <div class="project-access-setting">
+              <el-checkbox v-model="allProjectAccess" :disabled="saving || stale" aria-label="允许查看所有项目">
+                允许查看所有项目
+              </el-checkbox>
+              <p class="jc-muted jc-small">开启后可跨团队查看运营、重点、一般及历史项目。</p>
+            </div>
 
             <el-form v-if="mode === 'personal'" :model="permissionDraft" label-position="top" :disabled="saving || stale" class="personal-settings">
               <el-form-item label="数据范围">
                 <el-radio-group v-model="permissionDraft.data_scope" aria-label="个人数据范围">
                   <el-radio value="self">本人</el-radio><el-radio value="dept">本部门</el-radio><el-radio value="all">全公司</el-radio>
                 </el-radio-group>
-                <span class="jc-muted jc-small scope-note">合同、商机和项目按此范围查询；运营项目仍按成员授权。</span>
+                <span class="jc-muted jc-small scope-note">合同和商机按此范围查询。项目范围由项目团队及上方开关决定。</span>
               </el-form-item>
               <el-form-item label="模块、功能小项与操作权限">
                 <PermissionGroups :model-value="permissionDraft" :groups="permissionGroups"
@@ -125,6 +132,7 @@
           <section v-if="effective.active" class="effective-saved">
             <h4>已保存并生效的权限</h4>
             <p v-if="changed" class="jc-small jc-muted">上方选择尚未保存；这里显示账号当前实际生效的权限。</p>
+            <p class="jc-small jc-muted">{{ effective.all_project_access ? '可查看所有项目' : '项目按团队授权查看' }}</p>
             <div class="role-tags"><span v-for="label in effectiveMenuLabels" :key="label" class="jc-pill">{{ label }}</span></div>
             <p class="jc-small jc-muted">可执行操作：{{ effective.buttons.map(key => privileges[key] || key).join('、') || '基础查看操作' }}</p>
             <p v-for="(selected, menu) in effective.sections || {}" :key="menu" class="jc-small jc-muted">{{ menus[menu] }}功能：{{ sectionLabels(menu, selected).join('、') || '未授权任何小项' }}</p>
@@ -135,6 +143,7 @@
             <dl class="permission-sections">
               <div><dt>当前生效角色</dt><dd>{{ effective.roles.map(roleName).join('、') }}</dd></div>
               <div><dt>数据范围</dt><dd>{{ SCOPE[effective.data_scope] }}</dd></div>
+              <div><dt>项目查看范围</dt><dd>{{ effective.all_project_access ? '所有项目' : '本人加入的项目团队' }}</dd></div>
               <div><dt>运营项目</dt><dd>{{ effective.operations_manage_all ? '可管理全量' : effective.operations_all ? '可查看全量' : '按项目成员身份' }}<span v-if="effective.operations_archive"> · 已获任务作废权限</span></dd></div>
               <div><dt>可见菜单</dt><dd class="role-tags"><span v-for="label in effectiveMenuLabels" :key="label" class="jc-pill">{{ label }}</span><span v-if="!effectiveMenuLabels.length">无</span></dd></div>
               <div><dt>操作权限</dt><dd class="role-tags"><span v-for="code in effective.buttons" :key="code" class="jc-pill">{{ privileges[code] || code }}</span><span v-if="!effective.buttons.length">仅基础操作</span></dd></div>
@@ -215,7 +224,7 @@ const open = ref(false), roster = ref(null), person = ref(null), rosterTab = ref
 const people = ref({ items: [], total: 0, page: 1 }), keyword = ref(''), roleFilter = ref('')
 const membersLoading = ref(false), membersError = ref('')
 const effective = ref(null), permissionLoading = ref(false), permissionError = ref('')
-const draft = ref([]), mode = ref('role'), workbenchEnabled = ref(true)
+const draft = ref([]), mode = ref('role'), workbenchEnabled = ref(true), allProjectAccess = ref(false)
 const permissionDraft = reactive({ menus: [], buttons: [], data_scope: 'self', sections: null })
 watch(workbenchEnabled, value => { if (value && !permissionDraft.menus.includes('portal')) permissionDraft.menus.push('portal') })
 const saving = ref(false), saveError = ref(''), saveNotice = ref(''), stale = ref(false)
@@ -254,9 +263,10 @@ const roleDefaults = computed(() => {
 const roleMenuLabels = computed(() => visibleMenuLabels(roleDefaults.value.menus, administrator.value))
 const effectiveMenuLabels = computed(() => visibleMenuLabels(effective.value?.menu_keys || [], effective.value?.roles.includes('ADMIN-01')))
 const changed = computed(() => Boolean(added.value.length || removed.value.length) || Boolean(effective.value && workbenchEnabled.value !== effective.value.workbench_enabled) ||
+  Boolean(effective.value && allProjectAccess.value !== effective.value.all_project_access) ||
   Boolean(effective.value && JSON.stringify(mode.value === 'personal' ? normalized(permissionDraft) : null) !==
     JSON.stringify(normalized(effective.value.individual_permissions))))
-watch([draft, mode, permissionDraft, workbenchEnabled], () => { saveNotice.value = '' }, { deep: true, flush: 'sync' })
+watch([draft, mode, permissionDraft, workbenchEnabled, allProjectAccess], () => { saveNotice.value = '' }, { deep: true, flush: 'sync' })
 function copyRoleDefaults() {
   const value = roleDefaults.value
   Object.assign(permissionDraft, { menus: [...value.menus], buttons: value.buttons.filter(key => key !== '*'), data_scope: value.data_scope, sections: null })
@@ -320,6 +330,7 @@ function backToRoster() { permissionRequest++; person.value = null; effective.va
 function acceptPermissions(result) {
   effective.value = result
   workbenchEnabled.value = result.workbench_enabled
+  allProjectAccess.value = Boolean(result.all_project_access)
   draft.value = [...result.assigned_roles]
   mode.value = result.individual_permissions ? 'personal' : 'role'
   const config = result.individual_permissions || result.inherited_permissions
@@ -365,6 +376,7 @@ async function save() {
     const result = await api.put('/admin/users/' + row.id + '/permissions',
       { role_codes: draft.value, permissions: mode.value === 'personal' ? normalized(permissionDraft) : null,
         workbench_enabled: workbenchEnabled.value,
+        all_project_access: allProjectAccess.value,
         expected_revision: effective.value.permission_revision }, { silent: true })
     acceptPermissions(result)
     needsIdentity.value = false
@@ -406,6 +418,7 @@ function loginAgain() {
       actor: auth.profile.id, person: { id: person.value.id, name: person.value.name }, at: Date.now(),
       roles: [...draft.value], mode: mode.value, config: normalized(permissionDraft),
       workbenchEnabled: workbenchEnabled.value,
+      allProjectAccess: allProjectAccess.value,
       revision: effective.value.permission_revision,
     }))
     window.location.assign('/login?redirect=' + encodeURIComponent('/admin?tab=users'))
@@ -433,6 +446,7 @@ onMounted(async () => {
   mode.value = pending.mode
   Object.assign(permissionDraft, pending.config)
   workbenchEnabled.value = pending.workbenchEnabled ?? current.workbench_enabled
+  allProjectAccess.value = pending.allProjectAccess ?? Boolean(current.all_project_access)
   stale.value = current.permission_revision !== pending.revision
   if (stale.value) saveError.value = '登录期间权限已更新，请先重新查看核对'
   else saveNotice.value = '已恢复刚才的选择，请点击保存'
@@ -441,6 +455,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.project-access-setting { background: var(--jc-surface-2); border: 1px solid var(--jc-line); border-radius: 8px; padding: 8px 12px 10px; margin: 12px 0 14px; }
+.project-access-setting p { margin: 0; }
 .effective-saved { margin-top: 14px; padding: 13px 15px; border: 1px solid var(--jc-line); border-radius: 8px; }
 .effective-saved h4 { margin: 0 0 8px; font-size: 14px; }.access-note { line-height: 1.7; margin-bottom: 0; }
 :global(.department-permissions .el-dialog__body) { max-height: min(70vh, calc(100dvh - 148px)); overflow: auto; padding-top: 12px; }

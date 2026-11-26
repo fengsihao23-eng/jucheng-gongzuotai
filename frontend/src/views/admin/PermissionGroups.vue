@@ -20,7 +20,7 @@
                          :disabled="!menuChecked(group)"
                          @change="value => toggleSection(group, key, value)">{{ label }}</el-checkbox>
           </div>
-          <p v-if="group.key === 'operations'" class="jc-muted jc-small group-hint">只可访问本人所在项目团队。冯思皓、聚成数智管理员、梁道灿可访问全部项目。</p>
+          <p v-if="group.key === 'operations'" class="jc-muted jc-small group-hint">项目查看按团队和「允许查看所有项目」授权。</p>
           <p v-if="group.sections.funds" class="jc-muted jc-small group-hint">经费与审批还需「报销归集」和「项目台账」查看权限。</p>
           <div v-if="Object.keys(group.buttons).length" class="group-options actions">
             <el-checkbox v-for="(label, key) in group.buttons" :key="key"

@@ -8,6 +8,7 @@ from sqlalchemy import false, func, or_, select, true
 
 from app.core.audit import log_op, snapshot
 from app.core.deps import build_principal
+from app.core.permissions import PROJECT_PRIVILEGED_ACCOUNTS
 from app.core.response import bad_request, conflict, encode, forbidden, not_found
 from app.core.timeutil import TZ, day_bounds, month_range, now, today
 from app.models import (BizContract, BizPayment, BizProject, BizProjectFeedback, BizProjectFollowSetting, BizProjectMilestone,
@@ -26,7 +27,6 @@ REF = "key_project_task"
 GENERAL_REF = "project_task"
 GENERAL_NOTICE = "project_task_due"
 GENERAL_TASK_ASSIGNMENT_NOTICE = "project_task_assignment"
-PAUSE_USERIDS = {"ken", "SZGLY"}
 ZERO = Decimal(0)
 
 
@@ -55,8 +55,7 @@ def standard_scope(p, *, overview=False, is_key=True):
 def membership_scope(p, *, is_key=True):
     if p is None or not p.workbench_enabled:
         return false()
-    membership = or_(BizProject.owner_id == p.id, BizProject.id.in_(
-        select(KeyProjectMember.project_id).where(KeyProjectMember.user_id == p.id)))
+    membership = ps.team_filter(p.id)
     return membership if is_key is None else membership & BizProject.is_key.is_(is_key)
 
 
@@ -70,8 +69,7 @@ def has_team(db, p, *, is_key=True):
 
 
 def is_member(db, p, row):
-    return not row.is_deleted and p.workbench_enabled and (
-        row.owner_id == p.id or db.get(KeyProjectMember, (row.id, p.id)) is not None)
+    return ps.is_team_member(db, p, row)
 
 
 def standard_access(db, p, row):
@@ -104,7 +102,7 @@ def require_overview(db, p, *, is_key=True):
 
 
 def can_pause(p):
-    return p.user.wecom_userid in PAUSE_USERIDS and any(p.has_menu(m) for m in ("market", "projects"))
+    return p.user.wecom_userid in PROJECT_PRIVILEGED_ACCOUNTS and has_project_menu(p)
 
 
 def user(db, user_id, *, is_key=True):
@@ -268,7 +266,8 @@ def eligible_team_notice(db, notice):
 
 
 def within_owner_scope(p, owner):
-    return p.data_scope == "all" or owner.id == p.id or (p.data_scope == "dept" and owner.department_id == p.user.department_id)
+    return p.can_view_all_projects or p.data_scope == "all" or owner.id == p.id or (
+        p.data_scope == "dept" and owner.department_id == p.user.department_id)
 
 
 def save_project(db, p, body, code=None, *, is_key=True):
@@ -314,7 +313,7 @@ def delete_project(db, p, code, *, is_key=True):
 
 def set_paused(db, p, code, paused, *, is_key=True):
     if not can_pause(p):
-        raise forbidden("只有梁道灿和聚成数智管理员可以暂停或恢复项目跟进")
+        raise forbidden("无暂停或恢复项目跟进权限")
     row = project(db, p, code, lock=True, is_key=is_key)
     if not standard_access(db, p, row):
         raise forbidden("无权暂停或恢复该项目")
