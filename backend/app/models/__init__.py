@@ -19,7 +19,7 @@ from app.models.ext_collection_followup import WorkbookCollectionRequest  # noqa
 from app.models.ext_collection_progress import WorkbookCollectionProgress  # noqa: F401
 from app.models.ext_collection_report import WorkbookCollectionReport  # noqa: F401
 from app.models.ext_operation_audit import AuditEvent, AuditChange, AuditSetting  # noqa: F401
-from app.models.ext_operations_features import OpsProjectFeatures  # noqa: F401
+from app.models.ext_operations_features import OpsProjectFeatures, OpsProjectUser  # noqa: F401
 from app.models.ext_operations_assets import OpsAssetMovement, OpsMaintenanceRecord, OpsMaintenanceUpdate  # noqa: F401
 from app.models.ext_collection_reminder import WorkbookCollectionReminder  # noqa: F401
 from app.models.ext_key_projects import KeyProjectMember, KeyProjectTaskPlan, KeyProjectTaskNode, KeyProjectTaskUpdate  # noqa: F401

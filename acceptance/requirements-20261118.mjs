@@ -11,7 +11,7 @@ const users = (await call('admin', 'GET', '/admin/users', { page_size: 100 })).i
 const user = id => users.find(u => u.userid === id)
 const project = await call('admin', 'POST', '/operations', {
   name: '一键报警·需求验收', owner_id: user('admin').id, category: '其他运营',
-  enabled_sections: ['reports', 'products', 'procurement', 'device_maintenance', 'arrears', 'collection_maintenance', 'customers', 'warehouse', 'scrap'],
+  enabled_sections: ['team', 'reports', 'products', 'procurement', 'device_maintenance', 'arrears', 'collection_maintenance', 'customers', 'warehouse', 'scrap'],
 })
 await call('admin', 'POST', `/operations/${project.id}/members`, { user_id: user('xiekai').id, role: 'member' })
 const product = await call('admin', 'POST', `/operations/${project.id}/products`, { name: '验收专用路由器' })

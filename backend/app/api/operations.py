@@ -21,11 +21,13 @@ from app.services import campus_proposal
 from app.services import operations_followup as followups
 from app.services import operations_reports as op_reports
 from app.services import operations_scope as content_scope, operations_workspace as workspace, operations_income_feed as income_feed
-from app.schemas.operations_workspace import MemberViewIn, ProjectControlIn, OutreachGoalIn, SchoolRegionIn, IncomeFeedIn
+from app.schemas.operations_workspace import (IncomeFeedIn, MemberViewIn, OutreachGoalIn, ProjectControlIn,
+                                              ProjectUserCategory, ProjectUserEditIn, ProjectUserIn, SchoolRegionIn)
 from app.schemas.operations import DiscussionIn, SchoolVisitIn, SchoolTransitionIn, DigestGenerateIn, DigestPreferenceIn
 from app.schemas.operations_assets import AssetMovementIn, MaintenanceIn, MaintenanceKind
 from app.services import operations_assets as assets
 from app.services import operations_competitors as competitors
+from app.services import operations_users as project_users
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 Menu = Depends(require_menu("operations"))
@@ -135,10 +137,27 @@ def save_digest_settings(project_id: int, body: DigestPreferenceIn, p: Principal
 def product_library(keyword: str = "", p: Principal = Menu, db: Session = Depends(get_db)):
     """检索可访问项目的产品库，供跨项目复用。"""
     q = select(OpsProduct, OpsProject.name).join(OpsProject, OpsProject.id == OpsProduct.project_id).where(
-        OpsProduct.project_id.in_(content_scope.content_project_ids(db, p, "products")))
+        OpsProduct.project_id.in_(ops.reusable_product_project_ids(db, p)))
     if keyword:
         q = q.where(OpsProduct.name.ilike(f"%{keyword}%"))
     return ok({"items": [{**ops.product_dict(r), "source_project": name} for r, name in db.execute(q.order_by(OpsProduct.id.desc()))]})
+
+
+@router.get("/{project_id}/product-choices")
+def product_choices(project_id: int, section: Literal["procurement", "warehouse", "scrap"],
+                    p: Principal = Menu, db: Session = Depends(get_db)):
+    project = ops.get_project(db, p, project_id)
+    ops.manage(db, p, project)
+    content_scope.require(db, p, project, section)
+    q = select(OpsProduct, OpsProject.name).join(OpsProject, OpsProject.id == OpsProduct.project_id).where(
+        OpsProduct.project_id.in_(ops.reusable_product_project_ids(db, p, project.id)))
+    items = []
+    for row, name in db.execute(q.order_by(OpsProduct.id.desc())):
+        item = {"id": row.id, "name": row.name}
+        if section == "procurement":
+            item.update(brand=row.brand, model=row.model, reference_price=row.reference_price, source_project=name)
+        items.append(item)
+    return ok({"items": items})
 
 
 @router.post("")
@@ -298,6 +317,25 @@ def edit_competitor(project_id: int, competitor_id: int, body: CompetitorEditIn,
     return ok(result)
 
 
+@router.get("/{project_id}/user-list")
+def list_project_users(project_id: int, category: ProjectUserCategory, p: Principal = Menu, db: Session = Depends(get_db)):
+    return ok(project_users.listing(db, p, project_id, category), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{project_id}/user-list")
+def add_project_user(project_id: int, body: ProjectUserIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = project_users.save(db, p, project_id, body)
+    db.commit()
+    return ok(result)
+
+
+@router.put("/{project_id}/user-list/{user_id}")
+def edit_project_user(project_id: int, user_id: int, body: ProjectUserEditIn, p: Principal = Menu, db: Session = Depends(get_db)):
+    result = project_users.save(db, p, project_id, body, user_id)
+    db.commit()
+    return ok(result)
+
+
 @router.get("/{project_id}/progress")
 def project_progress_history(project_id: int, before_id: int | None = Query(None, gt=0), p: Principal = Menu, db: Session = Depends(get_db)):
     """按最新在前读取项目进度情况、问题、下一步计划及计划完成日期。"""
@@ -422,10 +460,11 @@ def save_member_visibility(project_id: int, user_id: int, body: MemberViewIn, p:
 def project_controls(project_id: int, p: Principal = Menu, db: Session = Depends(get_db)):
     project = ops.get_project(db, p, project_id)
     ops.manage(db, p, project)
-    content_scope.require_settings(p)
+    content_scope.require(db, p, project, "settings")
+    sections = content_scope.view(db, p, project)["sections"]
     from app.services import project_service
-    projects = list(db.scalars(project_service.visible_query(p))) if p.has_menu("projects") else []
-    return ok({**content_scope.controls(db, project_id), "members": ops.members(db, project),
+    projects = list(db.scalars(project_service.visible_query(p))) if "funds" in sections and p.has_menu("projects") else []
+    return ok({**content_scope.controls(db, project_id), "members": ops.members(db, project) if "reports" in sections else [],
         "business_projects": [{"code": x.project_code, "name": x.name} for x in projects]})
 
 

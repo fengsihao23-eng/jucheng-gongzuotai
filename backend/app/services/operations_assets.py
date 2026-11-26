@@ -117,7 +117,7 @@ def move(db, p, project_id, body, *, source_type="manual", source_key=None, acto
         return previous
     product = db.get(OpsProduct, body.product_id)
     existing = _rows(db, project_id, body.product_id)
-    if not product or (not existing and product.project_id not in scope.content_project_ids(db, p, "products")):
+    if not product or (not existing and product.project_id not in ops.reusable_product_project_ids(db, p, project.id)):
         raise not_found("可用设备产品")
     if body.school_id:
         ops.school(db, project_id, body.school_id)

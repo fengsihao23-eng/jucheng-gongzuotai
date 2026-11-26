@@ -1,12 +1,12 @@
 """可配置的小项及操作归属；管理页面和运行时共用这份目录。"""
 
 OPERATION_SECTIONS = {
-    "tasks": "任务情况 / 月度任务 / 当前待办", "progress": "项目进度",
-    "products": "设备产品库", "team": "项目团队", "outreach": "市场开拓",
-    "procurement": "学校采购", "income": "收入情况", "device_maintenance": "设备运维",
-    "arrears": "欠费维护", "collection_maintenance": "回款维护", "customers": "客户资料维护",
-    "warehouse": "仓库物料", "scrap": "设备报废", "reports": "周报 / 月报",
-    "funds": "经费与审批", "competitors": "对手信息", "settings": "工作设置",
+    "tasks": "任务情况 / 月度任务 / 当前待办", "team": "项目团队", "competitors": "对手信息",
+    "progress": "项目进度", "reports": "周报 / 月报", "outreach": "市场开拓",
+    "procurement": "学校采购", "income": "收入情况", "products": "设备产品库",
+    "funds": "经费与审批", "warehouse": "仓库物料", "device_maintenance": "设备运维",
+    "arrears": "欠费维护 / 欠款维护", "collection_maintenance": "回款维护",
+    "customers": "客户资料维护", "scrap": "设备报废", "user_list": "用户清单", "settings": "工作设置",
 }
 
 MENU_SECTIONS = {"operations": OPERATION_SECTIONS}

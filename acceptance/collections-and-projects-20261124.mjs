@@ -141,7 +141,7 @@ await step('COLLECTION-02', '固定按钮一键生成带台账金额、风险和
 
 await step('OPERATIONS-01', '普通团队成员添加和编辑对手信息，刷新后仍可查看', async () => {
   const project = await call('admin', 'POST', '/operations', {
-    name: '校园数字化运营 · 验收示例', category: '智慧校园', owner_id: adminUser.id, enabled_sections: ['progress'],
+    name: '校园数字化运营 · 验收示例', category: '智慧校园', owner_id: adminUser.id, enabled_sections: ['progress', 'team', 'competitors'],
   })
   const path = '/operations/' + project.id
   await call('admin', 'POST', path + '/members', { user_id: employee.id, role: 'member' })

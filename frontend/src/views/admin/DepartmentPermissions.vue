@@ -110,6 +110,7 @@
               </el-form-item>
               <el-form-item label="模块、功能小项与操作权限">
                 <PermissionGroups :model-value="permissionDraft" :groups="permissionGroups"
+                                  :system-management="draft.includes('SYS-MGMT')" :workbench-enabled="workbenchEnabled"
                                   @update:model-value="value => Object.assign(permissionDraft, value)" />
               </el-form-item>
               <el-button link type="primary" @click="copyRoleDefaults">重新带入角色默认权限</el-button>

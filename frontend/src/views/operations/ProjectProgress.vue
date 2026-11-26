@@ -18,7 +18,8 @@
     </details>
   </section>
   <el-dialog v-if="!readOnly" v-model="formOpen" title="填写项目进度" class="ops-progress-entry-dialog" width="min(700px, calc(100vw - 24px))" align-center append-to-body destroy-on-close :close-on-click-modal="false">
-    <p class="form-hint">{{ active ? '填了下一步和日期，就会生成一条负责人计划。已有事项请打开原记录反馈。' : '项目恢复进行中后可添加新的计划事项。' }}</p>
+    <p v-if="!active" class="form-hint">项目恢复进行中后可添加新的计划事项。</p>
+    <p v-else-if="canPlan" class="form-hint">填了下一步和日期，就会生成一条负责人计划。已有事项请打开原记录反馈。</p>
     <el-form label-position="top" :disabled="saving" @submit.prevent="save">
       <fieldset v-for="(entry, index) in entries" :key="entry.key" class="entry" :class="{ multiple: entries.length > 1 }">
         <legend v-if="entries.length > 1">第 {{ index + 1 }} 条</legend>
@@ -62,6 +63,7 @@ const props = defineProps({ project: { type: Object, required: true }, readOnly:
 const emit = defineEmits(['saved', 'open-task'])
 const assistant = useAssistant(), latest = computed(() => props.project.latest_progress)
 const active = computed(() => props.project.status === 'active')
+const canPlan = computed(() => (props.project.visible_sections || []).includes('tasks'))
 const formOpen = ref(false), historyOpen = ref(false), saving = ref(false), loading = ref(false), failed = ref(false)
 const history = ref([]), nextBefore = ref(null)
 const entries = ref([])
@@ -82,7 +84,8 @@ async function addEntry(event) {
 }
 function withXiaoju() {
   const values = entries.value.map((entry, index) => `第 ${index + 1} 条\n进度情况：${entry.progress}\n遇到的问题：${entry.problems}${active.value ? `\n下一步工作：${entry.next_plan}\n计划完成日期：${entry.next_due_date || ''}` : ''}`).join('\n\n')
-  assistant.openDraft(`帮我填写运营项目「${props.project.name}」（ID：${props.project.id}）的项目进度。按以下事项分别登记；有下一步和日期的加入负责人计划。\n${values}`)
+  const instruction = canPlan.value ? '有下一步和日期的加入负责人计划。' : ''
+  assistant.openDraft(`帮我填写运营项目「${props.project.name}」（ID：${props.project.id}）的项目进度。按以下事项分别登记。${instruction}\n${values}`)
 }
 async function save() {
   if (saving.value) return

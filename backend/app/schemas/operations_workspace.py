@@ -1,13 +1,12 @@
 from datetime import date
 from typing import Annotated, Literal
 from pydantic import Field, StringConstraints, model_validator
+from app.core.permission_catalog import OPERATION_SECTIONS
 from app.schemas.operations import Id, Input, Money, Name, Note, Cadence, OperationSection
-
-Section = OperationSection
 
 
 class MemberViewIn(Input):
-    sections: list[Section] = Field(max_length=16)
+    sections: list[OperationSection] = Field(max_length=len(OPERATION_SECTIONS))
     task_scope: Literal["team", "self"] = "team"
     expected_revision: int = Field(ge=0)
 
@@ -18,6 +17,21 @@ class ProjectControlIn(Input):
     report_audience: Literal["all", "selected"] = "all"
     report_user_ids: list[Id] = Field(default_factory=list, max_length=200)
     expected_revision: int = Field(ge=0)
+
+
+ProjectUserCategory = Literal["education", "other"]
+
+
+class ProjectUserIn(Input):
+    category: ProjectUserCategory
+    name: Name
+    contact: Annotated[str, StringConstraints(max_length=80)] = ""
+    contact_details: Annotated[str, StringConstraints(max_length=128)] = ""
+    note: Annotated[str, StringConstraints(max_length=1000)] = ""
+
+
+class ProjectUserEditIn(ProjectUserIn):
+    expected_revision: int = Field(ge=1)
 
 
 class OutreachGoalIn(Input):

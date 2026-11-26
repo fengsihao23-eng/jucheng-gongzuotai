@@ -206,7 +206,7 @@ def test_digest_scopes_income_progress_and_saved_versions(client, login, db, mon
     owner, worker = (db.scalar(select(SysUser.id).where(SysUser.wecom_userid == uid)) for uid in ("admin", "xiekai"))
     base = "/api/v1/operations"
     project = data(client.post(base, headers=admin, json={"name": "综合汇报口径验收", "owner_id": owner,
-        "enabled_sections": ["income", "progress", "reports", "outreach"]}))
+        "enabled_sections": ["tasks", "team", "income", "progress", "reports", "outreach"]}))
     route = base + "/" + str(project["id"])
     data(client.post(route + "/members", headers=admin, json={"user_id": worker, "role": "member"}))
     school = data(client.post(route + "/schools", headers=admin, json={"name": "营收试点学校"}))

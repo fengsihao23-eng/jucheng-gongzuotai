@@ -5,8 +5,8 @@
       <div class="permission-grid">
         <section v-for="group in section.items" :key="group.path || group.key || 'other'" class="permission-group">
           <div class="group-heading">
-            <el-checkbox v-if="group.key" :model-value="menuChecked(group)"
-                         :disabled="group.key === 'portal' || !!group.anyMenu || !catalog.has(group.key)"
+            <el-checkbox v-if="group.key || group.anyMenu || group.account" :model-value="menuChecked(group)"
+                         :disabled="menuLocked(group)"
                          @change="value => toggleMenu(group, value)">{{ group.label }}</el-checkbox>
             <b v-else>{{ group.label }}</b>
             <el-checkbox v-if="childCount(group)" :model-value="allSelected(group)"
@@ -21,6 +21,7 @@
                          @change="value => toggleSection(group, key, value)">{{ label }}</el-checkbox>
           </div>
           <p v-if="group.key === 'operations'" class="jc-muted jc-small group-hint">只可访问本人所在项目团队。冯思皓、聚成数智管理员、梁道灿可访问全部项目。</p>
+          <p v-if="group.sections.funds" class="jc-muted jc-small group-hint">经费与审批还需「报销归集」和「项目台账」查看权限。</p>
           <div v-if="Object.keys(group.buttons).length" class="group-options actions">
             <el-checkbox v-for="(label, key) in group.buttons" :key="key"
                          :model-value="modelValue.buttons.includes(key)"
@@ -35,18 +36,31 @@
 </template>
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { MENU_GROUPS } from '@/config/menu'
 
-const props = defineProps({ modelValue: { type: Object, required: true }, groups: { type: Array, required: true } })
+const props = defineProps({
+  modelValue: { type: Object, required: true },
+  groups: { type: Array, default: () => [] },
+  systemManagement: Boolean,
+  workbenchEnabled: Boolean,
+})
 const emit = defineEmits(['update:modelValue'])
 const catalog = computed(() => new Map(props.groups.map(group => [group.key, group])))
 
-// Render every sidebar entry. Entries that share a permission use the same
-// saved key, with the operation controls shown once beside the first entry.
+// Include routes reached from page actions as well as the sidebar.
+const extraEntries = useRouter().getRoutes().filter(({ meta }) => meta.permissionGroup).map(({ path, meta }) => ({
+  path, key: meta.menu, anyMenu: meta.anyMenu, label: meta.title, title: meta.permissionGroup,
+  account: !meta.menu && !meta.anyMenu && !meta.feedbackOverlay,
+  recordScope: meta.feedbackOverlay,
+}))
+const navigationGroups = MENU_GROUPS.map(({ title, items }) => ({
+  title, items: [...items, ...extraEntries.filter(entry => entry.title === title)],
+}))
 const entriesByKey = new Map()
-for (const { items } of MENU_GROUPS) {
+for (const { items } of navigationGroups) {
   for (const item of items) {
-    if (item.anyMenu) continue
+    if (!item.key || item.anyMenu) continue
     if (!entriesByKey.has(item.key)) entriesByKey.set(item.key, [])
     entriesByKey.get(item.key).push(item)
   }
@@ -54,7 +68,7 @@ for (const { items } of MENU_GROUPS) {
 const menuLabel = key => entriesByKey.get(key)?.[0].label || catalog.value.get(key)?.label || key
 const quoted = label => `「${label}」`
 const sections = computed(() => {
-  const navigation = MENU_GROUPS.map(({ title, items }) => ({
+  const navigation = navigationGroups.map(({ title, items }) => ({
     title,
     items: items.map(item => {
       const siblings = entriesByKey.get(item.key) || []
@@ -62,8 +76,12 @@ const sections = computed(() => {
       const config = ownsControls ? catalog.value.get(item.key) : null
       const linked = siblings.filter(peer => peer !== item).map(peer => quoted(peer.label))
       let hint = ''
-      if (item.anyMenu) hint = `随${item.anyMenu.map(key => quoted(menuLabel(key))).join('或')}开通。`
+      if (item.key === 'admin') hint = '由「系统管理授权」角色开通。'
+      else if (item.account) hint = '账号启用工作台后可使用。'
+      else if (item.recordScope) hint = '按业务记录权限及参与人范围开放。'
+      else if (item.anyMenu) hint = `随${item.anyMenu.map(key => quoted(menuLabel(key))).join('或')}开通。`
       else if (linked.length) hint = `与${linked.join('、')}共用查看权限。`
+      else if (item.key === 'market') hint = '项目团队成员还可查看本人参与的重点项目。'
       return { ...item, sections: config?.sections || {}, buttons: config?.buttons || {}, hint }
     }),
   }))
@@ -71,7 +89,12 @@ const sections = computed(() => {
   if (extra.length) navigation.push({ title: '其他权限', items: extra })
   return navigation
 })
-const menuChecked = group => (group.anyMenu || [group.key]).some(key => props.modelValue.menus.includes(key))
+function menuChecked(group) {
+  if (group.key === 'admin') return props.workbenchEnabled && props.systemManagement
+  if (group.account) return props.workbenchEnabled
+  return (group.anyMenu || [group.key]).some(key => props.modelValue.menus.includes(key))
+}
+const menuLocked = group => group.key === 'portal' || group.key === 'admin' || !!group.anyMenu || !catalog.value.has(group.key)
 const childCount = group => Object.keys(group.sections).length + Object.keys(group.buttons).length
 const hasSection = (group, key) => menuChecked(group) &&
   (props.modelValue.sections?.[group.key] || Object.keys(group.sections)).includes(key)
@@ -81,7 +104,7 @@ const someSelected = group => selectedCount(group) > 0
 const allSelected = group => selectedCount(group) === childCount(group) && (!group.key || menuChecked(group))
 const change = patch => emit('update:modelValue', { ...props.modelValue, ...patch })
 function toggleMenu(group, value) {
-  if (group.anyMenu || group.key === 'portal' || !catalog.value.has(group.key)) return
+  if (menuLocked(group)) return
   const menus = new Set(props.modelValue.menus)
   const buttons = catalog.value.get(group.key).buttons
   value ? menus.add(group.key) : menus.delete(group.key)

@@ -48,6 +48,7 @@ RECORDS = {
 # Some school records inherit their project through the school rather than a project column.
 PROJECT_RECORDS = {
     "operation-competitor": (m.OpsCompetitor, "competitors", "name"),
+    "operation-user": (m.OpsProjectUser, "user_list", "name"),
     "operation-product": (m.OpsProduct, "products", "name"),
     "operation-goal": (m.OpsOutreachGoal, "outreach", "year"),
     "operation-progress": (m.OpsProjectProgress, "progress", "progress"),

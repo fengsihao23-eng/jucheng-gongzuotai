@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from app.core.permission_catalog import OPERATION_SECTIONS
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=6000)]
@@ -15,9 +16,7 @@ TaskSource = Literal["company", "self", "project_plan"]
 Visibility = Literal["team", "selected"]
 TaskKind = Literal["general", "outreach"]
 Cadence = Literal["daily", "every_2_days", "every_3_days", "weekly", "node"]
-OperationSection = Literal["tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds",
-                           "warehouse", "device_maintenance", "arrears", "collection_maintenance", "customers", "scrap",
-                           "competitors"]
+OperationSection = Literal[*OPERATION_SECTIONS]
 
 
 class Input(BaseModel):
@@ -33,7 +32,7 @@ class ProjectIn(Input):
     status: Literal["active", "paused", "completed"] = "active"
     is_key: bool = True
     enabled_sections: list[OperationSection] | None = Field(
-        default=None, max_length=16, description="本项目开通的标准功能。任务、项目团队和对手信息为基础功能。采购和仓库依赖设备产品库。")
+        default=None, max_length=len(OPERATION_SECTIONS), description="本项目开通的标准功能，可以独立启用或停用。")
     expected_features_revision: int | None = Field(
         default=None, ge=0, description="编辑标准功能时传入当前功能版本；未配置的历史项目为0。")
 

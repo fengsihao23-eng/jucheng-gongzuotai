@@ -21,7 +21,8 @@ def stock_project(client, login, db, monkeypatch):
     owner = db.scalar(select(SysUser.id).where(SysUser.wecom_userid == "admin"))
     worker = db.scalar(select(SysUser.id).where(SysUser.wecom_userid == "xiekai"))
     project = data(client.post(BASE, headers=admin, json={"name": "资产测试-" + uuid4().hex[:8], "owner_id": owner,
-        "enabled_sections": ["procurement", "warehouse", "scrap", "reports", "device_maintenance", "arrears", "collection_maintenance", "customers"]}))
+        "enabled_sections": ["tasks", "team", "products", "procurement", "warehouse", "scrap", "reports",
+                             "device_maintenance", "arrears", "collection_maintenance", "customers"]}))
     path = f"{BASE}/{project['id']}"
     data(client.post(path + "/members", headers=admin, json={"user_id": worker, "role": "member"}))
     product = data(client.post(path + "/products", headers=admin, json={"name": "验收路由器"}))
@@ -34,6 +35,24 @@ def stock_project(client, login, db, monkeypatch):
 def movement(product, action, quantity, **extra):
     return {"product_id": product, "action": action, "quantity": quantity, "occurred_on": "2026-11-18",
             "note": "合成验收依据", "request_key": uuid4().hex, **extra}
+
+
+def test_warehouse_and_procurement_work_with_product_library_disabled(client, login, stock_project):
+    path, _, product, school, equipment, _ = stock_project
+    admin = login("admin")
+    detail = data(client.get(path, headers=admin))
+    selected = set(detail["feature_settings"]["sections"]) - {"products"}
+    body = {key: detail[key] for key in ("name", "category", "owner_id", "objective", "status", "is_key")}
+    data(client.put(path, headers=admin, json={**body, "enabled_sections": sorted(selected),
+        "expected_features_revision": detail["feature_settings"]["revision"]}))
+    assert product not in {row["id"] for row in data(client.get(BASE + "/products", headers=admin))["items"]}
+    for section in ("warehouse", "procurement"):
+        choices = data(client.get(path + "/product-choices", headers=admin, params={"section": section}))
+        assert product in {row["id"] for row in choices["items"]}
+    assert client.put(path + f"/schools/{school}/equipment/{equipment}", headers=admin,
+                      json={"product_id": product, "quantity": 11, "unit_price": "100.00"}).status_code == 200
+    data(client.post(path + "/warehouse/movements", headers=admin, json=movement(product, "outbound", 2)))
+    assert data(client.get(path + "/warehouse", headers=admin))["items"][0]["warehouse"] == 9
 
 
 def test_purchase_outbound_scrap_and_duplicate_request_reconcile(client, login, stock_project):

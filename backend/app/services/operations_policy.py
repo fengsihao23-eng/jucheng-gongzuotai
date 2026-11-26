@@ -1,10 +1,11 @@
 """Task visibility, scope changes and reversible archiving."""
-from sqlalchemy import delete, exists, or_, select
+from sqlalchemy import cast, delete, exists, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.audit import log_op
 from app.core.response import bad_request, conflict, forbidden
 from app.core.timeutil import now
-from app.models import OpsMember, OpsMemberView, OpsProject, OpsTask, OpsTaskAudience, OpsTaskPolicy, SysUser
+from app.models import OpsMember, OpsMemberView, OpsProject, OpsProjectFeatures, OpsTask, OpsTaskAudience, OpsTaskPolicy, SysUser
 
 
 def archived():
@@ -22,7 +23,10 @@ def task_access(p, *, archive=False):
     if not p.has_section("operations", "tasks") and not ops.is_superuser(p):
         from sqlalchemy import false
         return false()
-    base = (archived() if archive else ~archived()) & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted"))
+    disabled_projects = select(OpsProjectFeatures.project_id).where(~cast(OpsProjectFeatures.sections, JSONB).has_key("tasks"))
+    base = ((archived() if archive else ~archived())
+            & OpsTask.project_id.in_(select(OpsProject.id).where(OpsProject.status != "deleted"))
+            & OpsTask.project_id.not_in(disabled_projects))
     if ops.can_view_all(p):
         return base
     owner_project = select(OpsProject.id).where(OpsProject.owner_id == p.id)

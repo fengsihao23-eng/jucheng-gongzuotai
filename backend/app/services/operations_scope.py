@@ -1,44 +1,40 @@
 """One project content policy for pages, reports, notifications and assistant calls."""
 from sqlalchemy import select
 from app.core.audit import log_op
+from app.core.permission_catalog import OPERATION_SECTIONS
 from app.core.response import bad_request, conflict, forbidden
-from app.models import OpsMember, OpsMemberView, OpsProject, OpsProjectControl, OpsProjectFeatures, OpsTask, SysUser
+from app.models import OpsMember, OpsMemberView, OpsProjectControl, OpsProjectFeatures, SysUser
 
-LEGACY_SECTIONS = {"tasks", "progress", "outreach", "procurement", "income", "products", "team", "reports", "funds"}
+LEGACY_SECTIONS = {"tasks", "progress", "outreach", "procurement", "income", "products",
+                   "team", "reports", "funds", "competitors", "warehouse", "settings"}
 ALARM_FEATURES = {"device_maintenance", "arrears", "collection_maintenance", "customers", "warehouse", "scrap"}
-SECTIONS = {"tasks": "任务", "progress": "项目进度", "outreach": "学校与市场开拓", "procurement": "学校采购",
-            "income": "每日营收", "products": "设备产品", "team": "项目团队", "reports": "周报月报", "funds": "经费与审批",
-            "warehouse": "仓库物料", "device_maintenance": "设备运维", "arrears": "欠费维护",
-            "collection_maintenance": "回款维护", "customers": "客户资料维护", "scrap": "设备报废",
-            "competitors": "对手信息"}
-BASE_FEATURES = {"tasks", "team", "competitors"}
-FEATURE_LABELS = {**SECTIONS, "tasks": "任务情况", "outreach": "市场开拓", "income": "收入情况", "products": "设备产品库",
-                  "reports": "周报 / 月报"}
-FEATURE_ORDER = ("tasks", "team", "competitors", "progress", "reports", "outreach", "procurement", "income", "products", "funds",
-                 "warehouse", "device_maintenance", "arrears", "collection_maintenance", "customers", "scrap")
+SECTIONS = {**OPERATION_SECTIONS, "tasks": "任务情况", "arrears": "欠费维护"}
 SCHOOL_FEATURES = {"outreach", "procurement", "income"}
 
 
 def feature_options():
-    return {"features": [{"value": key, "label": FEATURE_LABELS[key], "required": key in BASE_FEATURES,
-                           "depends_on": ["products"] if key in {"procurement", "warehouse", "scrap"} else []} for key in FEATURE_ORDER],
-            "feature_presets": {"campus": [key for key in FEATURE_ORDER if key in LEGACY_SECTIONS | BASE_FEATURES | {"warehouse"}],
-                                "alarm": [key for key in FEATURE_ORDER if key in BASE_FEATURES | ALARM_FEATURES | {"products", "reports", "progress"}],
-                                "general": [key for key in FEATURE_ORDER if key in BASE_FEATURES | {"progress", "reports"}]}}
+    common = {"tasks", "team", "competitors", "progress", "reports", "user_list", "settings"}
+    presets = {"campus": common | LEGACY_SECTIONS, "alarm": common | ALARM_FEATURES | {"products"},
+               "general": common}
+    return {"features": [{"value": key, "label": label, "required": False, "depends_on": []}
+                         for key, label in SECTIONS.items()],
+            "feature_presets": {name: [key for key in SECTIONS if key in keys] for name, keys in presets.items()}}
+
+
+def _legacy_features(project):
+    return LEGACY_SECTIONS | (ALARM_FEATURES if project.name.strip() == "一键报警" else set())
 
 
 def enabled_features(db, project):
     row = db.get(OpsProjectFeatures, project.id)
-    if row:
-        return set(row.sections) | BASE_FEATURES
-    return LEGACY_SECTIONS | BASE_FEATURES | {"warehouse"} | (ALARM_FEATURES if project.name.strip() == "一键报警" else set())
+    return set(row.sections) if row else _legacy_features(project)
 
 
 def feature_settings(db, project):
     row = db.get(OpsProjectFeatures, project.id)
-    enabled = enabled_features(db, project)
+    enabled = set(row.sections) if row else _legacy_features(project)
     return {"configured": bool(row), "revision": row.revision if row else 0,
-            "sections": [key for key in FEATURE_ORDER if key in enabled],
+            "sections": [key for key in SECTIONS if key in enabled],
             "legacy_campus_income": row.legacy_campus_income if row else project.name == "智慧校园"}
 
 
@@ -46,10 +42,8 @@ def save_features(db, p, project, sections, expected_revision, *, creating, lega
     before = feature_settings(db, project)
     if not creating and expected_revision != before["revision"]:
         raise conflict("项目标准功能已变化，请刷新后重试")
-    chosen = set(sections) | BASE_FEATURES
-    if chosen & {"procurement", "warehouse", "scrap"}:
-        chosen.add("products")
-    selected = [key for key in FEATURE_ORDER if key in chosen]
+    chosen = set(sections)
+    selected = [key for key in SECTIONS if key in chosen]
     row = db.get(OpsProjectFeatures, project.id)
     if row and row.sections == selected:
         return
@@ -71,9 +65,10 @@ def view(db, p, project):
         enabled = {key for key in enabled if p.has_section("operations", key)}
     if ops.can_view_all(p) or ops.role(db, p, project) == "manager":
         return {"sections": [key for key in SECTIONS if key in enabled], "task_scope": "team", "revision": 0, "managed": True}
+    enabled.discard("settings")
     member = db.scalar(select(OpsMember).where(OpsMember.project_id == project.id, OpsMember.user_id == p.id))
     if not member:
-        return {"sections": ["tasks"], "task_scope": "self", "revision": 0, "managed": False}
+        return {"sections": [], "task_scope": "self", "revision": 0, "managed": False}
     row = db.get(OpsMemberView, (project.id, p.id))
     return {"sections": [key for key in (row.sections if row else SECTIONS) if key in enabled],
             "task_scope": row.task_scope if row else "team",
@@ -100,7 +95,7 @@ def members_config(db, p, project):
     ops.manage(db, p, project)
     require(db, p, project, "team")
     rows = {r.user_id: r for r in db.scalars(select(OpsMemberView).where(OpsMemberView.project_id == project.id))}
-    enabled = enabled_features(db, project)
+    enabled = enabled_features(db, project) - {"settings"}
     return {"sections": {k: v for k, v in SECTIONS.items() if k in enabled}, "items": [{**m,
         "sections": [k for k in (rows[m["user_id"]].sections if m["user_id"] in rows else SECTIONS) if k in enabled],
         "task_scope": rows[m["user_id"]].task_scope if m["user_id"] in rows else "team",
@@ -123,8 +118,8 @@ def save_member_view(db, p, project_id, user_id, body):
         raise conflict("此人的项目可见范围已变更，请重新查看")
     before = {"sections": row.sections, "task_scope": row.task_scope} if row else None
     row = row or OpsMemberView(project_id=project_id, user_id=user_id, revision=0, updated_by=p.id)
-    enabled = enabled_features(db, project)
-    stored = set(before["sections"]) if before else set(SECTIONS)
+    enabled = enabled_features(db, project) - {"settings"}
+    stored = (set(before["sections"]) if before else set(SECTIONS)) - {"settings"}
     row.sections = sorted((stored - enabled) | (set(body.sections) & enabled) | {"tasks"})
     row.task_scope, row.updated_by = body.task_scope, p.id
     row.revision += 1
@@ -146,12 +141,12 @@ def save_controls(db, p, project_id, body):
     from app.services import operations_service as ops, project_service
     project = ops.get_project(db, p, project_id, lock=True)
     ops.manage(db, p, project)
-    require_settings(p)
+    require(db, p, project, "settings")
     before = controls(db, project_id)
     if body.expected_revision != before["revision"]:
         raise conflict("项目设置已变化，请刷新后重试")
     code = body.business_project_code or None
-    enabled = enabled_features(db, project)
+    enabled = set(view(db, p, project)["sections"])
     if "funds" not in enabled and code != before["business_project_code"]:
         raise forbidden("本项目未开通经费与审批")
     report_ids = sorted(set(body.report_user_ids)) if body.report_audience == "selected" else []

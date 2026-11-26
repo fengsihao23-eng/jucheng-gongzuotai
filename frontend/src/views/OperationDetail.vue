@@ -10,34 +10,34 @@
         <el-button v-if="projectRemoval" plain type="danger" @click="deleteRecord(projectRemoval)">删除项目</el-button>
       </PageHeader>
       <Panel class="mt-16">
-        <el-tabs v-model="tab">
+        <el-tabs v-if="visibleTabs.length" v-model="tab">
           <el-tab-pane v-if="canSection('tasks')" label="任务情况" name="tasks">
             <ProjectTaskBoard :key="project.id" ref="taskBoard" v-model:task-id="taskId" :project="project" @refresh="load" />
           </el-tab-pane>
-          <template v-if="project.can_view_project_content">
-            <el-tab-pane v-if="project.feature_settings?.configured && canSection('progress')" label="项目进度" name="progress" lazy>
-              <ProjectProgress :project="project" @saved="load" @open-task="openTask" />
-            </el-tab-pane>
-            <template v-if="hasSchools">
-              <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
-              <el-tab-pane v-if="canSection('income')" :label="legacyCampusIncome ? '收入情况' : '每日收入'" name="income" lazy><CampusIncomeReport v-if="legacyCampusIncome" /><SchoolData v-else mode="income" :project="project" @saved="load" /></el-tab-pane>
-              <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
-            </template>
-            <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
-            <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
-            <el-tab-pane v-if="canSection('competitors')" label="对手信息" name="competitors" lazy>
-              <CompetitorInfo :key="project.id" :project-id="project.id" :active="tab === 'competitors'" />
-            </el-tab-pane>
-          </template>
+          <el-tab-pane v-if="canSection('progress')" label="项目进度" name="progress" lazy>
+            <ProjectProgress :project="project" @saved="load" @open-task="openTask" />
+          </el-tab-pane>
+          <el-tab-pane v-if="canSection('procurement')" label="学校采购" name="procurement" lazy><SchoolData mode="procurement" :project="project" @saved="load" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('income')" :label="legacyCampusIncome ? '收入情况' : '每日收入'" name="income" lazy><CampusIncomeReport v-if="legacyCampusIncome" /><SchoolData v-else mode="income" :project="project" @saved="load" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('outreach')" label="市场开拓" name="outreach" lazy><SchoolData mode="outreach" :project="project" @saved="load" @open-task="openTask" @assign-school="newOutreach" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('products')" label="设备产品库" name="products" lazy><ProductLibrary :project="project" @saved="load" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('team')" label="项目团队" name="team" lazy><TeamMembers :project="project" @saved="load" @settings="projectForm = true" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('competitors')" label="对手信息" name="competitors" lazy>
+            <CompetitorInfo :key="project.id" :project-id="project.id" :active="tab === 'competitors'" />
+          </el-tab-pane>
           <el-tab-pane v-for="section in maintenanceSections.filter(s => canSection(s.key))" :key="section.key" :label="section.label" :name="section.key" lazy>
             <OperationsMaintenance :project="project" :kind="section.key" :label="section.label" :active="tab === section.key" />
           </el-tab-pane>
           <el-tab-pane v-if="canSection('warehouse')" label="仓库物料" name="warehouse" lazy><OperationsWarehouse :project="project" :active="tab === 'warehouse'" /></el-tab-pane>
           <el-tab-pane v-if="canSection('scrap')" label="设备报废" name="scrap" lazy><OperationsWarehouse :project="project" :active="tab === 'scrap'" scrap-only /></el-tab-pane>
           <el-tab-pane v-if="canSection('reports')" label="周报 / 月报" name="digest" lazy><OpsDigest :project-id="project.id" :active="tab === 'digest'" /></el-tab-pane>
-          <el-tab-pane v-if="canSection('funds') && auth.hasMenu('expenses') && auth.hasMenu('projects')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
-          <el-tab-pane v-if="project.can_configure" label="工作设置" name="controls" lazy><ProjectControls :project-id="project.id" :active="tab === 'controls'" :sections="project.visible_sections" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('funds')" label="经费与审批" name="funds" lazy><ProjectFunds :project-id="project.id" :active="tab === 'funds'" /></el-tab-pane>
+          <el-tab-pane v-if="canSection('user_list')" label="用户清单" name="user_list" lazy>
+            <ProjectUserList :key="project.id" :project-id="project.id" :active="tab === 'user_list'" />
+          </el-tab-pane>
+          <el-tab-pane v-if="canSection('settings')" label="工作设置" name="settings" lazy><ProjectControls :project-id="project.id" :active="tab === 'settings'" :sections="visibleSections" /></el-tab-pane>
         </el-tabs>
+        <el-empty v-else description="当前没有可用的项目功能" :image-size="80" />
       </Panel>
       <ProjectForm v-model="projectForm" :initial="project" @saved="load" />
     </template>
@@ -63,6 +63,7 @@ import ProductLibrary from './operations/ProductLibrary.vue'
 import TeamMembers from './operations/TeamMembers.vue'
 import ProjectControls from './operations/ProjectControls.vue'
 import ProjectFunds from './operations/ProjectFunds.vue'
+import ProjectUserList from './operations/ProjectUserList.vue'
 import OperationsWarehouse from './operations/OperationsWarehouse.vue'
 import OperationsMaintenance from './operations/OperationsMaintenance.vue'
 import { PROJECT_STATUS, projectProgressPrompt } from './operations/shared'
@@ -72,23 +73,20 @@ const taskId = computed({
   get: () => /^[1-9]\d*$/.test(String(route.query.task)) ? Number(route.query.task) : undefined,
   set: id => router.replace({ query: { ...route.query, task: id } }),
 })
-const hasSchools = computed(() => project.value?.feature_settings?.configured || project.value?.category.includes('校园') || project.value?.schools.length)
 const legacyCampusIncome = computed(() => project.value?.feature_settings?.legacy_campus_income ?? project.value?.name === '智慧校园')
-const canSection = section => (project.value?.visible_sections || []).includes(section)
+const visibleSections = computed(() => (project.value?.visible_sections || []).filter(section =>
+  section !== 'funds' || (auth.hasMenu('expenses') && auth.hasMenu('projects'))))
+const visibleTabs = computed(() => visibleSections.value.map(section => section === 'reports' ? 'digest' : section))
+const canSection = section => visibleSections.value.includes(section)
 const maintenanceSections = computed(() => [
   { key: 'device_maintenance', label: '设备运维' },
   { key: 'arrears', label: project.value?.name.trim() === '一键报警' ? '欠款维护' : '欠费维护' },
   { key: 'collection_maintenance', label: '回款维护' },
   { key: 'customers', label: '客户资料维护' },
 ])
-watch(() => route.query.digest, value => { if (value) tab.value = 'digest' }, { immediate: true })
-watch(project, value => {
-  if (!value) return
-  const section = tab.value === 'digest' ? 'reports' : tab.value
-  if ((tab.value === 'controls' && !value.can_configure) || (tab.value !== 'controls' && !canSection(section))) {
-    const first = value.visible_sections?.[0]
-    tab.value = first === 'reports' ? 'digest' : first || (value.can_configure ? 'controls' : '')
-  }
+watch(() => route.query.digest, value => { if (value && canSection('reports')) tab.value = 'digest' })
+watch(visibleTabs, tabs => {
+  if (!tabs.includes(tab.value) && project.value) tab.value = tabs[0] || ''
 })
 let version = 0
 async function load(background = false) {

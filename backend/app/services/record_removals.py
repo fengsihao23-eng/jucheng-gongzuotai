@@ -13,7 +13,7 @@ MODELS = (
     m.HrCandidate, m.HrContractAlert, m.HrDocument, m.HrEmployee, m.KbDocument,
     m.ImportBatch, m.OaSubmission, m.OpsAssetMovement, m.OpsCompetitor, m.OpsDigestSnapshot,
     m.OpsEquipment, m.OpsImportBatch, m.OpsIncome, m.OpsMaintenanceRecord, m.OpsOutreachGoal,
-    m.OpsProduct, m.OpsProjectIncome, m.OpsProjectProgress, m.OpsSchoolVisit,
+    m.OpsProduct, m.OpsProjectIncome, m.OpsProjectProgress, m.OpsProjectUser, m.OpsSchoolVisit,
     m.ProdBidCheck, m.ProdGeneration, m.RptReport, m.SporadicCollectionProject,
     m.SyncLemonBatch, m.SyncTaxFiling, m.SyncWecomApproval, m.SysNotify,
     m.WorkbookCollectionReport, m.WorkbookCollectionRequest,

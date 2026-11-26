@@ -1,6 +1,6 @@
 <template>
   <div>
-    <OutreachGoals v-if="mode === 'outreach'" :project="project" @saved="emit('saved')" @open-task="t => emit('open-task',t)" />
+    <OutreachGoals v-if="mode === 'outreach' && can('tasks')" :project="project" @saved="emit('saved')" @open-task="t => emit('open-task',t)" />
     <IncomeOverview v-if="mode === 'income'" :project="project" @open-school="id => selectedId=id" />
     <div class="jc-grid c3">
       <Kpi label="项目学校" :value="project.schools.length" unit="所" :hint="can('outreach') ? `高意向 ${project.schools.filter(s => s.potential === 'high' && !['lost', 'operating', 'won'].includes(s.stage)).length} 所` : ''" />
@@ -57,7 +57,7 @@
           <el-tab-pane v-if="can('outreach')" label="客户跟进过程" name="outreach">
             <SchoolFollowup :project="project" :school="selected" @saved="emit('saved'); loadHistory()" />
             <div class="jc-row between"><h4>{{ mode === 'outreach' ? '关联市场开拓任务' : '关联任务' }}</h4>
-              <el-button v-if="mode === 'outreach' && project.can_manage && project.status === 'active'" type="primary" link @click="assignSchool">布置市场开拓任务</el-button>
+              <el-button v-if="mode === 'outreach' && can('tasks') && project.can_manage && project.status === 'active'" type="primary" link @click="assignSchool">布置市场开拓任务</el-button>
             </div>
             <div v-for="t in schoolTasks" :key="t.id" class="follow-task" @click="emit('open-task', t); selectedId = null">
               <div class="jc-row between"><b>{{ t.title }}</b><el-button link type="primary">查看过程</el-button></div>
@@ -104,7 +104,7 @@
           <div v-if="can('procurement')" class="two"><el-form-item label="人工投入（元）"><el-input-number v-model="form.labor_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item><el-form-item label="其他投入（元）"><el-input-number v-model="form.other_cost" :min="0" :precision="2" :max="999999999999.99" /></el-form-item></div>
         </template>
         <template v-else-if="kind === 'equipment'">
-          <el-form-item label="选择设备产品" prop="product_id" :rules="[{ required: true, message: '选择产品' }]"><el-select v-model="form.product_id" filterable placeholder="可使用有权限项目中的产品" @change="chooseProduct"><el-option v-for="p in library" :key="p.id" :value="p.id" :label="`${p.name} · ${p.brand} ${p.model} · ${p.source_project}`" /></el-select></el-form-item>
+          <el-form-item label="选择设备产品" prop="product_id" :rules="[{ required: true, message: '选择产品' }]"><el-select v-model="form.product_id" filterable placeholder="选择可用的设备产品" @change="chooseProduct"><el-option v-for="p in library" :key="p.id" :value="p.id" :label="[p.name, [p.brand, p.model].filter(Boolean).join(' '), p.source_project].filter(Boolean).join(' · ')" /></el-select></el-form-item>
           <el-alert v-if="!library.length" type="info" :closable="false" title="请先在设备产品库中新增产品" />
           <div class="two"><el-form-item label="数量"><el-input-number v-model="form.quantity" :min="1" :max="1000000" :precision="0" /></el-form-item><el-form-item label="实际采购单价（元，未知可留空）"><el-input-number v-model="form.unit_price" :min="0" :max="999999999999.99" :precision="6" /></el-form-item></div>
           <el-form-item label="原表清单金额（可选；填写后按此金额汇总）"><el-input-number v-model="form.recorded_amount" :min="0" :max="999999999999.99" :precision="2" /></el-form-item>
@@ -178,7 +178,18 @@ const dialog = ref(false), kind = ref('school'), editId = ref(null), saving = re
 const dialogTitle = computed(() => `${editId.value ? '编辑' : '新增'}${{ school: '学校资料', equipment: '学校设备', income: '每日收入' }[kind.value]}`)
 function reset(k, row, values) { Object.keys(form).forEach(k => delete form[k]); Object.assign(form, values); kind.value = k; editId.value = row?.id || null; dialog.value = true }
 function editSchool(s) { reset('school', s, { name: s?.name || '', stage: s?.stage || 'contact', potential: s?.potential || 'medium', next_action: s?.next_action || '', next_contact_date: s?.next_contact_date || null, labor_cost: Number(s?.labor_cost || 0), other_cost: Number(s?.other_cost || 0), note: s?.note || '' }) }
-async function editEquipment(e) { try { library.value = (await api.get('/operations/products')).items; reset('equipment', e, { product_id: e?.product_id || null, quantity: e?.quantity || 1, unit_price: e?.unit_price == null ? null : Number(e.unit_price), recorded_amount: e?.recorded_amount == null ? null : Number(e.recorded_amount), review_note: e?.review_note || '', note: e?.note || '' }) } catch {} }
+async function editEquipment(e) {
+  try {
+    const { items } = await api.get(`/operations/${props.project.id}/product-choices`, { section: 'procurement' })
+    if (e && !items.some(p => p.id === e.product_id)) {
+      items.push({ id: e.product_id, name: e.product_name, brand: e.brand, model: e.model })
+    }
+    library.value = items
+    reset('equipment', e, { product_id: e?.product_id || null, quantity: e?.quantity || 1,
+      unit_price: e?.unit_price == null ? null : Number(e.unit_price), recorded_amount: e?.recorded_amount == null ? null : Number(e.recorded_amount),
+      review_note: e?.review_note || '', note: e?.note || '' })
+  } catch {}
+}
 function chooseProduct(id) { const price = library.value.find(p => p.id === id)?.reference_price; form.unit_price = price == null ? null : Number(price) }
 function editIncome(i) { reset('income', i, { income_date: i?.income_date || props.project.today, amount: Number(i?.amount || 0), source: i?.source || '财务收款表', note: i?.note || '' }) }
 async function save() {

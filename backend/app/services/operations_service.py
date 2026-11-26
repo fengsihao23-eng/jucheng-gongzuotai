@@ -224,14 +224,15 @@ def record_project_progress_entries(db, p, project_id, entries, expected_owner_i
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
     content_scope.require(db, p, project, "progress")
-    if any(entry.next_due_date for entry in entries):
+    can_plan = content_scope.can(db, p, project, "tasks")
+    if can_plan and any(entry.next_due_date for entry in entries):
         active(project)
         if expected_owner_id is not None and project.owner_id != expected_owner_id:
             raise conflict("项目负责人已变更，请核对后重新填写")
         user(db, project.owner_id)
     saved, created = [], []
     for entry in entries:
-        plan = _create_project_plan(db, p, project, entry) if entry.next_due_date else None
+        plan = _create_project_plan(db, p, project, entry) if can_plan and entry.next_due_date else None
         saved.append(_save_project_progress(db, p, project, entry, plan.id if plan else None))
         if plan:
             created.append(plan.id)
@@ -365,21 +366,29 @@ def product_dict(row):
     return {"id": row.id, "project_id": row.project_id, **snapshot(row, PRODUCT_FIELDS)}
 
 
+def reusable_product_project_ids(db, p, project_id=None):
+    visible = set(content_scope.content_project_ids(db, p, "products"))
+    if project_id is not None:
+        # The current workflow may use its own products with the library tab disabled.
+        visible.add(project_id)
+    return visible
+
+
 def save_equipment(db, p, project_id, school_id, body, equipment_id=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
     content_scope.require(db, p, project, "procurement")
     school(db, project.id, school_id)
-    # 产品可以复用本人有权查看的其他运营项目，但不能借 ID 读取未授权产品。
+    row = db.get(OpsEquipment, equipment_id) if equipment_id else OpsEquipment(school_id=school_id)
+    if not row or row.school_id != school_id:
+        raise not_found("本学校设备")
+    # Keep an existing product association editable after the source library's access changes.
     product = db.scalar(select(OpsProduct).where(OpsProduct.id == body.product_id,
-        OpsProduct.project_id.in_(content_scope.content_project_ids(db, p, "products"))))
+        or_(OpsProduct.id == row.product_id, OpsProduct.project_id.in_(reusable_product_project_ids(db, p, project.id)))))
     if not product:
         raise not_found("可用产品")
     if body.unit_price is not None and body.unit_price * body.quantity >= Decimal("1000000000000"):
         raise bad_request("设备总金额超出支持范围")
-    row = db.get(OpsEquipment, equipment_id) if equipment_id else OpsEquipment(school_id=school_id)
-    if not row or row.school_id != school_id:
-        raise not_found("本学校设备")
     row = _write(db, p, row, body.model_dump(), ["product_id", "quantity", "unit_price", "recorded_amount", "review_note", "note"])
     from app.services.operations_assets import sync_equipment
     sync_equipment(db, p, project, row)
@@ -806,7 +815,7 @@ def project_detail(db, p, project_id):
             "latest_progress": progress_dict(progress) if progress else None,
             "can_propose": role(db, p, project) in {"manager", "member", "reviewer"}, "members": members(db, project) if shared and "team" in sections else [],
             "can_record_visits": "outreach" in sections and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
-            "visible_sections": sorted(sections), "task_scope": access["task_scope"],
+            "visible_sections": [key for key in content_scope.SECTIONS if key in sections], "task_scope": access["task_scope"],
             "feature_settings": content_scope.feature_settings(db, project),
             "can_archive_tasks": policy.can_archive(db, p, project), "can_view_project_content": shared, "tasks": rows, "stats": task_stats(rows),
             "schools": content_scope.redact_schools(schools, sections), "products": [product_dict(r) for r in products], "today": today(),

@@ -54,10 +54,13 @@ async function load(quiet = false) {
 }
 async function openForm() {
   Object.assign(form, { action: props.scrapOnly ? 'scrap_warehouse' : 'outbound', product_id: null, quantity: 1, occurred_on: data.value.today, school_id: null, note: '', request_key: crypto.randomUUID() })
-  const library = await api.get('/operations/products')
-  const choices = new Map(library.items.map(p => [p.id, p]))
-  for (const p of data.value.items) choices.set(p.product_id, { id: p.product_id, name: p.name })
-  products.value = [...choices.values()]; formOpen.value = true
+  try {
+    const { items } = await api.get(`/operations/${props.project.id}/product-choices`, { section: props.scrapOnly ? 'scrap' : 'warehouse' })
+    const choices = new Map(items.map(p => [p.id, p]))
+    for (const p of data.value.items) choices.set(p.product_id, { id: p.product_id, name: p.name })
+    products.value = [...choices.values()]
+    formOpen.value = true
+  } catch {}
 }
 async function save() {
   if (saving.value || !await formRef.value.validate().catch(() => false)) return

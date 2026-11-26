@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" :title="initial?.id ? '编辑运营项目' : '新建运营项目'" width="min(630px, 94vw)" class="ops-project-form" destroy-on-close>
     <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="save">
       <el-form-item label="项目名称" prop="name" :rules="[{ required: true, whitespace: true, message: '填写项目名称' }]">
-        <el-input v-model="form.name" maxlength="128" placeholder="例如：智慧校园运营" />
+        <el-input v-model="form.name" maxlength="128" aria-label="项目名称" placeholder="例如：智慧校园运营" />
       </el-form-item>
       <div class="two">
         <el-form-item label="项目分类" prop="category" :rules="[{ required: true, message: '选择或填写分类' }]">
@@ -20,17 +20,16 @@
       <el-form-item label="标准功能">
         <div class="feature-box" v-loading="loadingOptions">
           <div v-if="features.length" class="feature-heading">
-            <span class="jc-small jc-muted">勾选本项目需要使用的功能</span>
+            <el-checkbox :model-value="allFeaturesSelected" :indeterminate="someFeaturesSelected" @change="selectAllFeatures">全选</el-checkbox>
             <el-button link type="primary" @click="applyPreset">使用推荐组合</el-button>
           </div>
           <el-checkbox-group v-if="features.length" v-model="form.enabled_sections" aria-label="标准功能" class="feature-grid" @change="onFeaturesChanged">
-            <el-checkbox v-for="option in features" :key="option.value" :value="option.value"
-              :disabled="option.required || (option.value === 'products' && ['procurement','warehouse','scrap'].some(k => form.enabled_sections.includes(k)))">
-              {{ option.label }}<span v-if="option.required" class="jc-small jc-muted"> · 基础</span>
+            <el-checkbox v-for="option in features" :key="option.value" :value="option.value">
+              {{ option.value === 'arrears' && form.name?.trim() === '一键报警' ? '欠款维护' : option.label }}
             </el-checkbox>
           </el-checkbox-group>
           <span v-if="optionError" class="jc-small jc-down">无法读取标准功能。<el-button link type="primary" @click="loadOptions">重试</el-button></span>
-          <p v-else-if="features.length" class="feature-hint jc-small jc-muted">{{ initial?.id ? '取消勾选仅关闭入口，已有资料会保留。' : '勾选后，相关功能会出现在项目详情。' }}学校采购会同时启用设备产品库。</p>
+          <p v-else-if="features.length" class="feature-hint jc-small jc-muted">{{ initial?.id ? '取消勾选会隐藏对应功能，已有资料会保留。' : '勾选后，相关功能会出现在项目详情。' }}</p>
         </div>
       </el-form-item>
       <el-form-item label="本阶段目标"><el-input v-model="form.objective" type="textarea" :rows="3" maxlength="6000" placeholder="本月要推进哪些学校、完成什么结果" /></el-form-item>
@@ -59,20 +58,17 @@ const features = ref([]), presets = ref({}), loadingOptions = ref(false), option
 const form = reactive({ enabled_sections: [] })
 let optionVersion = 0, changedFeatures = false, featuresRevision = 0
 
-function normalizeFeatures() {
-  const chosen = new Set(form.enabled_sections)
-  for (const option of features.value) {
-    if (option.required) chosen.add(option.value)
-    if (chosen.has(option.value)) for (const dependency of option.depends_on) chosen.add(dependency)
-  }
-  form.enabled_sections = features.value.map(o => o.value).filter(k => chosen.has(k))
-}
+const allFeaturesSelected = computed(() => features.value.length === form.enabled_sections.length)
+const someFeaturesSelected = computed(() => form.enabled_sections.length > 0 && !allFeaturesSelected.value)
 function fillPreset() {
   form.enabled_sections = [...(presets.value[form.name?.includes('一键报警') ? 'alarm' : form.category?.includes('校园') ? 'campus' : 'general'] || [])]
-  normalizeFeatures()
 }
 function applyPreset() { changedFeatures = true; fillPreset() }
-function onFeaturesChanged() { changedFeatures = true; normalizeFeatures() }
+function onFeaturesChanged() { changedFeatures = true }
+function selectAllFeatures(value) {
+  form.enabled_sections = value ? features.value.map(option => option.value) : []
+  onFeaturesChanged()
+}
 function suggestForNewCategory() { if (!props.initial?.id && !changedFeatures && features.value.length) fillPreset() }
 async function loadOptions() {
   const id = ++optionVersion
@@ -86,7 +82,7 @@ async function loadOptions() {
     presets.value = data.feature_presets || {}
     if (!features.value.length) { optionError.value = true; return }
     if (!props.initial?.id && !changedFeatures) fillPreset()
-    else normalizeFeatures()
+    else form.enabled_sections = features.value.map(option => option.value).filter(key => form.enabled_sections.includes(key))
   } catch { if (id === optionVersion) optionError.value = true }
   finally { if (id === optionVersion) loadingOptions.value = false }
 }

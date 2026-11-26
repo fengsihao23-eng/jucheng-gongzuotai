@@ -92,14 +92,18 @@ try {
     await shot(admin, 'permission-groups-desktop')
   })
 
-  await step('ACCESS-menu-parity', '个人配置列出整个侧栏，共用权限保存后与实际可见入口一致', async () => {
+  await step('ACCESS-menu-parity', '个人配置覆盖侧栏与页面入口，共用权限保存后与实际可见入口一致', async () => {
     const checkbox = name => permissions.getByRole('checkbox', { name, exact: true })
     const labels = async locator => (await locator.allTextContents()).map(label => label.trim())
     const configuredEntries = permissions.locator('.group-heading > .el-checkbox:first-child .el-checkbox__label')
-    assert.deepEqual(await labels(configuredEntries), await labels(admin.locator('.side a.item')))
+    const configuredLabels = await labels(configuredEntries)
+    for (const label of await labels(admin.locator('.side a.item'))) assert.ok(configuredLabels.includes(label), label)
+    for (const label of ['零星回款', '项目回款报告', '回款执行情况', '经营大屏', '项目台账', '企业微信接口', '消息通知', '个人中心', '小聚']) {
+      assert.ok(configuredLabels.includes(label), label)
+    }
 
     const contracts = checkbox('经营业绩'), approvals = checkbox('审批台账'), collections = checkbox('回款情况')
-    const invoices = checkbox('开票回款'), projectGroup = ['招标与在建', '一般项目', '历史项目'].map(checkbox)
+    const invoices = checkbox('开票回款'), projectGroup = ['招标与在建', '一般项目', '历史项目', '项目台账'].map(checkbox)
     await setChecked(invoices, false)
     await setChecked(contracts, false)
     assert.ok(await collections.isDisabled())
