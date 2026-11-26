@@ -135,7 +135,7 @@ def _project_record(db, p, kind, ident, ip):
     elif kind == "asset-movement":
         section = "scrap" if row.action.startswith("scrap_") else "warehouse"
     elif kind == "operation-import":
-        section = "income" if row.kind == "income" else "procurement"
+        section = {"income": "income", "alarm_contacts": "customers"}.get(row.kind, "procurement")
     operations_scope.require(db, p, project, section)
     if not p.has_delete_grant or kind == "operation-goal":
         if kind == "operation-competitor":

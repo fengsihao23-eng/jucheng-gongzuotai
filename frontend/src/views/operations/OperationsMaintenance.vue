@@ -9,7 +9,7 @@
       <span class="jc-spacer" />
       <el-button v-if="data?.can_manage" type="primary" @click="edit()">新增{{ label }}</el-button>
     </div>
-    <AlarmMaintenanceLedger v-if="hasWorkbook" :kind="kind" :rows="filtered" :keyword="keyword" :status="status"
+    <AlarmMaintenanceLedger v-if="hasWorkbook || kind === 'customers'" :kind="kind" :rows="filtered" :keyword="keyword" :status="status"
       :row-class-name="rowClassName" @row-contextmenu="maintenanceMenu">
       <template #action="{ row }">
         <el-button link type="primary" @click="edit(row)">{{ row.can_edit ? '查看 / 更新' : '查看详情' }}</el-button>
@@ -20,7 +20,6 @@
       <el-table :data="filtered" empty-text="暂无维护记录" :row-class-name="rowClassName" @row-contextmenu="maintenanceMenu">
       <el-table-column prop="title" label="事项 / 客户资料" min-width="180" /><el-table-column prop="customer_name" label="客户" min-width="130" />
       <el-table-column v-if="kind === 'device_maintenance'" prop="device_name" label="设备" min-width="130" />
-      <el-table-column v-if="kind === 'customers'" prop="contact_name" label="联系人" min-width="105" /><el-table-column v-if="kind === 'customers'" prop="phone" label="联系电话" min-width="135" />
       <el-table-column v-if="['arrears','collection_maintenance'].includes(kind)" label="金额（元）" min-width="130" align="right"><template #default="{row}">{{ row.amount == null ? '未登记' : money(row.amount) }}</template></el-table-column>
       <el-table-column prop="owner_name" label="负责人" width="105" /><el-table-column prop="due_on" label="下次处理日期" width="120" />
       <el-table-column label="状态" width="95"><template #default="{row}">{{ statuses[row.status] }}</template></el-table-column>
@@ -41,7 +40,17 @@
       <el-form ref="formRef" :model="form" :disabled="readOnly" label-position="top">
         <el-form-item label="事项名称 / 资料标题" prop="title" :rules="[{ required:true, whitespace:true, message:'填写名称' }]"><el-input aria-label="维护事项" v-model="form.title" maxlength="160" /></el-form-item>
         <div class="two"><el-form-item label="客户名称"><el-input aria-label="维护客户" v-model="form.customer_name" maxlength="128" /></el-form-item><el-form-item label="负责人" prop="owner_id" :rules="[{required:true,message:'选择负责人'}]"><el-select v-model="form.owner_id" :disabled="!data?.can_manage" filterable><el-option v-for="m in data?.members || []" :key="m.user_id" :value="m.user_id" :label="m.name" /></el-select></el-form-item></div>
-        <template v-if="kind === 'customers'"><div class="two"><el-form-item label="联系人"><el-input v-model="form.contact_name" maxlength="64" /></el-form-item><el-form-item label="联系电话"><el-input v-model="form.phone" maxlength="64" /></el-form-item></div><el-form-item label="地址"><el-input v-model="form.address" maxlength="500" /></el-form-item></template>
+        <template v-if="kind === 'customers'">
+          <div class="two">
+            <el-form-item label="联系人"><el-input v-model="form.contact_name" aria-label="联系人" maxlength="64" /></el-form-item>
+            <el-form-item label="联系电话"><el-input v-model="form.phone" aria-label="联系电话" maxlength="64" /></el-form-item>
+            <el-form-item label="职务"><el-input v-model="form.contact_position" aria-label="职务" maxlength="128" /></el-form-item>
+            <el-form-item label="性别"><el-select v-model="form.contact_gender" aria-label="性别" clearable :value-on-clear="''">
+              <el-option v-for="value in ['男', '女']" :key="value" :value="value" :label="value" />
+            </el-select></el-form-item>
+          </div>
+          <el-form-item label="地址"><el-input v-model="form.address" aria-label="地址" maxlength="500" /></el-form-item>
+        </template>
         <el-form-item v-if="kind === 'device_maintenance'" label="设备名称 / 编号"><el-input aria-label="设备名称编号" v-model="form.device_name" maxlength="128" /></el-form-item>
         <el-form-item v-if="['arrears','collection_maintenance'].includes(kind)" :label="amountLabel"><el-input-number v-model="form.amount" :min="0" :max="999999999999.99" :precision="2" :controls="false" /></el-form-item>
         <div class="two"><el-form-item label="处理状态"><el-select v-model="form.status"><el-option v-for="(v,k) in statuses" :key="k" :value="k" :label="v" /></el-select></el-form-item><el-form-item label="下次处理日期"><el-date-picker v-model="form.due_on" type="date" value-format="YYYY-MM-DD" /></el-form-item></div>
@@ -72,6 +81,7 @@ const data=ref(null),keyword=ref(''),status=ref(''),loading=ref(false),saving=re
 const sourceRow = ref(null)
 const hasWorkbook = computed(() => data.value?.items.some(row => row.workbook_row))
 const searchPlaceholder = computed(() => {
+  if (props.kind === 'customers') return '搜索单位 / 联系人 / 电话'
   if (!hasWorkbook.value) return '搜索事项 / 客户 / 负责人'
   if (props.kind === 'collection_maintenance') return '搜索对方 / 摘要'
   return props.kind === 'device_maintenance' ? '搜索学校 / 区域 / IP' : '搜索学校 / 区域 / 分组'
@@ -86,19 +96,23 @@ const filtered = computed(() => {
     if (status.value && row.status !== status.value) return false
     if (!query) return true
     const fields = [row.title, row.customer_name, row.owner_name, row.device_name]
+    if (props.kind === 'customers') fields.push(row.contact_name, row.phone, row.contact_position, row.address)
     fields.push(...Object.values(row.workbook_row?.values || {}))
     return fields.some(value => value != null && String(value).toLowerCase().includes(query))
   })
   if (hasWorkbook.value) {
     rows.sort((a, b) => (a.workbook_row?.row_number ?? 0) - (b.workbook_row?.row_number ?? 0))
   }
-  return rows
+  return props.kind === 'customers' ? rows.map(row => ({ ...row, display_status: statuses[row.status] })) : rows
 })
 const rowClassName = ({ row }) => row.status !== 'done' && row.due_on && row.due_on < props.project.today ? 'is-alert' : ''
 let version=0
 async function load(quiet=false){if(!props.active)return;const v=++version;if(!quiet)loading.value=true;try{const r=await api.get(`/operations/${props.project.id}/maintenance`,{kind:props.kind});if(v===version)data.value=r}catch{if(v===version)data.value=null}finally{if(v===version)loading.value=false}}
 async function edit(row){
   Object.assign(form,{id:row?.id||null,kind:props.kind,title:row?.title||'',customer_name:row?.customer_name||'',contact_name:row?.contact_name||'',phone:row?.phone||'',address:row?.address||'',device_name:row?.device_name||'',amount:row?.amount==null?null:Number(row.amount),owner_id:row?.owner_id||props.project.owner_id,status:row?.status||'open',due_on:row?.due_on||null,content:row?.content||'',problems:row?.problems||'',next_step:row?.next_step||'',expected_revision:row?.revision||null})
+  if (props.kind === 'customers') {
+    Object.assign(form, { contact_position: row?.contact_position || '', contact_gender: row?.contact_gender || '' })
+  }
   sourceRow.value = row?.workbook_row || null
   readOnly.value=row?!row.can_edit:!data.value?.can_manage;history.value=[];opened.value=true
   if(row){const r=await api.get(`/operations/${props.project.id}/maintenance/${row.id}/history`);if(opened.value&&form.id===row.id)history.value=r.items}

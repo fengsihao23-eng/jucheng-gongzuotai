@@ -49,10 +49,23 @@ export const alarmColumns = {
     { key: 'amount', label: '到账金额（借方）', width: 154, format: 'money' },
     { key: 'carrier', label: '所属', width: 82 },
   ],
+  customers: [
+    { key: 'customer_name', label: '所属单位', width: 205, fixed: 'left' },
+    { key: 'contact_name', label: '联系人', width: 94 },
+    { key: 'phone', label: '联系电话', width: 128 },
+    { key: 'contact_position', label: '职务', width: 155 },
+    { key: 'address', label: '地址', width: 230 },
+    { key: 'contact_gender', label: '性别', width: 64 },
+    { key: 'owner_name', label: '负责人', width: 96 },
+    { key: 'due_on', label: '下次处理日期', width: 118 },
+    { key: 'display_status', label: '状态', width: 86 },
+    { key: 'problems', label: '存在问题', width: 155 },
+  ],
 }
 
 export function alarmValue(row, key) {
   if (key === 'amount') return row.amount
+  if (row.kind === 'customers') return row[key]
   if (row.workbook_row) return row.workbook_row.values[key]
   if (key === 'school_name' || key === 'counterparty') return row.customer_name || row.title
   if (key === 'summary') return row.title

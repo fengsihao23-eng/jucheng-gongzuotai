@@ -18,6 +18,7 @@ KINDS = {"device_maintenance": "设备运维", "arrears": "欠费维护",
          "collection_maintenance": "回款维护", "customers": "客户资料维护"}
 FIELDS = ["kind", "title", "customer_name", "contact_name", "phone", "address", "device_name", "amount",
           "due_on", "owner_id", "status", "content", "problems", "next_step"]
+CONTACT_FIELDS = ["contact_position", "contact_gender"]
 
 
 def _balance(rows):
@@ -175,7 +176,8 @@ def records(db, p, project_id, kind):
     members = ops.members(db, project)
     users = {m["user_id"]: m["name"] for m in members}
     rows = db.scalars(select(Record).where(Record.project_id == project_id, Record.kind == kind).order_by(Record.id.desc())).all()
-    return {"items": [{"id": r.id, **snapshot(r, FIELDS), "revision": r.revision, "owner_name": users.get(r.owner_id, "历史成员"),
+    fields = FIELDS + CONTACT_FIELDS if kind == "customers" else FIELDS
+    return {"items": [{"id": r.id, **snapshot(r, fields), "revision": r.revision, "owner_name": users.get(r.owner_id, "历史成员"),
                        **({"workbook_row": r.workbook_row} if r.workbook_row else {}),
                        "updated_at": r.updated_at, "can_edit": active and (role == "manager" or
                        (r.owner_id == p.id and role in ops.EXECUTION_ROLES))} for r in rows],
@@ -209,14 +211,20 @@ def save_record(db, p, project_id, body, record_id=None):
     if not manager and body.owner_id != row.owner_id:
         raise forbidden("仅项目管理者可转交负责人")
     ops.assignee(db, project, body.owner_id)
-    before = snapshot(row, FIELDS) if row else None
+    fields = FIELDS + CONTACT_FIELDS if body.kind == "customers" else FIELDS
+    before = snapshot(row, fields) if row else None
+    values = body.model_dump(include=set(fields))
+    if row and body.kind == "customers":
+        for key in CONTACT_FIELDS:
+            if key not in body.model_fields_set:
+                values[key] = getattr(row, key)
     row = row or Record(project_id=project_id, revision=0)
-    for key, value in body.model_dump(include=set(FIELDS)).items():
+    for key, value in values.items():
         setattr(row, key, value)
     row.revision += 1
     db.add(row)
     db.flush()
-    values = body.model_dump(mode="json", include=set(FIELDS))
+    values = snapshot(row, fields)
     db.add(Update(record_id=row.id, author_id=p.id, values=values))
     log_op(db, p.id, "operations.maintenance.save", "ops_maintenance_record", row.id, before=before, after=values)
     return {"id": row.id, "revision": row.revision}

@@ -34,6 +34,8 @@ class OpsMaintenanceRecord(TimestampMixin, Base):
     customer_name: Mapped[str] = mapped_column(String(128), default="")
     contact_name: Mapped[str] = mapped_column(String(64), default="")
     phone: Mapped[str] = mapped_column(String(64), default="")
+    contact_position: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    contact_gender: Mapped[str] = mapped_column(String(16), default="", server_default="")
     address: Mapped[str] = mapped_column(String(500), default="")
     device_name: Mapped[str] = mapped_column(String(128), default="")
     amount: Mapped[Decimal | None]

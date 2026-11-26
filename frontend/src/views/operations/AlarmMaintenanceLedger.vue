@@ -7,12 +7,12 @@
           <span>已安装 <strong>{{ thousands(installed.length) }}</strong> 处</span>
           <span>已安装有离线 <strong>{{ thousands(installedOffline) }}</strong> 处</span>
         </template>
-        <span v-else>{{ kind === 'arrears' ? '台账应补缴合计' : '台账到账合计' }} <strong>{{ money(amount) }}</strong></span>
+        <span v-else-if="kind !== 'customers'">{{ kind === 'arrears' ? '台账应补缴合计' : '台账到账合计' }} <strong>{{ money(amount) }}</strong></span>
       </div>
       <el-select v-model="primary" clearable :placeholder="primaryField.label" :aria-label="primaryField.label">
         <el-option v-for="value in primaryOptions" :key="value" :label="value" :value="value" />
       </el-select>
-      <el-select v-model="secondary" clearable :placeholder="secondaryField.label" :aria-label="secondaryField.label">
+      <el-select v-if="secondaryField" v-model="secondary" clearable :placeholder="secondaryField.label" :aria-label="secondaryField.label">
         <el-option v-for="value in secondaryOptions" :key="value" :value="value"
           :label="formatAlarmValue(value, secondaryField)" />
       </el-select>
@@ -56,6 +56,7 @@ const filters = {
   device_maintenance: [{ key: 'area', label: '全部区域' }, { key: 'installation_status', label: '全部结果' }],
   arrears: [{ key: 'area', label: '全部区域' }, { key: 'balance', label: '全部补缴情况' }],
   collection_maintenance: [{ key: 'carrier', label: '全部所属' }, { key: 'receipt_month', label: '全部月份', format: 'month' }],
+  customers: [{ key: 'contact_position', label: '全部职务' }],
 }
 const pageSize = 25
 const page = ref(1)
@@ -77,10 +78,10 @@ function options(key) {
 }
 
 const primaryOptions = computed(() => options(primaryField.value.key))
-const secondaryOptions = computed(() => options(secondaryField.value.key))
+const secondaryOptions = computed(() => secondaryField.value ? options(secondaryField.value.key) : [])
 const matches = computed(() => props.rows.filter(row =>
   (!primary.value || filterValue(row, primaryField.value.key) === primary.value) &&
-  (!secondary.value || filterValue(row, secondaryField.value.key) === secondary.value),
+  (!secondaryField.value || !secondary.value || filterValue(row, secondaryField.value.key) === secondary.value),
 ))
 const pageRows = computed(() => matches.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const imported = computed(() => matches.value.filter(row => row.workbook_row))

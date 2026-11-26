@@ -24,6 +24,8 @@ class MaintenanceIn(Input):
     customer_name: Annotated[str, StringConstraints(max_length=128)] = ""
     contact_name: Annotated[str, StringConstraints(max_length=64)] = ""
     phone: Annotated[str, StringConstraints(max_length=64)] = ""
+    contact_position: Annotated[str, StringConstraints(max_length=128)] = ""
+    contact_gender: Literal["", "男", "女"] = ""
     address: Annotated[str, StringConstraints(max_length=500)] = ""
     device_name: Annotated[str, StringConstraints(max_length=128)] = ""
     amount: Money | None = None
