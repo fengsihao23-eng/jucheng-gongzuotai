@@ -2,6 +2,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from app.core.permission_catalog import OPERATION_SECTIONS
@@ -221,11 +222,28 @@ class DiscussionIn(Input):
     reply_to_id: Id | None = None
 
 
+class SchoolVisitTransitionIn(Input):
+    stage: Literal["won", "operating"]
+    expected_stage: str
+
+
 class SchoolVisitIn(Input):
     occurred_on: date
     content: Annotated[str, StringConstraints(min_length=1, max_length=6000)]
     next_action: Note = ""
     next_contact_date: date | None = None
+    status: Literal["doing", "blocked", "done"] | None = None
+    incomplete_reason: Note = ""
+    transition: SchoolVisitTransitionIn | None = None
+    client_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def feedback_matches_outcome(self):
+        if self.status == "blocked" and not self.incomplete_reason:
+            raise ValueError("遇到阻碍时请填写未完成原因")
+        if self.transition and self.status != "done":
+            raise ValueError("请先选择已完成，再确认转入目标客户")
+        return self
 
 
 class SchoolTransitionIn(Input):

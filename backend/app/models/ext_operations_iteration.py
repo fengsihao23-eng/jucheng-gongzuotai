@@ -27,12 +27,16 @@ class OpsTaskDiscussion(TimestampMixin, Base):
 
 class OpsSchoolVisit(TimestampMixin, Base):
     __tablename__ = "ops_school_visit"
+    __table_args__ = (UniqueConstraint("school_id", "author_id", "client_id", name="uq_ops_school_visit_submission"),)
     school_id: Mapped[int] = mapped_column(ForeignKey("ops_school.id"), index=True)
     author_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
     occurred_on: Mapped[date] = mapped_column(Date)
     content: Mapped[str] = mapped_column(Text)
     next_action: Mapped[str] = mapped_column(Text, default="")
     next_contact_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str | None] = mapped_column(String(12))
+    incomplete_reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    client_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class OpsDigestPreference(Base):

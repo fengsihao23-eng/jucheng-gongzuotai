@@ -1,44 +1,125 @@
 <template>
-  <section class="school-followup">
-    <div class="jc-row between"><h4>实际跟进记录</h4><el-button v-if="project.can_record_visits" type="primary" link @click="open = !open">登记一次跟进</el-button></div>
-    <el-form v-if="open" label-position="top" class="visit-form">
-      <el-form-item label="实际跟进日期"><el-date-picker v-model="form.occurred_on" type="date" value-format="YYYY-MM-DD" aria-label="实际跟进日期" /></el-form-item>
-      <el-form-item label="进展与待解决问题"><el-input v-model="form.content" type="textarea" :rows="3" maxlength="6000" aria-label="进展与待解决问题" /></el-form-item>
-      <el-form-item label="下一步"><el-input v-model="form.next_action" maxlength="6000" aria-label="学校跟进下一步" /></el-form-item>
-      <el-form-item label="下次跟进日期（可选）"><el-date-picker v-model="form.next_contact_date" type="date" value-format="YYYY-MM-DD" /></el-form-item>
-      <el-button type="primary" :loading="saving" :disabled="!form.occurred_on || !form.content.trim()" @click="save">保存跟进</el-button>
-    </el-form>
-    <el-timeline v-if="items.length"><el-timeline-item v-for="v in items" :key="v.id" v-record-delete="visitRemoval(v)" :timestamp="`${v.occurred_on} · ${v.author}`" placement="top"><p class="plain">{{ v.content }}</p><p v-if="v.next_action" class="plain">下一步：{{ v.next_action }} {{ v.next_contact_date || '' }}</p><small class="jc-muted">录入时间 {{ datetime(v.created_at) }}</small></el-timeline-item></el-timeline>
-    <p v-else class="jc-small jc-muted">暂无实际跟进记录。更新学校档案不会自动算作已拜访。</p>
-    <div v-if="project.can_manage && project.status === 'active' && !['won', 'operating'].includes(school.stage)" class="conversion">
-      <h4>确认学校落地</h4><p class="jc-muted jc-small">确认后进入存量学校，保留同一学校档案与全部跟进记录。</p>
-      <el-select v-model="target" aria-label="落地后阶段"><el-option label="已签约" value="won" /><el-option label="运营中" value="operating" /></el-select>
-      <el-input v-model="reason" placeholder="填写确认依据，例如：协议已签署或已上线运营" maxlength="1000" aria-label="学校落地依据" />
-      <el-button type="primary" :disabled="!reason.trim()" :loading="saving" @click="convert">确认转入存量</el-button>
+  <section class="school-followup" aria-label="跟进反馈">
+    <div class="jc-row between">
+      <h4>跟进反馈</h4>
+      <el-button v-if="project.can_record_visits && !open" type="primary" @click="start">填写跟进反馈</el-button>
     </div>
+    <div v-if="open && project.can_record_visits" class="visit-form">
+      <TaskFeedbackForm ref="formRef" v-model:drafting="drafting" :form="form" :saving="saving"
+        :draft-endpoint="endpoint + '/draft'">
+        <template #before>
+          <el-form-item label="实际跟进日期" prop="occurred_on" :rules="[{ required: true, message: '选择实际跟进日期' }]">
+            <el-date-picker v-model="form.occurred_on" type="date" value-format="YYYY-MM-DD" aria-label="实际跟进日期" />
+          </el-form-item>
+        </template>
+        <el-form-item label="下次跟进日期（可选）">
+          <el-date-picker v-model="form.next_contact_date" type="date" value-format="YYYY-MM-DD" aria-label="下次跟进日期" />
+        </el-form-item>
+        <el-form-item v-if="canTransition && form.status === 'done'" label="转入目标客户（可选）">
+          <el-select v-model="form.target_stage" aria-label="转入目标客户" placeholder="保持当前阶段" clearable>
+            <el-option label="已签约" value="won" />
+            <el-option label="运营中" value="operating" />
+          </el-select>
+        </el-form-item>
+      </TaskFeedbackForm>
+      <div class="actions">
+        <el-button :disabled="saving" @click="open = false">取消</el-button>
+        <el-button type="primary" :loading="saving" :disabled="drafting" @click="save">提交进展</el-button>
+      </div>
+    </div>
+    <el-timeline v-if="items.length" class="visit-timeline">
+      <el-timeline-item v-for="visit in items" :key="visit.id" v-record-delete="visitRemoval(visit)"
+        :timestamp="`${visit.occurred_on} · ${visit.author}`" placement="top">
+        <StatusPill v-if="visit.status" :text="TASK_STATUS[visit.status]" :tone="tone(visit.status)" />
+        <p class="plain">{{ visit.content }}</p>
+        <p v-if="visit.incomplete_reason" class="plain"><b>未完成原因</b> {{ visit.incomplete_reason }}</p>
+        <p v-if="visit.next_action" class="plain"><b>下一步</b> {{ visit.next_action }}</p>
+        <p v-if="visit.next_contact_date" class="jc-small jc-muted">下次跟进 {{ visit.next_contact_date }}</p>
+        <small class="jc-muted">录入时间 {{ datetime(visit.created_at) }}</small>
+      </el-timeline-item>
+    </el-timeline>
+    <p v-else class="jc-small jc-muted">暂无跟进反馈。</p>
   </section>
 </template>
+
 <script setup>
-import { useAuth } from '@/store/auth'
-import { recordRemoval } from '@/composables/useRecordDeletion'
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { useAuth } from '@/store/auth'
+import { recordRemoval } from '@/composables/useRecordDeletion'
 import { datetime } from '@/utils/format'
-import { announceChange } from './shared'
-const removalAuth = useAuth()
+import TaskFeedbackForm from './TaskFeedbackForm.vue'
+import { TASK_STATUS, announceChange, tone } from './shared'
 
-const props = defineProps({ project: Object, school: Object }), emit = defineEmits(['saved'])
-const items = ref([]), open = ref(false), saving = ref(false), target = ref('operating'), reason = ref('')
-const form = reactive({ occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null })
-const base = () => `/operations/${props.project.id}/schools/${props.school.id}`
-let request = 0
-const visitRemoval = row => (props.project.can_manage || removalAuth.hasDeleteGrant) && recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') }, { title: '删除学校跟进记录' })
-async function load() { const version = ++request; try { const data = await api.get(base() + '/visits'); if (version === request) items.value = data.items } catch {} }
-watch(() => props.school.id, () => { open.value = false; reason.value = ''; Object.assign(form, { occurred_on: props.project.today, content: '', next_action: '', next_contact_date: null }); load() }, { immediate: true })
-async function save() { saving.value = true; try { await api.post(base() + '/visits', form); open.value = false; form.content = ''; form.next_action = ''; form.next_contact_date = null; await load(); emit('saved'); announceChange(); ElMessage.success('跟进已保存') } catch {} finally { saving.value = false } }
-async function convert() { saving.value = true; try { await api.post(base() + '/transition', { stage: target.value, expected_stage: props.school.stage, reason: reason.value }); emit('saved'); announceChange(); ElMessage.success('学校已转入存量，原记录继续保留') } catch {} finally { saving.value = false } }
+const props = defineProps({ project: Object, school: Object })
+const emit = defineEmits(['saved'])
+const auth = useAuth()
+const items = ref([]), open = ref(false), saving = ref(false), drafting = ref(false), formRef = ref()
+const form = reactive({}), stageAtOpen = ref(null)
+const endpoint = computed(() => `/operations/${props.project.id}/schools/${props.school.id}/visits`)
+const canTransition = computed(() => props.project.can_manage && !['won', 'operating'].includes(stageAtOpen.value))
+let request = 0, submission
+
+const visitRemoval = row => (props.project.can_manage || auth.hasDeleteGrant) &&
+  recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') },
+    { title: '删除学校跟进记录' })
+
+function start() {
+  Object.assign(form, {
+    occurred_on: props.project.today, status: 'doing', content: '', next_step: '', incomplete_reason: '',
+    next_contact_date: null, target_stage: null,
+  })
+  stageAtOpen.value = props.school.stage
+  submission = null
+  open.value = true
+}
+
+async function load() {
+  const version = ++request
+  try {
+    const { items: rows } = await api.get(endpoint.value)
+    if (version === request) items.value = rows
+  } catch { /* API client displays the read error. */ }
+}
+watch(endpoint, () => { open.value = false; items.value = []; load() }, { immediate: true })
+
+async function save() {
+  if (saving.value || drafting.value || !formRef.value) return
+  saving.value = true
+  const url = endpoint.value
+  try {
+    if (!await formRef.value.validate().catch(() => false)) return
+    if (form.status === 'blocked' && !form.incomplete_reason.trim()) return ElMessage.warning('请填写未完成原因')
+    const transition = canTransition.value && form.status === 'done' && form.target_stage
+      ? { stage: form.target_stage, expected_stage: stageAtOpen.value } : null
+    const payload = {
+      occurred_on: form.occurred_on, status: form.status, content: form.content,
+      incomplete_reason: form.status === 'done' ? '' : form.incomplete_reason,
+      next_action: form.next_step, next_contact_date: form.next_contact_date, transition,
+    }
+    const key = JSON.stringify(payload)
+    if (submission?.key !== key) submission = { key, id: crypto.randomUUID() }
+    await api.post(url, { ...payload, client_id: submission.id })
+    announceChange()
+    if (url !== endpoint.value) return
+    open.value = false
+    await load()
+    emit('saved')
+    ElMessage.success(transition ? '进展已反馈，已转入目标客户' : '进展已反馈')
+  } catch { /* Keep the draft for correction or retry. */ }
+  finally { saving.value = false }
+}
 </script>
+
 <style scoped>
-.plain { white-space: pre-wrap; overflow-wrap: anywhere; }.visit-form,.conversion { padding: 16px; border: 1px solid var(--jc-line); border-radius: 6px; margin: 12px 0 22px; }.conversion { display: grid; gap: 12px; }.conversion h4,.conversion p { margin: 0; }.school-followup .between { flex-wrap: wrap; }
+.school-followup .between { flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.school-followup h4 { margin: 0; }
+.visit-form { padding: 16px; border: 1px solid var(--jc-line); border-radius: 8px; margin: 12px 0; }
+.visit-form :deep(.el-select) { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.actions .el-button + .el-button { margin-left: 0; }
+.visit-timeline { padding: 4px 0 0; }
+.visit-timeline p { margin: 6px 0; }
+.plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

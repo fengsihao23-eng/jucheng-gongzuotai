@@ -13,7 +13,7 @@ SCHOOL_FEATURES = {"outreach", "procurement", "income"}
 
 
 def feature_options():
-    common = {"tasks", "team", "competitors", "progress", "reports", "user_list", "settings"}
+    common = {"tasks", "team", "competitors", "progress", "reports", "outreach", "user_list", "settings"}
     presets = {"campus": common | LEGACY_SECTIONS, "alarm": common | ALARM_FEATURES | {"products"},
                "general": common}
     return {"features": [{"value": key, "label": label, "required": False, "depends_on": []}

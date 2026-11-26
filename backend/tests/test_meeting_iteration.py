@@ -130,6 +130,61 @@ def test_visits_and_transition_keep_identity_and_real_date(client, login, db, se
     assert db.get(OpsTask, task["id"]).school_id == school["id"]
 
 
+def test_customer_feedback_preserves_history_and_transitions_once(client, login, db, setup, monkeypatch):
+    project, school, task = setup
+    path = f"{BASE}/{project['id']}/schools/{school['id']}/visits"
+    manager, member, viewer = (login(account) for account in ("wujun", "xiekai", "yangyue"))
+    old = {"occurred_on": "2026-10-18", "content": "原有拜访记录"}
+    data(client.post(path, headers=member, json=old))
+
+    blocked = {"occurred_on": "2026-10-19", "status": "blocked", "content": "接口已核对",
+               "next_action": "再次预约", "next_contact_date": "2026-10-22"}
+    assert client.post(path, headers=member, json=blocked).status_code == 400
+    data(client.post(path, headers=member, json={**blocked, "incomplete_reason": "等待校方确定时间"}))
+    complete = {"occurred_on": str(today()), "status": "done", "content": "已确认客户上线",
+                "transition": {"stage": "operating", "expected_stage": "contact"}, "client_id": str(uuid.uuid4())}
+    assert client.post(path, headers=viewer, json=complete).status_code == 403
+    assert client.post(path, headers=member, json=complete).status_code == 403
+    assert client.post(path, headers=manager, json={**complete, "status": "doing"}).status_code == 400
+    assert client.post(path, headers=manager, json={**complete, "transition": {"stage": "operating", "expected_stage": "negotiation"}}).status_code == 409
+    assert len(data(client.get(path, headers=member))["items"]) == 2
+
+    saved = data(client.post(path, headers=manager, json=complete))
+    assert data(client.post(path, headers=manager, json=complete)) == saved
+    entries = data(client.get(path, headers=member))["items"]
+    assert [(row["content"], row["status"]) for row in entries] == [
+        (complete["content"], "done"), (blocked["content"], "blocked"), (old["content"], None)]
+    assert entries[1]["incomplete_reason"] == "等待校方确定时间"
+    assert entries[1]["next_action"] == "再次预约" and entries[1]["next_contact_date"] == "2026-10-22"
+    detail = data(client.get(f"{BASE}/{project['id']}", headers=manager))
+    assert next(row for row in detail["schools"] if row["id"] == school["id"])["stage"] == "operating"
+    assert len(detail["tasks"]) == 1 and detail["tasks"][0]["revision"] == task["revision"]
+    assert db.get(OpsTask, task["id"]).school_id == school["id"]
+
+    monkeypatch.setattr("app.integration.llm.complete", lambda *args: "整理后的进展")
+    assert data(client.post(path + "/draft", headers=member, json={"text": blocked["content"]})) == {
+        "text": "整理后的进展", "assisted": True}
+    assert client.post(path + "/draft", headers=viewer, json={"text": "样例"}).status_code == 403
+    assert len(data(client.get(path, headers=member))["items"]) == 3
+
+
+def test_outreach_presets_and_feedback_without_a_task_module(client, login, db):
+    manager = login("admin")
+    owner = uid(db, "admin")
+    presets = data(client.get(BASE + "/options", headers=manager))["feature_presets"]
+    assert all("outreach" in sections for sections in presets.values())
+    for name in ("一键报警", "英语听说"):
+        project = data(client.post(BASE, headers=manager, json={
+            "name": name, "category": "其他运营", "owner_id": owner, "enabled_sections": ["outreach"]}))
+        base = f"{BASE}/{project['id']}"
+        school = data(client.post(base + "/schools", headers=manager, json={"name": "示例目标客户", "stage": "won"}))
+        data(client.post(f"{base}/schools/{school['id']}/visits", headers=manager, json={
+            "occurred_on": str(today()), "status": "done", "content": "已核对客户要求"}))
+        detail = data(client.get(base, headers=manager))
+        assert detail["visible_sections"] == ["outreach"] and detail["tasks"] == []
+        assert detail["schools"][0]["latest_visit"]["content"] == "已核对客户要求"
+
+
 def test_reports_include_all_feedback_are_versioned_and_recheck_access(client, login, db, setup):
     project, school, task = setup
     path = f"{BASE}/tasks/{task['id']}"

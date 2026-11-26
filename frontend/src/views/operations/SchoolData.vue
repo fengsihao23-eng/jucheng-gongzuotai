@@ -9,7 +9,7 @@
     </div>
     <div class="toolbar"><el-input v-model="search" placeholder="搜索学校" clearable style="width: 220px" /><el-select v-if="can('outreach')" v-model="stage" placeholder="全部阶段" clearable style="width: 150px"><el-option v-for="(v, k) in STAGES" :key="k" :value="k" :label="v" /></el-select><el-checkbox v-if="can('outreach')" v-model="highOnly">仅高意向</el-checkbox><el-button v-if="project.can_manage" type="primary" @click="editSchool()">新增学校</el-button></div>
     <div v-if="mode === 'income' && project.can_manage" class="jc-row mt-8" style="margin-bottom: 12px"><IncomeFile :project-id="project.id" @saved="emit('saved')" /></div>
-    <div v-if="mode === 'outreach'" class="toolbar"><el-radio-group v-model="lifecycle" aria-label="学校阶段分组"><el-radio-button value="prospect">待开拓学校</el-radio-button><el-radio-button value="existing">存量学校</el-radio-button><el-radio-button value="all">全部学校</el-radio-button></el-radio-group></div>
+    <div v-if="mode === 'outreach'" class="toolbar"><el-radio-group v-model="lifecycle" aria-label="学校阶段分组"><el-radio-button value="prospect">待开拓学校</el-radio-button><el-radio-button value="existing">目标客户</el-radio-button><el-radio-button value="all">全部学校</el-radio-button></el-radio-group></div>
     <p v-if="mode === 'income'" class="jc-small jc-muted">最近登记收款日：{{ project.financials.last_income_date || '尚无记录' }}。{{ project.financials.income_note }}</p>
     <template v-if="mode === 'outreach' && lifecycle === 'prospect'">
       <div v-if="schools.length" class="prospect-cards" aria-label="待开拓学校任务卡">
@@ -59,17 +59,17 @@
             <div class="jc-row between"><h4>{{ mode === 'outreach' ? '关联市场开拓任务' : '关联任务' }}</h4>
               <el-button v-if="mode === 'outreach' && can('tasks') && project.can_manage && project.status === 'active'" type="primary" link @click="assignSchool">布置市场开拓任务</el-button>
             </div>
-            <div v-for="t in schoolTasks" :key="t.id" class="follow-task" @click="emit('open-task', t); selectedId = null">
-              <div class="jc-row between"><b>{{ t.title }}</b><el-button link type="primary">查看过程</el-button></div>
+            <div v-for="t in schoolTasks" :key="t.id" class="follow-task" @click="openSchoolTask(t)">
+              <div class="jc-row between"><b>{{ t.title }}</b><el-button link type="primary" @click.stop="openSchoolTask(t)">{{ t.can_feedback ? '反馈进展' : '查看过程' }}</el-button></div>
               <p class="jc-small jc-muted">{{ t.owner_name }} · {{ TASK_STATUS[t.status] }} {{ t.progress }}% · 截止 {{ t.due_date }}</p>
               <p class="plain">{{ t.latest_feedback || '尚未反馈进展' }}</p>
             </div>
             <p v-if="!schoolTasks.length" class="jc-muted jc-small">布置任务时选择本学校，反馈记录会集中到这里。</p>
-            <h4>学校跟进记录</h4>
+            <h4>学校档案变更</h4>
             <el-timeline><el-timeline-item v-for="h in history" :key="h.id" :timestamp="`${datetime(h.at)} · ${h.author}`" placement="top">
               <b>{{ h.before ? '更新学校资料' : '建立学校资料' }} · {{ STAGES[h.after?.stage] }}</b>
               <p v-if="h.before && h.before.stage !== h.after?.stage" class="jc-small">{{ STAGES[h.before.stage] }} → {{ STAGES[h.after?.stage] }}</p>
-              <p class="plain">下一步：{{ h.after?.next_action || '待补充' }}</p><p v-if="h.after?.next_contact_date" class="jc-small">跟进日期：{{ h.after.next_contact_date }}</p>
+              <p v-if="h.after?.next_action" class="plain">下一步：{{ h.after.next_action }}</p><p v-if="h.after?.next_contact_date" class="jc-small">跟进日期：{{ h.after.next_contact_date }}</p>
               <p v-if="h.after?.note" class="plain">{{ h.after.note }}</p>
             </el-timeline-item></el-timeline>
           </el-tab-pane>
@@ -165,6 +165,7 @@ const selected = computed(() => props.project.schools.find(s => s.id === selecte
 const marketTasks = id => props.project.tasks.filter(t => t.school_id === id && t.kind === 'outreach')
 const schoolTasks = computed(() => props.mode === 'outreach' ? marketTasks(selectedId.value) : props.project.tasks.filter(t => t.school_id === selectedId.value))
 function assignSchool() { const row = selected.value; selectedId.value = null; emit('assign-school', row) }
+function openSchoolTask(task) { emit('open-task', task); selectedId.value = null }
 const history = ref([])
 let historyVersion = 0
 async function loadHistory() {

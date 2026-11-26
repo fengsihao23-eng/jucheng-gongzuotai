@@ -53,26 +53,11 @@
               <h3>{{ task.review_stage === 'department' ? '部门审核' : '公司审核' }}</h3>
               <el-input v-model="reviewComment" type="textarea" :rows="3" maxlength="6000" aria-label="审核意见" placeholder="填写审核意见或退回原因" />
             </section>
-            <section v-if="task.can_feedback" class="section feedback-box">
+            <section v-if="task.can_feedback" class="section">
               <h3>任务反馈</h3>
-              <el-form ref="formRef" :model="form" label-position="top">
-                <el-form-item v-if="task.nodes.length" label="本次反馈位置"><el-select v-model="form.node_id" clearable placeholder="整个任务" aria-label="本次反馈位置"><el-option v-for="n in task.nodes" :key="n.id" :label="n.name" :value="n.id" /></el-select></el-form-item>
-                <el-form-item label="完成情况" class="result-choice">
-                  <el-radio-group v-model="outcome" aria-label="完成情况"><el-radio-button value="done">已完成</el-radio-button><el-radio-button value="pending">未完成</el-radio-button></el-radio-group>
-                </el-form-item>
-                <el-form-item :label="outcome === 'done' ? '完成结果' : '目前进度情况'" prop="content" :rules="[{ required: true, whitespace: true, message: '写几句话说明结果或当前进展' }]">
-                  <el-input v-model="form.content" type="textarea" :rows="3" maxlength="6000" :validate-event="false" placeholder="写几句话即可，例如：已和校方确认需求，明天下午提交方案。" @input="formRef?.clearValidate('content')" />
-                </el-form-item>
-                <el-button link type="primary" :loading="drafting" :disabled="!form.content.trim() || saving" @click="draft">让 AI 整理文字</el-button>
-                <div v-if="draftText" class="draft-preview"><p class="plain">{{ draftText }}</p><el-button size="small" @click="form.content = draftText; draftText = ''">采用这段文字</el-button><el-button size="small" text @click="draftText = ''">保留原文</el-button></div>
-                <el-form-item v-if="outcome === 'pending'" label="当前情况"><el-checkbox v-model="blocked">遇到阻碍</el-checkbox></el-form-item>
-                <el-form-item v-if="remainingNodes.length" label="本次完成的节点">
-                  <el-checkbox-group v-model="form.completed_node_ids"><el-checkbox v-for="node in remainingNodes" :key="node.id" :value="node.id">{{ node.name }}</el-checkbox></el-checkbox-group>
-                  <span class="node-hint">勾选已完成的节点，提交后自动更新进度。</span>
-                </el-form-item>
-                <el-form-item label="下一步（可选）"><el-input v-model="form.next_step" maxlength="6000" placeholder="下一步要做什么，需要谁协调" /></el-form-item>
-                <el-form-item v-if="outcome === 'pending' || captureDelayReason" :label="reasonLabel"><el-input v-model="form.incomplete_reason" type="textarea" :rows="2" maxlength="6000" placeholder="例如：等待校方提供资料，预计明天补齐" /></el-form-item>
-              </el-form>
+              <TaskFeedbackForm ref="formRef" v-model:drafting="drafting" :form="form" :nodes="task.nodes"
+                :requires-reason="requiresReason" :capture-delay-reason="captureDelayReason" :saving="saving"
+                :draft-endpoint="`/operations/tasks/${task.id}/draft`" />
             </section>
           </div>
         </div>
@@ -114,6 +99,7 @@ import { feedbackTime } from '@/utils/taskFeedback'
 import { TASK_SOURCES, TASK_STATUS, completionLabel, deadlineTone, statusLabel, taskProgress, tone, announceChange } from './shared'
 import TaskDelayPanel from './TaskDelayPanel.vue'
 import TaskDiscussion from './TaskDiscussion.vue'
+import TaskFeedbackForm from './TaskFeedbackForm.vue'
 
 const props = defineProps({ modelValue: Boolean, taskId: Number, projectId: Number, archived: Boolean })
 const emit = defineEmits(['update:modelValue', 'edit'])
@@ -128,33 +114,19 @@ const timeline = computed(() => {
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)
 })
 const hasHistory = computed(() => !!(timeline.value.length || task.value?.notification_deliveries?.length))
-const drafting = ref(false), draftText = ref(''), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
+const drafting = ref(false), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
 const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '', node_id: null })
-const blocked = computed({ get: () => form.status === 'blocked', set: value => { form.status = value ? 'blocked' : 'doing' } })
-let beforeComplete = 'doing'
-const outcome = computed({
-  get: () => form.status === 'done' ? 'done' : 'pending',
-  set: value => {
-    if (value === 'done' && form.status !== 'done') {
-      beforeComplete = form.status
-      form.status = 'done'
-    } else if (value === 'pending' && form.status === 'done') {
-      form.status = beforeComplete
-    }
-  },
-})
 const remainingNodes = computed(() => task.value?.nodes.filter(n => !n.completed_at) || [])
 const progress = computed(() => task.value && taskProgress(task.value))
 const requiresReason = computed(() => form.status === 'blocked' || (task.value && (task.value.due_date < task.value.today || remainingNodes.value.some(node => node.overdue && !form.completed_node_ids.includes(node.id)))))
 const captureDelayReason = computed(() => task.value?.delay_status === 'needs_reason')
-const reasonLabel = computed(() => `${captureDelayReason.value ? '延期原因' : '未完成原因'}（${outcome.value === 'pending' && requiresReason.value ? '必填' : '可选'}）`)
 const draftStale = computed(() => task.value && formRevision.value !== task.value.revision)
 let version = 0, baseline = ''
 
 function resetForm(row) {
   Object.assign(form, { content: '', next_step: row.next_step || '', status: row.status === 'todo' ? 'doing' : row.status,
     completed_node_ids: [], incomplete_reason: row.incomplete_reason || '', node_id: null })
-  formRevision.value = row.revision; baseline = JSON.stringify(form); draftText.value = ''; reviewComment.value = ''
+  formRevision.value = row.revision; baseline = JSON.stringify(form); reviewComment.value = ''
   formRef.value?.clearValidate()
 }
 async function load(background = false) {
@@ -173,7 +145,7 @@ async function load(background = false) {
     if (current === version && (!background || err.code === 40301 || err.code === 40401 || !task.value)) { historyOpen.value = false; task.value = null; unavailable.value = true }
   } finally { if (current === version) loading.value = false }
 }
-watch(() => [visible.value, props.taskId], () => { version++; historyOpen.value = false; task.value = null; unavailable.value = false; draftText.value = ''; load() }, { immediate: true })
+watch(() => [visible.value, props.taskId], () => { version++; historyOpen.value = false; task.value = null; unavailable.value = false; load() }, { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => visible.value })
 
 function updateTitle(update) {
@@ -189,16 +161,6 @@ function withXiaoju() {
   if (task.value.can_review_delay) return assistant.openDraft(`查看任务${reference}的延期原因。我的复核决定和意见是：`)
   if (task.value.can_explain_delay && !task.value.can_feedback) return assistant.openDraft(`帮我为任务${reference}补充延期原因：`)
   assistant.openDraft(task.value.can_feedback ? `帮我反馈任务${reference}的进展：` : task.value.can_review ? `帮我查看并处理任务${reference}的审核：` : `汇总任务${reference}的最新进展和下一步。`)
-}
-async function draft() {
-  drafting.value = true
-  const id = task.value.id, original = form.content
-  try {
-    const result = await api.post(`/operations/tasks/${id}/draft`, { text: original }, { timeout: 90000 })
-    if (!visible.value || id !== task.value?.id || original !== form.content) return
-    if (result.assisted) draftText.value = result.text
-    else ElMessage.info('暂时无法整理，可直接修改原文并提交')
-  } catch {} finally { drafting.value = false }
 }
 async function save(kind, body, message, revision = formRevision.value) {
   const delayAction = kind === 'delay-reason' || kind === 'delay-review'
@@ -222,7 +184,7 @@ async function submit() {
   if (!await formRef.value.validate().catch(() => false)) return
   if (form.status === 'done' && remainingNodes.value.some(n => !form.completed_node_ids.includes(n.id))) return ElMessage.warning('请确认所有阶段节点已完成')
   if (form.status !== 'done' && requiresReason.value && !form.incomplete_reason.trim()) return ElMessage.warning('请填写未完成原因')
-  await save('feedback', { ...form, incomplete_reason: outcome.value === 'pending' || captureDelayReason.value ? form.incomplete_reason : '' }, '进展已反馈')
+  await save('feedback', { ...form, incomplete_reason: form.status !== 'done' || captureDelayReason.value ? form.incomplete_reason : '' }, '进展已反馈')
 }
 function review(decision) {
   if (!reviewComment.value.trim()) return ElMessage.warning('请填写审核意见或退回原因')
@@ -252,9 +214,6 @@ h2 { font: 600 clamp(21px, 3vw, 28px)/1.35 var(--jc-font-serif); color: var(--jc
 .history-count { font-size: 15px; margin: 0 0 14px; color: var(--jc-ink); }.history-count small { font-size: 11px; margin-left: 6px; font-weight: 400; color: var(--jc-ink-3); }
 :global(.task-history-dialog > .el-dialog__body) { max-height: 68dvh; overflow: auto; overscroll-behavior: contain; }
 .history-timeline { padding: 0 4px 0 2px; }.history-timeline :deep(.el-timeline-item:last-child) { padding-bottom: 0; }
-.feedback-box :deep(.el-form-item) { margin-bottom: 13px; }.feedback-box :deep(.el-checkbox) { height: auto; min-height: 25px; white-space: normal; }.draft-preview { padding: 9px; background: var(--jc-bg); border: 1px solid var(--jc-line); border-radius: 6px; }
-.result-choice :deep(.el-radio-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.result-choice :deep(.el-radio-button__inner) { width: 100%; }
-.node-hint { flex: 0 0 100%; color: var(--jc-ink-3); font-size: 12px; line-height: 1.5; }
 @media (max-width: 740px) { .body-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }.work { grid-row: 1; }.facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { :global(.ops-task-dialog.el-dialog) { width: 100vw; height: 100dvh; border-radius: 0; }:global(.ops-task-dialog > .el-dialog__body) { max-height: none; }.task-page { padding: 14px; }.section { padding: 12px; } }
 </style>

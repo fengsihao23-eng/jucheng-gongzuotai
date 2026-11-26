@@ -213,7 +213,7 @@ try {
     await card.scrollIntoViewIfNeeded()
     const result = await snap(mobile, '08-待开拓学校任务卡')
     await card.click()
-    await mobile.getByRole('heading', { name: '实际跟进记录' }).waitFor()
+    await mobile.getByRole('heading', { name: '跟进反馈', exact: true }).waitFor()
     return result
   })
 } finally { await browser.close() }
