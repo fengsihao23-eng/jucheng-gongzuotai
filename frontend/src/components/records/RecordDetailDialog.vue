@@ -37,7 +37,7 @@
             </section>
             <section v-if="data" class="record-section" aria-label="要求与留言">
               <h3>要求与留言</h3>
-              <p class="jc-small jc-muted">留言和回复可在「过程记录」查看。</p>
+              <p class="jc-small jc-muted">{{ data.discussion_wecom ? '企业微信会提醒接收人。' : '当前项目已关闭企业微信提醒。' }}留言和回复可在「过程记录」查看。</p>
               <article v-for="item in data.my_requests" :key="item.id" class="record-request">
                 <div class="jc-row between"><b>{{ item.author }}提出要求</b><StatusPill text="待回复" tone="warn" /></div>
                 <p class="record-text">{{ item.content }}</p>
@@ -58,6 +58,9 @@
                       placeholder="请选择" @visible-change="openRecipients">
                       <el-option v-for="user in people" :key="user.id" :value="user.id" :label="user.name" />
                     </el-select>
+                    <span v-if="discussion.kind === 'note' && !discussion.recipient" class="jc-small jc-muted">
+                      {{ defaultNoteRecipients ? `默认提醒 ${defaultNoteRecipients}。` : '选择接收人后可发送提醒。' }}
+                    </span>
                   </el-form-item>
                 </template>
                 <el-form-item :label="replyTo ? '回复内容' : '要求或留言'">
@@ -190,6 +193,7 @@ const history = computed(() => {
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || (b.id ?? 0) - (a.id ?? 0))
 })
 const before = computed(() => previous.value.length ? previousBefore.value : data.value?.before)
+const defaultNoteRecipients = computed(() => (data.value?.default_note_recipients || []).map(u => u.name).join('、'))
 const discussionValid = computed(() => !!discussion.content.trim() && (replyTo.value || discussion.kind !== 'request' || discussion.recipient))
 const progressValid = computed(() => !!progress.content.trim() && (outcome.value === 'done' || ((!blocked.value || !!progress.problems.trim()) && (!progress.next_due_on || !!progress.next_step.trim()))))
 let version = 0, peopleVersion = 0

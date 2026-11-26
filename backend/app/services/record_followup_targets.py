@@ -94,6 +94,7 @@ class Record:
     identity: str = ""
     legacy: tuple[str, int | str] | None = None
     archive_key: str | None = None
+    operation_project_id: int | None = None
 
     @property
     def key(self):
@@ -237,7 +238,7 @@ def resolve(db, p, kind, ref, *, lock=False):
         return Record(kind, str(row.id), "运营项目详情", row.name, "运营项目", owners(row.owner_id),
                       role in {"manager", "member", "reviewer"}, role == "manager",
                       facts(row, (("项目分类", "category"), ("目标日期", "target_date"))), row.objective,
-                      f"/operations/{row.id}")
+                      f"/operations/{row.id}", operation_project_id=row.id)
     if kind in {"school", "maintenance", "operation-product", "asset-movement"}:
         models = {"school": m.OpsSchool, "maintenance": m.OpsMaintenanceRecord,
                   "operation-product": m.OpsProduct, "asset-movement": m.OpsAssetMovement}
@@ -259,7 +260,7 @@ def resolve(db, p, kind, ref, *, lock=False):
         title = getattr(row, "name", None) or getattr(row, "title", None) or label
         return Record(kind, str(row.id), label, title, "运营项目", owners(getattr(row, "owner_id", None), project.owner_id),
                       role in {"manager", "member", "reviewer"}, role == "manager", context=project.name,
-                      path=f"/operations/{project.id}")
+                      path=f"/operations/{project.id}", operation_project_id=project.id)
     if kind == "ops-digest":
         from app.services import operations_reports
         row = get_or_404(db, m.OpsDigestSnapshot, number(ident), "运营报告")
@@ -270,7 +271,7 @@ def resolve(db, p, kind, ref, *, lock=False):
         return Record(kind, str(row.id), "运营报告详情", row.facts.get("person", project.name) + " · " + label, "运营项目",
                       owners(row.owner_id), manager=operations_service.role(db, p, project) == "manager",
                       facts=facts(row, (("统计期间", "period"), ("版本", "version"))),
-                      path=f"/operations/{project.id}?digest={row.id}")
+                      path=f"/operations/{project.id}?digest={row.id}", operation_project_id=project.id)
     if kind == "project-source-report":
         from app.services import project_report_service
         menu(p, "profit", "board")

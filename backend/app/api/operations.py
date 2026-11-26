@@ -242,9 +242,12 @@ def review_operation_task(task_id: int, body: ReviewIn, background: BackgroundTa
 
 
 @router.post("/tasks/{task_id}/discussions")
-def discuss_task(task_id: int, body: DiscussionIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    followups.add_discussion(db, p, task_id, body)
+def discuss_task(task_id: int, body: DiscussionIn, background: BackgroundTasks, p: Principal = Menu, db: Session = Depends(get_db)):
+    notices = []
+    followups.add_discussion(db, p, task_id, body, notice_ids=notices)
     db.commit()
+    if notices:
+        background.add_task(notify_service.deliver_committed, notices)
     return ok(ops.task_detail(db, p, task_id))
 
 

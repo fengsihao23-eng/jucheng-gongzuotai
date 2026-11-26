@@ -61,6 +61,10 @@ def eligible(db, p, notice):
         if discussion.kind == "reply":
             parent = db.get(OpsTaskDiscussion, discussion.reply_to_id)
             target = parent.author_id if parent else None
+        elif discussion.kind == "note" and target is None:
+            from app.services.operations_followup import default_note_recipient_ids
+
+            return p.id in default_note_recipient_ids(project, task, discussion.author_id)
         return target == p.id
     return False
 

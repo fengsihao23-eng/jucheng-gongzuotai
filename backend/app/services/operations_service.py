@@ -713,6 +713,8 @@ def task_detail(db, p, task_id, *, archived=False):
                     select(OpsTaskReview).where(OpsTaskReview.task_id == task_id).order_by(OpsTaskReview.id))]
     delay_records = deadlines.history(db, task_id)
     plan = db.scalar(select(OpsProjectProgress).where(OpsProjectProgress.task_id == task.id)) if task.source == "project_plan" else None
+    participants = followups.participants(db, p, project, task) if not archived else []
+    defaults = followups.default_note_recipient_ids(project, task, p.id)
     return {**task_dict(db, p, project, task, updates, delay=delay_records[0] if delay_records else None),
             "reviews": reviews, "delay_history": [deadlines.reason_dict(row) for row in delay_records],
             "plan_context": progress_dict(plan) if plan else None, "today": today(),
@@ -720,7 +722,8 @@ def task_detail(db, p, task_id, *, archived=False):
             "notification_deliveries": delivery_status(db, p, project, task),
             "can_discuss": not archived and project.status == "active" and role(db, p, project) in {"manager", "member", "reviewer"},
             "can_request": not archived and project.status == "active" and task.status != "done" and task.approval_status == "approved" and role(db, p, project) == "manager",
-            "participants": followups.participants(db, p, project, task) if not archived else []}
+            "participants": participants, "discussion_wecom": content_scope.controls(db, project.id)["wecom_reminders"],
+            "default_note_recipients": [user for user in participants if user["id"] in defaults]}
 
 
 def tasks(db, p, project_id=None, mine=False, *, archived=False):

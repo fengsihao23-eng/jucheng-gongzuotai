@@ -12,8 +12,10 @@ from app.core.deps import build_principal
 from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import now
 from app.models import (BizProject, BizProjectFeedback, ContractWorkbook, KeyProjectTaskUpdate,
-                        RecordFollowup as Entry, SysUser, WorkbookProjectFeedback)
-from app.services import notify_service, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
+                        RecordFollowup as Entry, SysNotify, SysUser, WorkbookProjectFeedback)
+from app.services import notify_service, operations_scope, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
+
+NOTICE = "record_followup"
 
 
 class FollowupIn(BaseModel):
@@ -143,7 +145,10 @@ def view(db, p, record, *, before=None):
             "items": history, "legacy": legacy if not before else [], "pending": outstanding,
             "my_requests": waiting, "latest": latest, "progress_revision": revision,
             "before": rows[99][0].id if len(rows) > 100 else None,
-            "can_request": _can_request(p, record), "can_feedback": can_feedback and not archive.get("archive"), **archive}
+            "can_request": _can_request(p, record), "can_feedback": can_feedback and not archive.get("archive"),
+            "default_note_recipients": [{"id": user.id, "name": user.name} for user in _note_recipients(db, p, record)],
+            "discussion_wecom": _wecom_enabled(db, record),
+            **archive}
 
 
 def _recipient(db, actor, record, user_id):
@@ -155,6 +160,19 @@ def _recipient(db, actor, record, user_id):
         return user if target.key == record.key else None
     except BizError:
         return None
+
+
+def _default_owner_ids(record):
+    # A workbook cell can match multiple accounts with the same display name.
+    return () if record.workbook and len(record.owner_ids) > 1 else record.owner_ids
+
+
+def _note_recipients(db, actor, record):
+    return [user for uid in _default_owner_ids(record) if (user := _recipient(db, actor, record, uid))]
+
+
+def _wecom_enabled(db, record):
+    return record.operation_project_id is None or operations_scope.controls(db, record.operation_project_id)["wecom_reminders"]
 
 
 def recipients(db, p, record, keyword):
@@ -173,11 +191,44 @@ def recipients(db, p, record, keyword):
     return result
 
 
-def _notify(db, user, entry, title):
+def _notify(db, users, entry, title, *, wecom):
     # The link requires the same live visibility as the record. No record details appear in the message.
-    if user:
-        notify_service.send(db, [user], "record_followup", title, "打开这条记录查看跟进内容。",
-                            link=f"/record-followups/{entry.id}", ref_type="record_followup", ref_id=str(entry.id), wecom=False)
+    if not users:
+        return []
+    rows = notify_service.send(db, users, NOTICE, title, "请打开工作台查看这条记录的跟进内容。",
+                               link=f"/record-followups/{entry.id}", ref_type=NOTICE, ref_id=str(entry.id),
+                               wecom=wecom, defer=True)
+    return [notice.id for notice in rows if notice.channel == "wecom_app"]
+
+
+def _progress_requestors(db, record, author_id):
+    return set(db.scalars(_entries(record).with_only_columns(Entry.author_id)
+                          .where(Entry.action == "request", Entry.recipient_id == author_id)))
+
+
+def eligible_notice(db, p, notice):
+    if notice.ref_type != NOTICE:
+        return False
+    try:
+        entry_id = int(notice.ref_id)
+    except (TypeError, ValueError):
+        return False
+    entry = db.get(Entry, entry_id)
+    if not entry or entry.author_id == p.id:
+        return False
+    try:
+        record = targets.resolve(db, p, entry.target_kind, entry.reference)
+    except BizError:
+        return False
+    if record.key != entry.target_key or not _wecom_enabled(db, record):
+        return False
+    if entry.action == "progress":
+        return p.id in _progress_requestors(db, record, entry.author_id)
+    if entry.action == "note" and entry.recipient_id is None:
+        return p.id in _default_owner_ids(record)
+    if entry.action == "request" and db.scalar(select(Entry.id).where(Entry.reply_to_id == entry.id)):
+        return False
+    return entry.recipient_id == p.id
 
 
 def _mirror_progress(db, p, record, body, *, notice_ids=None):
@@ -261,18 +312,26 @@ def write(db, p, record, body, *, notice_ids=None):
                 content=body.content, status=body.status, problems=body.problems, next_step=body.next_step,
                 next_due_on=body.next_due_on, client_id=client_id, created_at=now())
     db.add(row)
+    queued = []
     if body.action == "progress":
         # The last entry in the timeline remains the submitted wording even if the domain adds a summary.
-        row.legacy_key = _mirror_progress(db, p, record, body, notice_ids=notice_ids)
+        row.legacy_key = _mirror_progress(db, p, record, body, notice_ids=queued)
         row.created_at = now()
     db.flush()
+    wecom = _wecom_enabled(db, record)
     if recipient:
-        _notify(db, recipient, row, {"request": "收到新的跟进要求", "reply": "你的跟进要求收到回复", "note": "有成员在记录中提醒你"}[body.action])
-    if body.action == "progress":
-        requestors = set(db.scalars(_entries(record).with_only_columns(Entry.author_id)
-                                     .where(Entry.action == "request", Entry.recipient_id == p.id)))
-        for user_id in requestors:
-            _notify(db, _recipient(db, p, record, user_id), row, "你跟进的记录有新进展")
+        queued.extend(_notify(db, [recipient], row, {"request": "收到新的跟进要求", "reply": "你的跟进要求收到回复",
+                                                     "note": "有成员在记录中提醒你"}[body.action], wecom=wecom))
+    elif body.action == "note":
+        queued.extend(_notify(db, _note_recipients(db, p, record), row, "你负责的记录有新留言", wecom=wecom))
+    elif body.action == "progress":
+        already_notified = set(db.scalars(select(SysNotify.user_id).where(SysNotify.id.in_(queued)))) if queued else set()
+        for user_id in _progress_requestors(db, record, p.id):
+            user = _recipient(db, p, record, user_id)
+            if user:
+                queued.extend(_notify(db, [user], row, "你跟进的记录有新进展", wecom=wecom and user_id not in already_notified))
+    if notice_ids is not None:
+        notice_ids.extend(queued)
     log_op(db, p.id, f"record_followup.{body.action}", "record_followup", row.id,
            after={"module": record.kind, "recipient_id": row.recipient_id, "status": row.status, "reply_to_id": row.reply_to_id})
     return view(db, p, record)

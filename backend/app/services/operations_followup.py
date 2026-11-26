@@ -46,6 +46,11 @@ def participants(db, p, project, task):
     return rows
 
 
+def default_note_recipient_ids(project, task, author_id):
+    return tuple(uid for uid in dict.fromkeys((task.owner_id, task.creator_id, project.owner_id))
+                 if uid is not None and uid != author_id)
+
+
 def discussions(db, p, task):
     rows = db.scalars(select(OpsTaskDiscussion).where(OpsTaskDiscussion.task_id == task.id).order_by(OpsTaskDiscussion.id)).all()
     ids = {x for r in rows for x in (r.author_id, r.recipient_id) if x}
@@ -58,7 +63,7 @@ def discussions(db, p, task):
             for r in rows]
 
 
-def add_discussion(db, p, task_id, body):
+def add_discussion(db, p, task_id, body, *, notice_ids=None):
     task = ops.get_task(db, p, task_id, lock=True)
     project = ops.get_project(db, p, task.project_id)
     ops.active(project)
@@ -98,14 +103,24 @@ def add_discussion(db, p, task_id, body):
     db.add(record)
     db.flush()
     # Intentionally do not modify task status, revision or last_feedback_at.
-    if target and target != p.id:
+    targets = [target] if target and target != p.id else []
+    if body.kind == "note" and target is None:
+        targets = [uid for uid in default_note_recipient_ids(project, task, p.id) if uid in available]
+    recipients = []
+    for uid in targets:
+        user = db.get(SysUser, uid)
+        if user and (uid in available or db.scalar(select(OpsTask.id).where(
+                OpsTask.id == task.id, policy.task_access(build_principal(user))))):
+            recipients.append(user)
+    if recipients:
         from app.services import notify_service
-        recipient = db.get(SysUser, target)
-        if recipient and db.scalar(select(OpsTask.id).where(OpsTask.id == task.id, policy.task_access(build_principal(recipient)))):
-            notify_service.send(db, [recipient], "operations_discussion", "任务有待回复要求" if body.kind == "request" else "任务讨论有新消息",
-                f"{p.user.name}：{body.content[:500]}", link=f"/operations/{project.id}?task={task.id}",
-                ref_type="ops_discussion", ref_id=str(record.id), wecom=scope.controls(db, project.id)["wecom_reminders"],
-                defer=True, wecom_content="你有一条运营任务要求或回复，请打开工作台查看。")
+        title = {"request": "任务有待回复要求", "reply": "你的任务要求收到回复", "note": "运营任务有新留言"}[body.kind]
+        notices = notify_service.send(db, recipients, "operations_discussion", title,
+            f"{p.user.name}：{body.content[:500]}", link=f"/operations/{project.id}?task={task.id}",
+            ref_type="ops_discussion", ref_id=str(record.id), wecom=scope.controls(db, project.id)["wecom_reminders"],
+            defer=True, wecom_content="请打开工作台查看运营任务的讨论内容。")
+        if notice_ids is not None:
+            notice_ids.extend(notice.id for notice in notices if notice.channel == "wecom_app")
     log_op(db, p.id, "operations.task.discuss", "ops_task_discussion", record.id,
            after={"task_id": task.id, "kind": body.kind, "recipient_id": body.recipient_id})
     return record

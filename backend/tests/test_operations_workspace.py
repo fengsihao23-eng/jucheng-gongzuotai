@@ -151,7 +151,9 @@ def test_wecom_discussion_and_reminder_cancel_after_reply_or_completion(client,l
     from app.integration.wecom.base import SendResult
     from app.jobs.operations import operations_task_reminder
     project,school,task=setup
-    result=data(client.post(f"{BASE}/tasks/{task['id']}/discussions",headers=login('wujun'),json={'kind':'request','content':'请回复','recipient_id':uid(db,'xiekai')}))
+    with monkeypatch.context() as hold:
+        hold.setattr(notify_service, 'deliver_committed', lambda *_: None)
+        result=data(client.post(f"{BASE}/tasks/{task['id']}/discussions",headers=login('wujun'),json={'kind':'request','content':'请回复','recipient_id':uid(db,'xiekai')}))
     request=result['discussions'][0]
     notice=db.scalar(select(SysNotify).where(SysNotify.ref_type=='ops_discussion',SysNotify.ref_id==str(request['id']),SysNotify.channel=='wecom_app'))
     assert notice and notice.send_status==0
@@ -163,7 +165,8 @@ def test_wecom_discussion_and_reminder_cancel_after_reply_or_completion(client,l
     monkeypatch.setattr(notify_service,'get_wecom',lambda:Provider())
     data(client.post(f"{BASE}/tasks/{task['id']}/discussions",headers=login('xiekai'),json={'kind':'reply','content':'已知悉','reply_to_id':request['id']}))
     notify_service._deliver(db,[notice])
-    assert not sent and notice.retry_count==3
+    assert sent == [['wujun']] and notice.retry_count == 3
+    sent.clear()
     row=db.get(OpsTask,task['id']);row.last_feedback_at=now()-timedelta(days=4);db.commit()
     with monkeypatch.context() as hold:
         hold.setattr(notify_service,'deliver_pending',lambda *_: 0)
@@ -175,6 +178,46 @@ def test_wecom_discussion_and_reminder_cancel_after_reply_or_completion(client,l
     db.expire(row)
     notify_service._deliver(db,[reminder])
     assert not sent and reminder.send_status==2
+
+
+def test_task_notes_notify_default_or_selected_people_immediately(client, login, db, setup, monkeypatch):
+    from app.integration.wecom.base import SendResult
+    from app.services import notify_service
+
+    deliveries = []
+
+    class Provider:
+        def send_app_message(self, users, message):
+            deliveries.append((users, message))
+            return SendResult(True, "discussion-test")
+
+    monkeypatch.setattr(notify_service, "get_wecom", Provider)
+    project, _, task = setup
+    endpoint = f"{BASE}/tasks/{task['id']}"
+    payload = {"kind": "note", "content": "企业微信卡片不包含的讨论正文", "node_id": task["nodes"][0]["id"]}
+    result = data(client.post(endpoint + "/discussions", headers=login("xiekai"), json=payload))
+    assert {u["id"] for u in result["default_note_recipients"]} == {uid(db, "wujun"), uid(db, "admin")}
+    assert len(deliveries) == 1 and set(deliveries[0][0]) == {"wujun", "admin"}
+    assert deliveries[0][1].msg_type == "textcard"
+    assert deliveries[0][1].url.endswith(f"/operations/{project['id']}?task={task['id']}")
+    assert payload["content"] not in deliveries[0][1].content
+    assert result["discussions"][0]["node_id"] == payload["node_id"]
+    data(client.post(endpoint + "/discussions", headers=login("admin"), json={**payload, "recipient_id": uid(db, "xuhao")}))
+    assert len(deliveries) == 2 and deliveries[-1][0] == ["xuhao"]
+    assert client.post(endpoint + "/discussions", headers=login("admin"),
+        json={**payload, "recipient_id": uid(db, "chenjing")}).status_code == 403
+    data(client.put(f"{BASE}/{project['id']}/controls", headers=login("wujun"),
+                    json={"wecom_reminders": False, "expected_revision": 0}))
+    result = data(client.post(endpoint + "/discussions", headers=login("xiekai"), json=payload))
+    assert result["discussion_wecom"] is False and len(deliveries) == 2
+    recent_id = result["discussions"][-1]["id"]
+    assert set(db.scalars(select(SysNotify.channel).where(
+        SysNotify.ref_type == "ops_discussion", SysNotify.ref_id == str(recent_id)))) == {"inapp"}
+    project_note = data(client.post(f"/api/v1/record-followups/operation/{project['id']}", headers=login("admin"), json={
+        "client_id": str(uuid.uuid4()), "action": "note", "content": "项目级互动留言"}))
+    assert not project_note["discussion_wecom"] and len(deliveries) == 2
+    assert set(db.scalars(select(SysNotify.channel).where(
+        SysNotify.ref_type == "record_followup", SysNotify.ref_id == str(project_note["items"][0]["id"])))) == {"inapp"}
 
 
 def test_linked_funds_keep_original_permission_and_approval_payment_distinction(client,login,db,setup):
