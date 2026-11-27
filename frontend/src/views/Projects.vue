@@ -2,7 +2,7 @@
   <div class="jc-page">
     <PageHeader eyebrow="项目管理" :title="pageTitle"
       :desc="scopeDesc">
-      <el-button v-if="auth.can('project:weekly') || auth.hasMenu('market')" @click="exportWeekly">导出周进度</el-button>
+      <el-button v-if="hasLedgerMenu && (auth.can('project:weekly') || auth.hasMenu('market'))" @click="exportWeekly">导出周进度</el-button>
       <el-button v-if="canCreate && projectMode !== 'history'" type="primary" @click="openCreate()">新建项目</el-button>
     </PageHeader>
 
@@ -55,7 +55,7 @@
           <div class="jc-divider" />
           <div class="jc-row between jc-small jc-muted">
             <span>项目经理 {{ p.owner_name || '—' }}</span>
-            <span>回款 {{ percent(p.payment_rate) }}</span>
+            <span v-if="hasLedgerMenu">回款 {{ percent(p.payment_rate) }}</span>
           </div>
         </div>
         <el-empty v-if="!items.length && !loading" description="暂无项目" style="grid-column: 1 / -1" />
@@ -77,8 +77,8 @@
         </el-table-column>
         <el-table-column label="当前节点" width="110"><template #default="{ row }"><span :class="{ 'jc-down': row.current_node_delayed }">{{ row.current_node || '—' }}</span></template></el-table-column>
         <el-table-column label="延期" width="70" align="center"><template #default="{ row }"><b v-if="row.delayed_nodes" class="jc-down jc-num">{{ row.delayed_nodes }}</b><span v-else class="jc-muted">0</span></template></el-table-column>
-        <el-table-column label="合同额" width="110" align="right"><template #default="{ row }"><span class="jc-num">{{ wan(row.contract_total) }}</span></template></el-table-column>
-        <el-table-column label="回款率" width="80" align="right"><template #default="{ row }"><span class="jc-num">{{ percent(row.payment_rate) }}</span></template></el-table-column>
+        <el-table-column v-if="hasLedgerMenu" label="合同额" width="110" align="right"><template #default="{ row }"><span class="jc-num">{{ wan(row.contract_total) }}</span></template></el-table-column>
+        <el-table-column v-if="hasLedgerMenu" label="回款率" width="80" align="right"><template #default="{ row }"><span class="jc-num">{{ percent(row.payment_rate) }}</span></template></el-table-column>
       </el-table>
     </Panel>
 
@@ -139,7 +139,9 @@ import { useAuth } from '@/store/auth'
 import { BUSINESS_LINES, PROJECT_STATUS, percent, wan } from '@/utils/format'
 
 const auth = useAuth()
+const hasLedgerMenu = computed(() => auth.hasMenu('projects'))
 const projectRemoval = row => {
+  if (!hasLedgerMenu.value) return
   const admin = auth.profile?.is_admin
   const allowed = row.is_key ? admin || auth.canDelete('project:key')
     : admin || auth.canDelete('milestone:write') || row.owner_id === auth.profile?.id
@@ -166,7 +168,8 @@ const descriptions = {
 const q = reactive({ keyword: '', status: route.query.status ? Number(route.query.status) : null, business_line: route.query.business_line || null,
   is_key: route.query.is_key === '1', mine: route.query.mine === '1', delayed: route.query.delayed === '1' })
 
-const scopeDesc = computed(() => descriptions[projectMode.value] + (scope.value === 'self' ? ' 仅显示您负责或担任节点责任人的项目。' : ''))
+const scopeHints = { self: ' 仅显示您负责或担任节点责任人的项目。', team: ' 仅显示你参与的项目。' }
+const scopeDesc = computed(() => descriptions[projectMode.value] + (scopeHints[scope.value] || ''))
 const countBy = (s) => items.value.filter((x) => x.status === s).length
 const totalDelayed = computed(() => items.value.reduce((a, x) => a + x.delayed_nodes, 0))
 const avgProgress = computed(() => {

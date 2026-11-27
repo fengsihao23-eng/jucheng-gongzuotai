@@ -5,6 +5,7 @@ from app.core.timeutil import TZ
 from app.integration.wecom.mock import read_outbox
 from app.jobs import market as market_jobs
 from app.jobs import operations as jobs
+from app.models import SysNotify
 from app.services import key_projects, task_feedback_deadlines
 from tests.conftest import data, deletion_body
 
@@ -88,7 +89,12 @@ def test_general_assignment_and_overdue_wecom_cards_open_the_same_task(client, l
     data(client.post(f"/api/v1/market/projects/{code}/team?scope=general", headers=admin, json={"user_ids": [worker_id]}))
     task = data(client.post(path + "/tasks", headers=admin, json={"title": "反馈设备台账", "owner_id": worker_id,
         "preparation_on": "2026-11-20", "due_on": "2026-11-28", "cadence": "node", "feedback_due_at": "2026-11-26T10:00:00+08:00"}))
-    link = f"/general-projects/{path.rsplit('/', 1)[1]}?task={task['id']}"
+    link = f"/projects/{code}?task={task['id']}"
+    legacy = SysNotify(user_id=worker_id, ref_type=key_projects.GENERAL_REF, ref_id=str(task['id']),
+                       link=f"/general-projects/{code}?task={task['id']}")
+    assert key_projects.eligible_team_notice(db, legacy)
+    legacy.link = f"/general-projects/{code}?task={task['id'] + 1}"
+    assert not key_projects.eligible_team_notice(db, legacy)
     clock[0] += timedelta(hours=2)
     jobs.task_feedback_deadline_reminders(db, {})
     jobs.task_feedback_deadline_reminders(db, {})
@@ -152,11 +158,15 @@ def test_general_reports_use_the_same_periods_and_enforce_file_scope(client, log
     monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
     admin, owner, reader = (login(name) for name in ("admin", "xuhao", "pengbo"))
     owner_id = data(client.get("/api/v1/auth/me", headers=owner))["id"]
-    project_path = project(client, admin, "一般项目报告范围验收", owner_id)
-    code = project_path.rsplit("/", 1)[1]
+    ledger_path = project(client, admin, "台账项目不计入一般项目报告", owner_id)
+    created = data(client.post("/api/v1/market/projects?scope=general", headers=admin, json={
+        "name": "一般项目报告范围验收", "owner_id": owner_id, "preparation_on": "2026-11-20", "due_on": "2026-12-15"}))
+    code = created["project_code"]
     result = data(client.post("/api/v1/market/reports/generate?scope=general", headers=owner, json={"period_type": "weekly"}))
     assert result["report_type"] == "general_weekly" and result["title"].startswith("一般项目周报")
-    assert code in {item["project_code"] for item in result["data"]["projects"]}
+    report_codes = {item["project_code"] for item in result["data"]["projects"]}
+    assert code in report_codes
+    assert ledger_path.rsplit("/", 1)[1] not in report_codes
     path = f"/api/v1/market/reports/{result['id']}"
     assert data(client.get(path + "?scope=general", headers=owner))["text"].startswith("# 一般项目周报")
     assert client.get(path + "?scope=general", headers=reader).status_code == 404
@@ -166,3 +176,42 @@ def test_general_reports_use_the_same_periods_and_enforce_file_scope(client, log
     assert client.get(path, headers=admin).status_code == 404
     assert result["id"] not in {row["id"] for row in data(client.get("/api/v1/market/reports?scope=general", headers=reader))["items"]}
     assert market_jobs.general_monthly_report(db, {"period": "2026-10"})["message"].startswith("已生成 一般项目月报")
+
+
+def test_ledger_keeps_old_records_and_member_access_when_general_workspace_starts_empty(client, login, monkeypatch):
+    monkeypatch.setenv("FAKE_TODAY", "2026-11-26")
+    admin, worker, outsider = (login(name) for name in ("admin", "yangyue", "pengbo"))
+    admin_id = data(client.get("/api/v1/auth/me", headers=admin))["id"]
+    worker_id = data(client.get("/api/v1/auth/me", headers=worker))["id"]
+    path = project(client, admin, "留在台账的项目", admin_id, milestone_template="standard", budget_amount=3600)
+    code = path.rsplit("/", 1)[1]
+    team_path = f"/api/v1/market/projects/{code}/team?scope=general"
+    data(client.post(team_path, headers=admin, json={"user_ids": [worker_id]}))
+
+    board = "/api/v1/market/board?scope=general&include_paused=true"
+    assert code not in {row["project_code"] for row in data(client.get(board, headers=admin))["projects"]}
+    assert code not in {row["project_code"] for row in data(client.get("/api/v1/projects?scope=general", headers=admin))["items"]}
+    ledger = data(client.get(path, headers=admin))
+    assert not ledger["in_general_workspace"] and len(ledger["milestones"]) == 5 and ledger["budget_amount"] == "3600.00"
+    assert client.get(path, headers=outsider).status_code == 403
+    assert client.get(path, headers=worker).status_code == 403
+
+    profile = data(client.get("/api/v1/auth/me", headers=worker))
+    assert profile["ledger_project_team"] and "projects" not in profile["menus"]
+    personal_ledger = data(client.get("/api/v1/projects", headers=worker))
+    assert personal_ledger["data_scope"] == "team" and not personal_ledger["can_create"]
+    own = next(row for row in personal_ledger["items"] if row["project_code"] == code)
+    assert own["total_nodes"] == 5 and "budget_amount" not in own and "contract_total" not in own
+    assert client.get("/api/v1/projects?scope=history", headers=worker).status_code == 403
+    own_detail = data(client.get(f"/api/v1/market/projects/{code}?scope=general", headers=worker))
+    assert not own_detail["in_general_workspace"] and own_detail["money"] is None and len(own_detail["tasks"]) == 5
+
+    created = data(client.post("/api/v1/market/projects?scope=general", headers=admin, json={
+        "name": "从一般项目新建", "owner_id": admin_id, "preparation_on": "2026-11-20", "due_on": "2026-12-15",
+        "team_member_ids": [worker_id]}))
+    new_code = created["project_code"]
+    general_codes = {row["project_code"] for row in data(client.get(board, headers=worker))["projects"]}
+    assert new_code in general_codes and code not in general_codes
+    assert new_code not in {row["project_code"] for row in data(client.get("/api/v1/projects", headers=worker))["items"]}
+    assert {code, new_code}.issubset({row["project_code"] for row in data(client.get("/api/v1/projects", headers=admin))["items"]})
+    assert data(client.get("/api/v1/projects/" + new_code, headers=admin))["in_general_workspace"]

@@ -55,6 +55,10 @@ def visible_query(p):
     return q.where(cond) if cond is not None else q
 
 
+def non_key_workspace_filter(*, in_general):
+    return BizProject.is_key.is_(False) & (BizProject.status != 5) & BizProject.in_general_workspace.is_(in_general)
+
+
 def can_view(db: Session, p, project: BizProject) -> bool:
     return not project.is_deleted and (p is None or p.can_view_all_projects or is_team_member(db, p, project))
 
@@ -141,6 +145,7 @@ def project_brief(db: Session, project: BizProject, T: date | None = None, money
          "owner_id": project.owner_id, "owner_name": _uname(project.owner),
          "market_owner_id": project.market_owner_id, "market_owner_name": _uname(mk),
          "status": project.status, "status_text": PROJECT_STATUS.get(project.status), "is_key": project.is_key,
+         "in_general_workspace": project.in_general_workspace,
          "budget_amount": project.budget_amount, "contract_amount": project.contract_amount,
          "start_date": project.start_date, "plan_end_date": project.plan_end_date,
          "bid_deadline": project.bid_deadline, "milestone_template": project.milestone_template,
@@ -209,14 +214,16 @@ def profit_of(db: Session, code: str, T: date | None = None, p=None) -> dict:
 # ------------------------------------------------------------------ 列表 / 新建 / 详情
 def list_projects(db: Session, p, *, status: int | None = None, business_line: str | None = None,
                   is_key: bool | None = None, owner_id: int | None = None, keyword: str | None = None,
-                  mine: bool = False, scope: str = "all") -> list[dict]:
+                  mine: bool = False, scope: str = "all", ledger_team_only: bool = False) -> list[dict]:
     q = visible_query(p)
-    if scope == "pipeline":
+    if ledger_team_only:
+        q = q.where(non_key_workspace_filter(in_general=False), team_filter(p.id))
+    elif scope == "pipeline":
         q = q.where(BizProject.status.in_((1, 2)))
     elif scope == "history":
         q = q.where(BizProject.status == 5)
     elif scope == "general":
-        q = q.where(BizProject.status != 5, BizProject.is_key.is_(False))
+        q = q.where(non_key_workspace_filter(in_general=True))
     if status:
         q = q.where(BizProject.status == status)
     if business_line:
@@ -232,6 +239,10 @@ def list_projects(db: Session, p, *, status: int | None = None, business_line: s
         q = q.where(or_(BizProject.name.ilike(kw), BizProject.project_code.ilike(kw), BizProject.customer_name.ilike(kw)))
     rows = db.scalars(q.order_by(BizProject.is_key.desc(), BizProject.project_code)).unique().all()
     T = today()
+    if ledger_team_only:
+        from app.services.key_projects import brief
+
+        return [brief(db, row, False, day=T) for row in rows]
     money = money_summary(db, [r.project_code for r in rows])
     items = [project_brief(db, r, T, money.get(r.project_code)) for r in rows]
     if scope == "pipeline" and items and p and p.has_menu("opportunities"):

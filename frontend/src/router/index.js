@@ -33,10 +33,10 @@ const pages = [
   { path: 'operations/:id', name: 'operation-detail', component: () => import('@/views/OperationDetail.vue'), meta: { menu: 'operations', title: '运营项目跟进' } },
   { path: 'tender-projects', name: 'tender-projects', component: () => import('@/views/TenderWorkbook.vue'), meta: { menu: 'projects', workbookView: 'tender', title: '招标与在建' } },
   { path: 'general-projects', name: 'general-projects', component: () => import('@/views/MarketFollow.vue'), props: { general: true }, meta: { menu: 'projects', generalProjects: true, title: '一般项目' } },
-  { path: 'general-projects/:code', name: 'general-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), props: { general: true }, meta: { menu: 'projects', generalProjects: true, title: '一般项目详情' } },
+  { path: 'general-projects/:code', name: 'general-project-detail', component: () => import('@/views/KeyProjectDetail.vue'), props: { general: true }, meta: { menu: 'projects', generalProjects: true, projectLedger: true, title: '一般项目详情' } },
   { path: 'history-projects', name: 'history-projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectMode: 'history', title: '历史项目' } },
-  { path: 'projects', name: 'projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', title: '项目台账', permissionGroup: '市场与项目' } },
-  { path: 'projects/:code', name: 'project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { menu: 'projects', title: '项目详情' } },
+  { path: 'projects', name: 'projects', component: () => import('@/views/Projects.vue'), meta: { menu: 'projects', projectLedger: true, title: '项目台账', permissionGroup: '市场与项目' } },
+  { path: 'projects/:code', name: 'project-detail', component: () => import('@/views/ProjectDetail.vue'), meta: { menu: 'projects', projectLedger: true, title: '项目详情' } },
   { path: 'intel', name: 'intel', component: () => import('@/views/Intel.vue'), meta: { menu: 'intel', title: '竞品情报' } },
   { path: 'reviews', name: 'reviews', component: () => import('@/views/Reviews.vue'), meta: { menu: 'reviews', title: '项目复盘' } },
   { path: 'tender', name: 'tender', component: () => import('@/views/Tender.vue'), meta: { menu: 'tender', title: '标书助手' } },
@@ -92,7 +92,8 @@ router.beforeEach(async (to) => {
   if (to.meta.keyProjects && !auth.canAccessKeyProjects && !(to.name === 'key-project-detail' && auth.hasMenu('projects'))) {
     return { name: 'forbidden' }
   }
-  const menuAllowed = !to.meta.menu || auth.hasMenu(to.meta.menu) || (to.meta.generalProjects && auth.canAccessGeneralProjects)
+  const menuAllowed = !to.meta.menu || auth.hasMenu(to.meta.menu) || (to.meta.generalProjects && auth.canAccessGeneralProjects) ||
+    (to.meta.projectLedger && auth.canAccessProjectLedger)
   if (!menuAllowed || (to.meta.anyMenu && !to.meta.anyMenu.some(k => auth.hasMenu(k)))) return { name: 'forbidden' }
   return true
 })

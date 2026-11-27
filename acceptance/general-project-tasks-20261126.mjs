@@ -45,8 +45,8 @@ async function capture(page, name) {
 }
 
 try {
-  const project = await call('admin', 'POST', '/projects', { name: projectName, business_line: 'AF',
-    customer_name: '校园项目验收测试', owner_id: owner.id, start_date: '2026-11-20', milestone_template: 'none' })
+  const project = await call('admin', 'POST', '/market/projects?scope=general', { name: projectName, business_line: 'AF',
+    customer_name: '校园项目验收测试', owner_id: owner.id, preparation_on: '2026-11-20', due_on: '2026-12-10' })
   projectPath = `/projects/${project.project_code}`
   generalPath = `/general-projects/${project.project_code}`
   await call('admin', 'POST', `/market/projects/${project.project_code}/team?scope=general`, { user_ids: [assignee.id] })

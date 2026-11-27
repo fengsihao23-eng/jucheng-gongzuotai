@@ -35,11 +35,14 @@ def _xlsx(data: bytes, filename: str) -> Response:
 def list_projects(status: int | None = None, business_line: str | None = None, is_key: bool | None = None,
                   owner_id: int | None = None, keyword: str | None = None, mine: bool = False,
                   scope: Literal["all", "pipeline", "general", "history"] = "all",
-                  p: Principal = Menu, db: Session = Depends(get_db)):
+                  p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+    ledger_team_only = not p.has_menu("projects")
+    if ledger_team_only and (scope != "all" or not key_projects.has_team(db, p, is_key=False, ledger=True)):
+        raise forbidden()
     items = ps.list_projects(db, p, status=status, business_line=business_line, is_key=is_key, owner_id=owner_id,
-                             keyword=keyword, mine=mine, scope=scope)
-    return ok({"items": items, "total": len(items), "data_scope": p.data_scope,
-               "can_create": p.is_admin or p.can("milestone:write") or p.can("project:key")})
+                             keyword=keyword, mine=mine, scope=scope, ledger_team_only=ledger_team_only)
+    return ok({"items": items, "total": len(items), "data_scope": "team" if ledger_team_only else p.data_scope,
+               "can_create": not ledger_team_only and (p.is_admin or p.can("milestone:write") or p.can("project:key"))})
 
 
 @router.get("/options")

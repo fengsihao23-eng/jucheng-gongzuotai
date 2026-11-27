@@ -6,7 +6,7 @@
         <el-button v-if="project.can_manage" @click="projectForm=true">编辑项目</el-button><el-button v-if="editable" type="primary" @click="taskBoard?.editTask()">安排任务</el-button>
         <KeyProjectPauseButton :project="project" @changed="load()" />
         <el-button v-if="projectRemoval" plain type="danger" @click="deleteRecord(projectRemoval)">删除项目</el-button>
-        <el-button v-if="general && project.money" @click="router.push({ name: 'project-detail', params: { code: project.project_code }, query: { back: '/general-projects' } })">项目台账</el-button>
+        <el-button v-if="general && !ledger && project.money" @click="router.push({ name: 'project-detail', params: { code: project.project_code }, query: { back: '/general-projects' } })">项目台账</el-button>
         <RecordFeedbackButton :target="{ kind: general ? 'project' : 'key-project', id: project.project_code }" :heading="project.name"
           progress-hint="说明关键事项、节点进展或需要协调的问题。" />
       </PageHeader>
@@ -49,10 +49,13 @@ import KeyProjectPauseButton from './market/KeyProjectPauseButton.vue'
 import KeyProjectTeam from './market/KeyProjectTeam.vue'
 import KeyTaskBoard from './market/KeyTaskBoard.vue'
 const route = useRoute(), router = useRouter(), auth = useAuth()
-const props = defineProps({ general: Boolean })
-const label = computed(() => props.general ? '一般项目' : '重点项目')
-const backTarget = computed(() => props.general ? detailBackTarget(route.query.back, '/general-projects') :
-  auth.canAccessKeyProjects ? '/market' : '/projects')
+const props = defineProps({ general: Boolean, ledger: Boolean })
+const label = computed(() => props.ledger ? '项目台账' : props.general ? '一般项目' : '重点项目')
+const backTarget = computed(() => {
+  if (props.ledger) return detailBackTarget(route.query.back, '/projects')
+  if (props.general) return detailBackTarget(route.query.back, '/general-projects')
+  return auth.canAccessKeyProjects ? '/market' : '/projects'
+})
 const project = ref(null), loading = ref(false), projectForm = ref(false), taskBoard = ref(null), tab = ref('tasks')
 const currentMonth = dayjs().format('YYYY-MM'), period = ref(currentMonth)
 const editable = computed(() => project.value?.can_manage && !project.value?.paused && project.value?.status !== 5)
@@ -68,7 +71,16 @@ async function load(quiet = false) {
     const result = await api.get(`/market/projects/${route.params.code}`, {
       period: period.value, scope: props.general ? 'general' : undefined,
     }, { silent: quiet })
-    if (current === version) project.value = result
+    if (current !== version) return
+    if (props.general && !props.ledger && result.in_general_workspace === false) {
+      await router.replace({ name: 'project-detail', params: route.params, query: { ...route.query, back: '/projects' } })
+      return
+    }
+    if (props.ledger && result.in_general_workspace) {
+      await router.replace({ name: 'general-project-detail', params: route.params, query: { ...route.query, back: '/general-projects' } })
+      return
+    }
+    project.value = result
   } catch (error) {
     if (current === version && (!quiet || [40301, 40401].includes(error.code))) project.value = null
   } finally {

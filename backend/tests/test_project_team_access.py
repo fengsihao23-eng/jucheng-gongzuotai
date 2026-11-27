@@ -10,7 +10,7 @@ from app.services import notify_service
 from tests.conftest import data, deletion_body
 
 
-def test_unassigned_existing_projects_stay_visible_to_authorized_accounts(client, login, db):
+def test_existing_ledger_projects_stay_visible_to_authorized_accounts(client, login, db):
     marker = uuid4().hex[:8]
     general = BizProject(project_code=f"JC-XY-LEGACY-G-{marker}", name="存量一般项目", business_line="XY",
                          customer_name="验收客户", status=2, is_key=False)
@@ -22,11 +22,14 @@ def test_unassigned_existing_projects_stay_visible_to_authorized_accounts(client
     db.commit()
 
     manager = login("admin")
-    for row, scope in ((general, "general"), (key, "key")):
-        cards = data(client.get("/api/v1/market/board", params={"scope": scope}, headers=manager))["projects"]
-        assert row.project_code in {card["project_code"] for card in cards}
-        detail = data(client.get(f"/api/v1/market/projects/{row.project_code}", params={"scope": scope}, headers=manager))
-        assert detail["name"] == row.name
+    cards = data(client.get("/api/v1/market/board", headers=manager))["projects"]
+    assert key.project_code in {card["project_code"] for card in cards}
+    detail = data(client.get(f"/api/v1/market/projects/{key.project_code}", headers=manager))
+    assert detail["name"] == key.name
+    overview = data(client.get("/api/v1/market/board", params={"scope": "general", "include_all": True}, headers=manager))["projects"]
+    assert general.project_code not in {card["project_code"] for card in overview}
+    ledger = data(client.get(f"/api/v1/projects/{general.project_code}", headers=manager))
+    assert ledger["name"] == general.name and not ledger["in_general_workspace"]
     archived = data(client.get("/api/v1/projects", params={"scope": "history"}, headers=manager))["items"]
     assert history.project_code in {row["project_code"] for row in archived}
     assert client.get(f"/api/v1/projects/{general.project_code}", headers=login("xuhao")).status_code == 403

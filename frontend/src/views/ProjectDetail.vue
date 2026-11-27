@@ -1,5 +1,6 @@
 <template>
-  <div class="jc-page" v-loading="loading">
+  <KeyProjectDetail v-if="!auth.hasMenu('projects')" general ledger />
+  <div v-else class="jc-page" v-loading="loading">
     <template v-if="d">
       <PageHeader :eyebrow="`${d.project_code} · ${BUSINESS_LINES[d.business_line]}`" :title="d.name">
         <template #meta>
@@ -208,6 +209,7 @@ import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useAuth } from '@/store/auth'
 import { detailBackTarget, returnToList } from '@/utils/detail-navigation'
 import { BUSINESS_LINES, MILESTONE_STATUS, PROJECT_STATUS, date, datetime, percent, wan, wanNum } from '@/utils/format'
+import KeyProjectDetail from './KeyProjectDetail.vue'
 import KeyTaskBoard from './market/KeyTaskBoard.vue'
 
 const route = useRoute(), router = useRouter()
@@ -357,6 +359,7 @@ async function setStatus(s) {
 const exportWeekly = () => api.download(`/projects/${code}/weekly`)
 
 onMounted(() => {
+  if (!auth.hasMenu('projects')) return
   load()
   ensureUsers()
 })

@@ -64,8 +64,11 @@ def visible_projects(p, *, overview=False, is_key=True):
         or_(standard_scope(p, overview=overview, is_key=is_key), membership_scope(p, is_key=is_key)))
 
 
-def has_team(db, p, *, is_key=True):
-    return db.scalar(select(BizProject.id).where(BizProject.is_deleted.is_(False), membership_scope(p, is_key=is_key)).limit(1)) is not None
+def has_team(db, p, *, is_key=True, ledger=False):
+    query = select(BizProject.id).where(BizProject.is_deleted.is_(False), membership_scope(p, is_key=is_key))
+    if not is_key:
+        query = query.where(ps.non_key_workspace_filter(in_general=not ledger))
+    return db.scalar(query.limit(1)) is not None
 
 
 def is_member(db, p, row):
@@ -197,7 +200,10 @@ def project_label(row):
 
 
 def project_link(row):
-    return f"{'/market/projects' if row.is_key else '/general-projects'}/{row.project_code}"
+    if row.is_key:
+        return f"/market/projects/{row.project_code}"
+    workspace = "/general-projects" if row.in_general_workspace else "/projects"
+    return f"{workspace}/{row.project_code}"
 
 
 def queue_team_notice(db, row, title, *, exclude=(), item=None, recipients=None):
@@ -256,11 +262,16 @@ def eligible_team_notice(db, notice):
     if notice.ref_type not in {REF, GENERAL_REF, TEAM_REF} or not (notice.ref_id or "").isdigit():
         return False
     ident = int(notice.ref_id)
-    if notice.ref_type in {REF, GENERAL_REF}:
+    task_notice = notice.ref_type in {REF, GENERAL_REF}
+    if task_notice:
         item = db.get(BizProjectMilestone, ident)
         ident = item.project_id if item else None
     row = db.get(BizProject, ident) if ident else None
-    if not row or row.is_deleted or notice.link != (task_link(row, item.id) if notice.ref_type in {REF, GENERAL_REF} else project_link(row)):
+    if not row or row.is_deleted:
+        return False
+    link = task_link(row, item.id) if task_notice else project_link(row)
+    previous_link = f"/general-projects/{row.project_code}" + (f"?task={item.id}" if task_notice else "")
+    if notice.link != link and (row.is_key or row.in_general_workspace or notice.link != previous_link):
         return False
     return row.owner_id == notice.user_id or db.get(KeyProjectMember, (row.id, notice.user_id)) is not None
 
@@ -286,7 +297,8 @@ def save_project(db, p, body, code=None, *, is_key=True):
         raise bad_request("项目准备日期不能晚于已有任务的准备日期")
     before = snapshot(row, PROJECT_FIELDS) if row else None
     if not row:
-        row = BizProject(project_code=codes.project_code(db, body.business_line), is_key=is_key, milestone_template="none")
+        row = BizProject(project_code=codes.project_code(db, body.business_line), is_key=is_key,
+                         in_general_workspace=not is_key, milestone_template="none")
         db.add(row)
     row.name, row.remark, row.customer_name = body.name, body.content, body.customer_name
     row.business_line, row.owner_id, row.status = body.business_line, owner.id, body.status

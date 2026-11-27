@@ -58,8 +58,11 @@ def key_board(db: Session, p=None, include_all: bool = False, include_paused: bo
         BizProject.is_deleted.is_(False), BizProject.status != 5, standard_scope | membership)
     if not include_paused:
         q = q.where(BizProject.id.not_in(paused))
-    if not include_all:
-        q = q.where(BizProject.is_key.is_(is_key))
+    if not is_key:
+        general = ps.non_key_workspace_filter(in_general=True)
+        q = q.where(general | BizProject.is_key.is_(True) if include_all else general)
+    elif not include_all:
+        q = q.where(BizProject.is_key.is_(True))
     projects = db.execute(q.order_by(BizProject.project_code)).unique().all()
     T = today()
     money = ps.money_summary(db, [x.project_code for x, standard in projects if standard])
@@ -175,7 +178,7 @@ def _report_data(db: Session, period_type: str, period: str | None, user_scope=N
     q = ps.visible_query(user_scope).where(BizProject.is_key.is_(is_key))
     if not is_key:
         paused = select(BizProjectFollowSetting.project_id).where(BizProjectFollowSetting.paused.is_(True))
-        q = q.where(BizProject.status != 5, BizProject.id.not_in(paused))
+        q = q.where(ps.non_key_workspace_filter(in_general=True), BizProject.id.not_in(paused))
     projects = db.scalars(q.order_by(BizProject.project_code)).unique().all()
     money = ps.money_summary(db, [x.project_code for x in projects])
     nxt_s, nxt_e = (e + timedelta(days=1), e + timedelta(days=7)) if period_type == "weekly" else \

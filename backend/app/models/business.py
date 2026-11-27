@@ -23,6 +23,7 @@ class BizProject(TimestampMixin, SoftDeleteMixin, Base):
     market_owner_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))  # 市场跟进人
     status: Mapped[int] = mapped_column(Integer, default=1)
     is_key: Mapped[bool] = mapped_column(Boolean, default=False)  # 重点项目
+    in_general_workspace: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     budget_amount: Mapped[Decimal | None]  # 预算/投标额
     contract_amount: Mapped[Decimal | None]
     bid_deadline: Mapped[date | None] = mapped_column(Date)  # 招标截止
