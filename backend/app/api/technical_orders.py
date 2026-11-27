@@ -15,12 +15,15 @@ router = APIRouter(prefix="/technical-orders", tags=["技术部工单"])
 @router.get("")
 def monthly_orders(
     month: str | None = Query(default=None, pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$"),
+    scope: Literal["after_sales", "all"] = "after_sales",
+    basis: Literal["submitted", "completed", "either"] = "submitted",
     owner: str | None = Query(default=None, max_length=64),
     stage: Literal["waiting", "in_progress", "completed", "unverified"] | None = None,
     keyword: str | None = Query(default=None, max_length=100),
+    sp_no: str | None = Query(default=None, max_length=64),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     p: Principal = Depends(require_menu("technical_orders")),
     db: Session = Depends(get_db),
 ):
-    return ok(report(db, p, month, owner, stage, keyword, page, page_size))
+    return ok(report(db, p, month, owner, stage, keyword, page, page_size, scope=scope, basis=basis, sp_no=sp_no))

@@ -95,7 +95,9 @@ def test_work_order_callback_monthly_report_and_permissions(client, login, db, m
 
     endpoint = "/api/v1/technical-orders"
     october = data(client.get(endpoint, params={"month": "2026-10"}, headers=login("admin")))
-    assert october["total"] == october["totals"]["order_count"] == 6
+    assert october["scope"] == "after_sales" and october["basis"] == "submitted"
+    assert october["total"] == october["totals"]["order_count"] == 5
+    assert october["totals"]["submitted_completed_count"] == 3 and october["totals"]["completed_count"] == 2
     source = next(row for row in october["items"] if row["sp_no"] == "TECH-TEST-cross-month")
     assert source["accepted_at"] == "2026-11-01T10:30:00+08:00"
     assert source["completed_at"] == "2026-11-02T10:30:00+08:00"
@@ -109,14 +111,25 @@ def test_work_order_callback_monthly_report_and_permissions(client, login, db, m
     assert (after_sales["headcount"], after_sales["completed"], after_sales["average"]) == (2, 2, 1)
     person = next(item for item in after_sales["people"] if item["owner_id"] == first.wecom_userid)
     assert (person["response_rate"], person["completion_rate"], person["average_rate"]) == (3 / 5, 2 / 4, 2)
-    november = data(client.get(endpoint, params={"month": "2026-11", "stage": "completed"}, headers=login("admin")))
+    params = {"month": "2026-11", "stage": "completed"}
+    submitted_november = data(client.get(endpoint, params=params, headers=login("admin")))
+    assert submitted_november["total"] == 0 and submitted_november["totals"]["submitted_completed_count"] == 0
+    november = data(client.get(endpoint, params={**params, "basis": "completed"}, headers=login("admin")))
     assert november["totals"]["order_count"] == 0
     assert november["totals"]["completed_count"] == november["after_sales"]["completed"] == november["total"] == 1
-    filtered = data(client.get(endpoint, params={"month": "2026-10", "keyword": "测试项目", "page_size": 2, "page": 2},
+    assert november["totals"]["carryover_completed_count"] == november["after_sales"]["carryover_completed"] == 1
+    assert november["items"][0]["sp_no"] == source["sp_no"]
+    assert data(client.get(endpoint, params={"month": "2026-11", "basis": "either", "sp_no": source["sp_no"]},
+                           headers=login("admin")))["total"] == 1
+    outside = {"month": "2026-10", "sp_no": "TECH-TEST-outside-team"}
+    assert data(client.get(endpoint, params=outside, headers=login("admin")))["total"] == 0
+    assert data(client.get(endpoint, params={**outside, "scope": "all"}, headers=login("admin")))["total"] == 1
+    filtered = data(client.get(endpoint, params={"month": "2026-10", "scope": "all", "keyword": "测试项目",
+                                               "page_size": 2, "page": 2},
                                headers=login("admin")))
     assert filtered["total"] == 6 and len(filtered["items"]) == 2
-    own = data(client.get(endpoint, params={"month": "2026-10"}, headers=login(first.wecom_userid)))
-    assert own["total"] == 5 and own["after_sales"] is None
+    own = data(client.get(endpoint, params={"month": "2026-10", "scope": "all"}, headers=login(first.wecom_userid)))
+    assert own["scope"] == "mine" and own["total"] == 5 and own["after_sales"] is None
     blocked = data(client.get(endpoint, params={"month": "2026-10", "owner": first.wecom_userid},
                               headers=login(second.wecom_userid)))
     assert blocked["total"] == 0 and blocked["after_sales"] is None

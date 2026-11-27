@@ -8,24 +8,29 @@
           <span v-if="report">每 30 秒自动刷新</span>
         </p>
       </template>
+      <el-select v-if="canViewTeam" v-model="scope" aria-label="统计范围" style="width: 152px" @change="reloadScope">
+        <el-option label="售后工程师工单" value="after_sales" />
+        <el-option label="全部项目工单" value="all" />
+      </el-select>
       <el-date-picker v-model="month" type="month" format="YYYY 年 MM 月" value-format="YYYY-MM"
-                      aria-label="统计月份" :clearable="false" style="width: 164px" @change="changeMonth" />
+                      aria-label="统计月份" :clearable="false" style="width: 164px" @change="reloadScope" />
       <el-button :icon="Refresh" :loading="loading" @click="load()">刷新统计</el-button>
     </PageHeader>
 
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="mt-16" />
     <section class="metrics" v-loading="loading">
-      <Kpi label="月工单数量" :value="report?.totals.order_count" unit="张" hint="按提交月份" />
-      <Kpi label="本月工单已接单" :value="report?.totals.accepted_count" unit="张" hint="按办理节点记录" />
-      <Kpi label="本月实际完成" :value="report?.totals.completed_count" unit="张" hint="按完成月份" />
-      <Kpi label="月按时接单率" :value="rate(report?.totals.response_rate)" hint="3 小时响应时限" />
+      <Kpi label="本月提交工单" :value="report?.totals.order_count" unit="张" hint="以审批提交时间归月" />
+      <Kpi label="其中已接单" :value="report?.totals.accepted_count" unit="张" hint="本月提交的工单" />
+      <Kpi label="其中已完成" :value="report?.totals.submitted_completed_count" unit="张" hint="本月提交的工单" />
+      <Kpi label="本月按时接单率" :value="rate(report?.totals.response_rate)" hint="以本月派单量为分母" />
     </section>
 
     <el-alert v-if="report?.unverified_count" type="warning" show-icon :closable="false" class="mt-16"
               :title="`${report.unverified_count} 张本月工单的审批节点时间待核对，详见工单明细。`" />
 
     <Panel v-if="report?.after_sales" class="mt-16" title="售后人员月度汇总"
-           :sub="`${report.after_sales.headcount} 位在职售后工程师`" :padding="false" :loading="loading">
+           :sub="`${report.after_sales.headcount} 位在职售后工程师 · 当月实际完成 ${report.after_sales.completed} 张，含 ${report.after_sales.carryover_completed} 张跨月工单`"
+           :padding="false" :loading="loading">
       <el-table :data="report.after_sales.people" :row-key="row => row.owner_id" empty-text="通讯录暂无在职售后工程师">
         <el-table-column label="售后人员" min-width="104" fixed>
           <template #default="{ row }">
@@ -41,7 +46,11 @@
           <template #default="{ row }">{{ rate(row.response_rate) }}</template>
         </el-table-column>
         <el-table-column label="月按时完成率" min-width="105" align="right">
-          <template #default="{ row }">{{ rate(row.completion_rate) }}</template>
+          <template #default="{ row }">
+            <el-tooltip :disabled="!row.due_count" :content="`${row.timely_completion_count} 张按时完成 ÷ ${row.due_count} 张应关闭`">
+              <span>{{ rate(row.completion_rate) }}</span>
+            </el-tooltip>
+          </template>
         </el-table-column>
         <el-table-column prop="completed_count" label="当月实际完成" min-width="105" align="right" />
         <el-table-column label="售后部门月工单总数" min-width="133" align="right">
@@ -56,32 +65,36 @@
       </el-table>
     </Panel>
 
-    <Panel ref="details" class="mt-16" title="工单明细" :sub="`共 ${report?.total ?? 0} 张 · 本月提交或完成`"
+    <Panel ref="details" class="mt-16" title="工单明细" :sub="detailSummary"
            :padding="false" :loading="loading">
       <template #extra>
         <el-popover placement="bottom-end" :width="310" trigger="click">
           <template #reference><el-button link type="primary">统计口径</el-button></template>
           <ul class="rules">
-            <li>从提交到办理或流程转交，累计 3 小时内为按时响应。每日 18:00 至次日 08:30 暂停响应计时。</li>
-            <li>从办理到完成节点同意，24 小时内为按时完成。完成率的分母为已完成或已到完成时限的本月提交工单。</li>
-            <li>工单按审批编号去重，归到表单的工单负责人。有效工单包含审批中、已通过。</li>
-            <li>售后部门总数按完成月份统计。部门人均以通讯录的在职售后工程师人数计算，包含零单人员。</li>
+            <li>工单按审批编号去重，归到表单负责人。接单与完成时间取企业微信的办理与完成节点。</li>
+            <li>从提交到办理或负责人转交，累计 3 小时内为按时响应。每日 18:00 至次日 08:30 暂停响应计时。</li>
+            <li>从接单到完成节点同意，24 小时内为按时完成。完成率的分母为本月派单中已完成或已到完成时限的工单。</li>
+            <li>当月实际完成按节点完成时间归月，包含以前月份提交的工单。售后人均按在职售后工程师计算，包含零单人员。</li>
           </ul>
         </el-popover>
       </template>
       <div class="filters">
+        <el-radio-group v-model="basis" aria-label="明细归月方式" @change="changeBasis">
+          <el-radio-button value="submitted">按提交月</el-radio-button>
+          <el-radio-button value="completed">按完成月</el-radio-button>
+        </el-radio-group>
         <el-input v-model.trim="keyword" clearable class="search" aria-label="搜索工单"
                   placeholder="审批编号、主题或项目" maxlength="100" @change="search" />
         <el-select v-if="report?.after_sales" v-model="owner" clearable filterable class="filter-control"
                    aria-label="工单负责人" placeholder="全部负责人" @change="reloadDetails">
           <el-option v-for="person in report.owners" :key="person.id" :label="person.name" :value="person.id" />
         </el-select>
-        <el-select v-model="stage" clearable class="filter-control" aria-label="工单状态"
+        <el-select v-if="basis === 'submitted'" v-model="stage" clearable class="filter-control" aria-label="工单状态"
                    placeholder="全部状态" @change="reloadDetails">
           <el-option v-for="(status, key) in stages" :key="key" :value="key" :label="status.label" />
         </el-select>
       </div>
-      <el-table :data="report?.items || []" row-key="sp_no" empty-text="该条件下暂无工单">
+      <el-table :data="detailReport?.items || []" row-key="sp_no" empty-text="该条件下暂无工单">
         <el-table-column label="审批编号" width="140">
           <template #default="{ row }">
             <button class="text-button jc-num" @click="selected = row">{{ row.sp_no }}</button>
@@ -99,8 +112,8 @@
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="report?.total > pageSize" class="pagination">
-        <el-pagination :current-page="page" :page-size="pageSize" :total="report.total"
+      <div v-if="detailReport?.total > pageSize" class="pagination">
+        <el-pagination :current-page="page" :page-size="pageSize" :total="detailReport.total"
                        :pager-count="5" layout="prev, pager, next" @update:current-page="changePage" />
       </div>
     </Panel>
@@ -139,10 +152,11 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api/client'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
+import { useAuth } from '@/store/auth'
 
 const timeZone = 'Asia/Shanghai'
 const monthFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone, year: 'numeric', month: '2-digit' })
@@ -173,9 +187,13 @@ const stages = {
 const timingLabels = { on_time: '按时', late: '超时', overdue: '已超时', pending: '计时中', not_started: '等待接单', unknown: '待核对' }
 
 const month = ref(monthFormatter.format(new Date()))
+const scope = ref('after_sales')
+const basis = ref('submitted')
 const owner = ref('')
 const stage = ref('')
 const keyword = ref('')
+const auth = useAuth()
+const canViewTeam = computed(() => auth.profile?.is_admin || auth.can('technical_orders:team'))
 const page = ref(1)
 const pageSize = 15
 const report = ref(null)
@@ -183,6 +201,14 @@ const loading = ref(false)
 const error = ref('')
 const selected = ref(null)
 const details = ref(null)
+const detailReport = computed(() => report.value?.basis === basis.value ? report.value : null)
+const detailSummary = computed(() => {
+  const count = `共 ${detailReport.value?.total ?? 0} 张`
+  const totals = detailReport.value?.totals
+  return basis.value === 'completed' && totals
+    ? `${count} · 本范围当月实际完成 ${totals.completed_count} 张，含 ${totals.carryover_completed_count} 张跨月工单`
+    : count
+})
 let appliedKeyword = ''
 let requestNumber = 0
 
@@ -194,7 +220,8 @@ async function load(background = false) {
   }
   try {
     const data = await api.get('/technical-orders', {
-      month: month.value, owner: owner.value || undefined, stage: stage.value || undefined,
+      month: month.value, scope: scope.value, basis: basis.value, owner: owner.value || undefined,
+      stage: stage.value || undefined,
       keyword: appliedKeyword || undefined, page: page.value, page_size: pageSize,
     }, { silent: true })
     if (request !== requestNumber) return
@@ -218,8 +245,10 @@ async function refreshSelected(items, request) {
   let latest = items.find(row => row.sp_no === number)
   if (!latest) {
     // 工单状态变化后可能移出当前筛选或分页，明细仍按审批编号更新。
-    const result = await api.get('/technical-orders', { month: month.value, keyword: number }, { silent: true })
-    latest = result.items.find(row => row.sp_no === number)
+    const result = await api.get('/technical-orders', {
+      month: month.value, scope: scope.value, basis: 'either', sp_no: number, page_size: 1,
+    }, { silent: true })
+    latest = result.items[0]
   }
   if (request === requestNumber && selected.value?.sp_no === number) selected.value = latest || null
 }
@@ -240,9 +269,14 @@ function search() {
   reloadDetails()
 }
 
-function changeMonth() {
+function reloadScope() {
   owner.value = ''
   report.value = null
+  reloadDetails()
+}
+
+function changeBasis() {
+  stage.value = ''
   reloadDetails()
 }
 
