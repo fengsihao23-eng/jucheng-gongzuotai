@@ -24,6 +24,7 @@ BUTTON_MENUS = {
     "opportunities": ["opp:write"], "submissions": ["submissions:remind"], "clean": ["clean:import"],
     "imports": ["imports:handle"], "tender": ["tender:write"], "kb": ["kb:manage"],
     "hr": ["hr:write", "hr:attendance"], "service": ["ticket:write"],
+    "technical_orders": ["technical_orders:team"],
 }
 
 

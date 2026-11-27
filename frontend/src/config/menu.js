@@ -38,6 +38,7 @@ export const MENU_GROUPS = [
     title: '部门场景',
     items: [
       { key: 'tender', path: '/tender', label: '标书助手' },
+      { key: 'technical_orders', path: '/technical-orders', label: '技术部工单' },
       { key: 'service', path: '/service', label: '客服工单' },
       { key: 'hr', path: '/hr', label: '人事中心' },
     ],

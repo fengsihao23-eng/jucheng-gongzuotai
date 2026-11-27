@@ -8,6 +8,7 @@ SYSTEM_MANAGEMENT_ROLE = "SYS-MGMT"
 RECORD_DELETE_BUTTON = "record:delete"
 PROJECT_MENUS = {"operations", "market", "projects"}
 PROJECT_PRIVILEGED_ACCOUNTS = {"SZGLY", "ken", "ZhuDanDan", "FengSiHao"}
+TECHNICAL_DEPARTMENT = "技术服务部"
 
 MENUS = {
     "portal": "工作台", "board": "经营看板", "reports": "报表中心",
@@ -15,6 +16,7 @@ MENUS = {
     "expenses": "报销归集", "flows": "流水核对", "journal": "出纳日记账", "finance_data": "财务数据",
     "profit": "项目利润", "receivables": "开票回款", "submissions": "汇报提交", "projects": "项目台账", "market": "重点项目",
     "operations": "运营项目", "intel": "竞品情报", "reviews": "项目复盘", "hr": "人事中心", "service": "客服工单",
+    "technical_orders": "技术部工单",
     "tender": "标书助手", "kb": "知识库", "imports": "资料导入", "clean": "数据清洗", "mcp": "WorkBuddy 接入",
     "operation_records": "操作记录", "admin": "系统管理",
 }
@@ -36,6 +38,7 @@ BUTTONS = {
     "opp:write": "维护商机", "submissions:remind": "催交汇报", "clean:import": "导入清洗数据",
     "imports:handle": "处理待整理资料", "tender:write": "编辑标书资料", "kb:manage": "管理知识库",
     "hr:write": "维护人事资料", "hr:attendance": "维护考勤", "ticket:write": "处理客服工单",
+    "technical_orders:team": "查看全部项目工单和售后汇总",
 }
 
 # 全员可见

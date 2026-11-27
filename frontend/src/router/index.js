@@ -40,6 +40,7 @@ const pages = [
   { path: 'intel', name: 'intel', component: () => import('@/views/Intel.vue'), meta: { menu: 'intel', title: '竞品情报' } },
   { path: 'reviews', name: 'reviews', component: () => import('@/views/Reviews.vue'), meta: { menu: 'reviews', title: '项目复盘' } },
   { path: 'tender', name: 'tender', component: () => import('@/views/Tender.vue'), meta: { menu: 'tender', title: '标书助手' } },
+  { path: 'technical-orders', name: 'technical-orders', component: () => import('@/views/TechnicalOrders.vue'), meta: { menu: 'technical_orders', title: '技术部工单' } },
   { path: 'service', name: 'service', component: () => import('@/views/Service.vue'), meta: { menu: 'service', title: '客服工单' } },
   { path: 'hr', name: 'hr', component: () => import('@/views/Hr.vue'), meta: { menu: 'hr', title: '人事中心' } },
   { path: 'kb', name: 'kb', component: () => import('@/views/Kb.vue'), meta: { menu: 'kb', title: '知识库' } },

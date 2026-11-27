@@ -30,6 +30,7 @@ MODULES = {
     "market": ("重点项目、市场情报与复盘", "/market"), "opportunities": ("商机管理", "/opportunities"),
     "performance": ("业绩与运营", "/performance"), "clean": ("数据清洗导入", "/clean"),
     "hr": ("人事考勤与招聘", "/hr"), "service": ("客服工单", "/service"),
+    "technical_orders": ("技术部工单", "/technical-orders"),
     "tender": ("标书与方案", "/tender"), "kb": ("知识库", "/kb"),
     "admin": ("系统管理", "/admin"), "notify": ("我的通知", "/notifications"),
     "mcp_config": ("公司工具接入", "/workbuddy"),
@@ -76,6 +77,7 @@ ROUTE_EXCLUSIONS = {
     "source_checks.verify_source", "source_checks.robot_state", "source_checks.save_robot",
 }
 LABELS = {
+    "monthly_orders": "查询项目工单月度汇总、接单与完成时间",
     "key_project_options": "查询重点项目负责人选项", "create_key_project": "新建重点项目与准备完成计划",
     "key_project_detail": "读取重点项目任务、阶段节点、进展风险与开票回款", "edit_key_project": "调整重点项目资料与准备完成日期",
     "create_key_task": "安排重点项目任务与阶段节点", "key_task_detail": "读取重点项目任务进展与过程记录",

@@ -4,6 +4,7 @@
     <PageHeader :eyebrow="eyebrow" :title="`${greeting()}，${data?.user?.name || ''}`"
                 :desc="data ? `${data.user.dept_name || ''} · ${data.user.roles.join(' / ')}` : ''">
       <template v-if="!editing">
+        <el-button v-if="auth.hasMenu('technical_orders')" @click="go('/technical-orders')">技术部工单</el-button>
         <el-button @click="load(true)" :loading="loading">刷新</el-button>
         <el-button @click="startEdit">编辑布局</el-button>
       </template>

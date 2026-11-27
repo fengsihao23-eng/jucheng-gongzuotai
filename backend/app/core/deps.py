@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.permissions import MENUS, PROJECT_MENUS, PUBLIC_MENUS, RECORD_DELETE_BUTTON, ROLE_DEFS, SYSTEM_MANAGEMENT_ROLE
+from app.core.permissions import (MENUS, PROJECT_MENUS, PUBLIC_MENUS, RECORD_DELETE_BUTTON, ROLE_DEFS,
+                                  SYSTEM_MANAGEMENT_ROLE, TECHNICAL_DEPARTMENT)
 from app.core.response import BizError, forbidden
 from app.core.security import decode_jwt, password_version
 from app.models import SysUser
@@ -87,6 +88,8 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
             best_portal_rank, portal = rank, perm.get("portal", portal)
     sections = None
     individual = user.permission_override if not inherit_only and "ADMIN-01" not in codes else None
+    if user.department and user.department.name == TECHNICAL_DEPARTMENT:
+        menus.add("technical_orders")
     if individual is not None:
         menus = set(individual.menus) & set(MENUS)
         menus.add("portal")
@@ -94,7 +97,7 @@ def build_principal(user: SysUser, *, inherit_only: bool = False) -> Principal:
         scope = individual.data_scope
         sections = individual.sections
     if "ADMIN-01" in codes:
-        menus.add("operation_records")
+        menus.update(("operation_records", "technical_orders"))
     if SYSTEM_MANAGEMENT_ROLE in codes:
         menus.add("admin")
     else:

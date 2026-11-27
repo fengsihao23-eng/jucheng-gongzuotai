@@ -340,6 +340,7 @@ const PRIVILEGES = {
   'opp:write': '维护商机', 'submissions:remind': '催交汇报', 'clean:import': '导入清洗数据',
   'imports:handle': '处理待整理资料', 'tender:write': '编辑标书资料', 'kb:manage': '管理知识库',
   'hr:write': '维护人事资料', 'hr:attendance': '维护考勤', 'ticket:write': '处理客服工单',
+  'technical_orders:team': '查看全部项目工单和售后汇总',
 }
 const permissionOptions = computed(() => ({ ...PRIVILEGES, ...(roles.value.buttons || {}) }))
 const matrixDepartments = computed(() => {

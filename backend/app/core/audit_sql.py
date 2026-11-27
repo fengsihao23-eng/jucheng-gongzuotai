@@ -37,6 +37,11 @@ BEGIN
   prior := CASE WHEN TG_OP='INSERT' THEN NULL ELSE to_jsonb(OLD) END;
   following := CASE WHEN TG_OP='DELETE' THEN NULL ELSE to_jsonb(NEW) END;
   IF TG_OP='UPDATE' AND prior IS NOT DISTINCT FROM following THEN RETURN NEW; END IF;
+  -- 工单兜底对账会轮询在途记录，只有审批内容变化时才保留前后快照。
+  IF TG_OP='UPDATE' AND TG_TABLE_NAME='sync_wecom_approval' AND following #> '{detail,technical_order}' IS NOT NULL
+    AND ((prior #- '{detail,technical_order,checked_at}') - 'updated_at')
+        IS NOT DISTINCT FROM ((following #- '{detail,technical_order,checked_at}') - 'updated_at')
+  THEN RETURN NEW; END IF;
   SELECT jsonb_agg(key ORDER BY key) INTO keys FROM (
     SELECT k AS key FROM jsonb_object_keys(COALESCE(following,prior)) AS x(k)
     WHERE TG_OP <> 'UPDATE' OR prior->k IS DISTINCT FROM following->k

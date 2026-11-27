@@ -9,7 +9,7 @@ import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -18,10 +18,10 @@ from app.core.permissions import BUSINESS_LINES
 from app.core.response import BizError
 from app.core.timeutil import TZ, now, today, utcnow
 from app.integration.wecom import get_wecom
-from app.integration.wecom.base import ApprovalDto
+from app.integration.wecom.base import ApprovalDto, WeComProvider
 from app.models import (BizContract, BizExpenseItem, BizExpenseReport, BizOpportunity, BizProject, BusinessRecordDeletion,
                         SyncWecomApproval, SysUser)
-from app.services import codes, dict_service, notify_service, receivables_fields, receivables_service
+from app.services import codes, dict_service, notify_service, receivables_fields, receivables_service, technical_order_source
 
 log = logging.getLogger("dispatch")
 MAX_RETRY = 3
@@ -198,15 +198,17 @@ LEDGER_KEYS = {"contract", "invoice", "receipt", "procurement", "stock_out"}
 
 
 # ---------------- 主流程 ----------------
-def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto | None = None) -> SyncWecomApproval:
+def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto | None = None,
+           *, provider: WeComProvider | None = None) -> SyncWecomApproval:
     """拉取审批详情 → 落 sync_wecom_approval → 审批通过则分发登记。可重复调用（幂等）。"""
-    a = detail or get_wecom().get_approval_detail(sp_no)
+    checked_at = utcnow()
+    a = detail or (provider or get_wecom()).get_approval_detail(sp_no)
     tpl = _templates(db).get(a.template_id) or {}
     key = tpl.get("key", "unknown")
     if key in {"invoice", "receipt"}:
         receivables_service.lock(db)
     identity = (select(SyncWecomApproval).where(SyncWecomApproval.sp_no == sp_no).with_for_update()
-                .execution_options(include_removed_records=True))
+                .execution_options(include_removed_records=True, populate_existing=True))
     rec = db.scalar(identity)
     if not rec:
         rec = SyncWecomApproval(sp_no=sp_no, template_key=key, received_via=via, status=a.sp_status)
@@ -220,12 +222,22 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
             rec = db.scalar(identity)
     if db.get(BusinessRecordDeletion, (SyncWecomApproval.__tablename__, str(rec.id))):
         return rec
+    order_detail = None
+    if a.sp_name == technical_order_source.TEMPLATE_NAME:
+        previous = (rec.detail or {}).get(technical_order_source.DETAIL_KEY) or {}
+        if previous.get("checked_at", "") > checked_at.isoformat():
+            db.commit()
+            return rec  # 较早开始的拉取可能晚于更新的回调到达。
+        order_detail = technical_order_source.snapshot(a, checked_at)
     old_fields = (rec.detail or {}).get("fields") or {}
     changed = rec.dispatched_at and key in LEDGER_KEYS and (
         rec.status != a.sp_status or _map_fields(tpl, old_fields) != _map_fields(tpl, a.fields))
     rec.template_id, rec.template_key, rec.sp_name = a.template_id, key, a.sp_name
     rec.applicant_userid, rec.status, rec.apply_time = a.applicant_userid, a.sp_status, a.apply_time
-    rec.detail = {"fields": a.fields, "approved_time": a.approved_time.isoformat() if a.approved_time else None}
+    payload = {"fields": a.fields, "approved_time": a.approved_time.isoformat() if a.approved_time else None}
+    if order_detail is not None:
+        payload[technical_order_source.DETAIL_KEY] = order_detail
+    rec.detail = payload
     if via == "reconcile" and not rec.dispatched_at:
         rec.updated_at = utcnow()  # 轮转长期在途单，避免被相同的前 100 单占满。
 
@@ -268,22 +280,34 @@ def ingest(db: Session, sp_no: str, via: str = "callback", detail: ApprovalDto |
 def reconcile(db: Session, hours: int = 24) -> dict:
     """审批兜底对账：拉取近 N 小时审批单，补齐回调丢失与待重试项。"""
     end = now()
-    recent = get_wecom().get_approval_list(end - timedelta(hours=hours), end)
+    provider = get_wecom()
+    recent = provider.get_approval_list(end - timedelta(hours=hours), end)
     pending = db.scalars(select(SyncWecomApproval.sp_no).where(SyncWecomApproval.dispatch_status == 0,
                          SyncWecomApproval.template_key.in_(LEDGER_KEYS))
                          .order_by(SyncWecomApproval.updated_at, SyncWecomApproval.id).limit(100))
-    sp_nos = list(dict.fromkeys([*recent, *pending]))
+    # 工单审批无需分发财务台账。持续复查在途单，也补齐旧记录未保存的节点时间。
+    approval = SyncWecomApproval
+    order_pending = set(db.scalars(
+        select(approval.sp_no).where(
+            approval.sp_name == technical_order_source.TEMPLATE_NAME,
+            or_(approval.status == 1, and_(
+                approval.status == 2,
+                approval.detail[technical_order_source.DETAIL_KEY]["checked_at"].as_string().is_(None),
+            )),
+        ).order_by(approval.updated_at, approval.id).limit(60)
+    ))
+    sp_nos = list(dict.fromkeys([*recent, *pending, *sorted(order_pending)]))
     known = {r.sp_no: r for r in db.scalars(select(SyncWecomApproval).where(SyncWecomApproval.sp_no.in_(sp_nos)))}
     added = retried = revisited = 0
     for sp in sp_nos:
         r = known.get(sp)
-        if r and (r.dispatch_status in (2, 3) or
-                  (r.dispatch_status == 1 and r.template_key not in LEDGER_KEYS)):
+        if r and sp not in order_pending and (r.dispatch_status in (2, 3) or
+                                             (r.dispatch_status == 1 and r.template_key not in LEDGER_KEYS)):
             continue
         added += r is None
         retried += r is not None and r.dispatch_status != 1
         revisited += r is not None and r.dispatch_status == 1
-        ingest(db, sp, via="reconcile")
+        ingest(db, sp, via="reconcile", provider=provider)
     return {"rows": added + retried, "message": f"拉取 {len(sp_nos)} 单，补登 {added}，重试 {retried}，复核 {revisited}"}
 
 

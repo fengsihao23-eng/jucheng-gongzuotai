@@ -1,5 +1,5 @@
 <template>
-  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'admin-layout': route.meta.menu === 'admin', 'personal-work-layout': route.name === 'portal', 'workbook-layout': !!route.meta.workbookView, 'project-layout': projectLayout }">
+  <div class="shell" :class="{ 'operations-layout': route.meta.menu === 'operations', 'admin-layout': route.meta.menu === 'admin', 'personal-work-layout': route.name === 'portal', 'workbook-layout': !!route.meta.workbookView, 'project-layout': projectLayout, 'technical-orders-layout': route.name === 'technical-orders' }">
     <aside class="side jc-noprint">
       <router-link to="/" class="brand"><JcLogo :size="30" /></router-link>
       <nav>
@@ -12,7 +12,7 @@
         </template>
       </nav>
       <div class="side-foot jc-muted jc-small">
-        <div v-if="route.meta.workbookView">数据来源：见页面同步状态</div>
+        <div v-if="route.meta.workbookView || route.name === 'technical-orders'">数据来源：见页面同步状态</div>
         <div v-else>数据模式：{{ mode === 'mock' ? '演示数据' : '生产数据' }}</div>
         <div>v2.0 · 广东聚成数智</div>
       </div>
@@ -193,8 +193,8 @@ nav { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
 .np-more { display: block; text-align: center; padding-top: 10px; font-size: 13px; }
 @media (max-width: 900px) { .side { display: none; } .today { display: none; } .top { padding: 0 16px; } }
 @media (max-width: 560px) {
-  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout) .top { gap: 8px; }
-  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout) .me-t, :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout) .top .jc-spacer { display: none; }
-  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout, .technical-orders-layout) .top { gap: 8px; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout, .technical-orders-layout) .me-t, :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout, .technical-orders-layout) .top .jc-spacer { display: none; }
+  :is(.operations-layout, .personal-work-layout, .workbook-layout, .project-layout, .admin-layout, .technical-orders-layout) .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 </style>

@@ -28,6 +28,7 @@ AREAS = {"auth":"账号与登录", "admin":"系统管理", "files":"文件资料
          "assistant":"小聚", "operation-records":"操作记录", "record-followups":"业务跟进", "submissions":"汇报提交",
          "source_checks":"数据源核对", "source-checks":"数据源核对", "wecom":"企业微信",
          "finance-data":"财务数据","finance-ledgers":"财务账表","performance":"业绩与运营","intel":"竞品情报","reviews":"项目复盘",
+         "technical-orders":"技术部工单",
          "mcp_config":"工具接入","mcp-config":"工具接入"}
 
 
