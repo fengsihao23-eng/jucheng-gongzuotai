@@ -33,9 +33,10 @@ def _approval(number, owner, submitted, accepted=None, completed=None, *, status
     def event(action, when, account=owner):
         return {"sp_yj": action, "sptime": int(when.timestamp()) if when else 0, "userid": account}
 
-    received = [event(14 if accepted else 1, accepted)]
+    handlers = [{"node_type": 3, "sp_status": 14 if accepted else 1, "apv_rel": 1,
+                 "sub_node_list": [event(14 if accepted else 1, accepted, "delegate" if transferred else owner)]}]
     if transferred:
-        received.insert(0, event(4, transferred))
+        handlers.insert(0, {"node_type": 3, "sp_status": 15, "apv_rel": 1, "sub_node_list": [event(15, transferred)]})
     return {
         "sp_no": f"TECH-TEST-{number}",
         "template_id": "project-order-test",
@@ -46,7 +47,7 @@ def _approval(number, owner, submitted, accepted=None, completed=None, *, status
         "fields": {"工单负责人": owner, "工单主题": "设备故障", "所属项目": "测试项目"},
         "approved_time": (completed + timedelta(minutes=40)).isoformat() if completed else None,
         "process_list": {"node_list": [
-            {"node_type": 3, "sp_status": 14 if accepted else 1, "apv_rel": 1, "sub_node_list": received},
+            *handlers,
             {"node_type": 2, "sub_node_list": [event(2, submitted, "admin")]},
             {"node_type": 1, "sp_status": 2 if completed else 1, "apv_rel": 2,
              "sub_node_list": [event(2 if completed else 1, completed)]},
@@ -99,6 +100,10 @@ def test_work_order_callback_monthly_report_and_permissions(client, login, db, m
     assert source["accepted_at"] == "2026-11-01T10:30:00+08:00"
     assert source["completed_at"] == "2026-11-02T10:30:00+08:00"
     assert source["response"] == source["completion"] == "on_time"
+    transfer = next(row for row in october["items"] if row["sp_no"] == "TECH-TEST-transferred")
+    assert transfer["transferred_at"] == "2026-10-30T14:00:00+08:00"
+    assert transfer["accepted_at"] == "2026-10-30T17:00:00+08:00" and transfer["accepted_by"] == "delegate"
+    assert transfer["response"] == transfer["completion"] == "on_time"
     assert next(row for row in october["items"] if row["sp_no"] == "TECH-TEST-overdue")["completion"] == "overdue"
     after_sales = october["after_sales"]
     assert (after_sales["headcount"], after_sales["completed"], after_sales["average"]) == (2, 2, 1)

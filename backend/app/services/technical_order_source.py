@@ -7,7 +7,8 @@ TEMPLATE_NAME = "项目工单"
 DETAIL_KEY = "technical_order"
 ACTIVE_STATUSES = (1, 2)
 HANDLING, APPROVAL = 3, 1
-HANDLED, AGREED, TRANSFERRED = 14, 2, 4
+HANDLED, AGREED = 14, 2
+TRANSFER_ACTIONS = (15, 4)
 
 
 def _actions(node: dict, action: int, since: int) -> list[tuple[int, str]]:
@@ -33,6 +34,16 @@ def _performed(node: dict, action: int, since: int) -> tuple[int | None, str]:
     return choose(actions, default=(None, ""))
 
 
+def _work_steps(nodes: list[dict]) -> tuple[list[dict], dict]:
+    handlers = []
+    for node in nodes:
+        if node.get("node_type") == HANDLING:
+            handlers.append(node)
+        elif handlers and node.get("node_type") == APPROVAL:
+            return handlers, node
+    return handlers, {}
+
+
 def snapshot(approval: ApprovalDto, checked_at: datetime) -> dict:
     raw = approval.raw or {}
     contents = (raw.get("apply_data") or {}).get("contents") or []
@@ -44,14 +55,14 @@ def snapshot(approval: ApprovalDto, checked_at: datetime) -> dict:
                        for member in (field.get("value") or {}).get("members", [])
                        if member.get("userid") == owner_id), None)
     nodes = (raw.get("process_list") or {}).get("node_list") or []
-    index = next((i for i, node in enumerate(nodes) if node.get("node_type") == HANDLING), None)
-    handling = nodes[index] if index is not None else {}
-    closing = next((node for node in nodes[index + 1:] if node.get("node_type") == APPROVAL),
-                   {}) if index is not None else {}
+    handlers, closing = _work_steps(nodes)
     submitted = int(approval.apply_time.timestamp())
-    accepted, handler = _performed(handling, HANDLED, submitted)
+    handled = (_performed(node, HANDLED, submitted) for node in handlers)
+    accepted, handler = min((step for step in handled if step[0] is not None), default=(None, ""))
     completed, closer = _performed(closing, AGREED, accepted or submitted)
-    transferred = min((stamp for stamp, userid in _actions(handling, TRANSFERRED, submitted)
+    # 办理节点转交后，企微返回新的办理节点。转交用于响应判断，实际办理用于完成计时。
+    transferred = min((stamp for node in handlers for action in TRANSFER_ACTIONS
+                       for stamp, userid in _actions(node, action, submitted)
                        if userid and userid == owner_id), default=None)
     return {
         "checked_at": checked_at.isoformat(),
@@ -62,6 +73,6 @@ def snapshot(approval: ApprovalDto, checked_at: datetime) -> dict:
         "transferred_at": transferred,
         "handler_id": handler,
         "closer_id": closer,
-        "has_handling": bool(handling) and (handling.get("sp_status") != HANDLED or accepted is not None),
+        "has_handling": bool(handlers) and (accepted is not None or all(node.get("sp_status") != HANDLED for node in handlers)),
         "has_closing": bool(closing) and (closing.get("sp_status") != AGREED or completed is not None),
     }
