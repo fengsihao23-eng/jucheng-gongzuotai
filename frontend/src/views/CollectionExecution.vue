@@ -162,6 +162,9 @@
           </div>
         </details>
       </template>
+      <template v-if="item?.can_feedback && !unavailable" #attachments>
+        <FeedbackAttachmentPicker v-model="attachments" :disabled="saving" />
+      </template>
       <template v-if="item?.can_feedback && !unavailable" #footer>
         <el-button type="primary" :loading="saving" :disabled="drafting" @click="submit">提交执行情况</el-button>
       </template>
@@ -174,12 +177,14 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
 import { useAssistant } from '@/store/assistant'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import { detailBackTarget, returnToList } from '@/utils/detail-navigation'
 import { datetime } from '@/utils/format'
 import CollectionReminderPanel from '@/components/CollectionReminderPanel.vue'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -198,6 +203,7 @@ const nativeHistory = computed(() => (item.value?.updates || []).map(update => (
 const loading = ref(false)
 const unavailable = ref(false)
 const saving = ref(false)
+const attachments = ref([])
 const drafting = ref(false)
 const draftText = ref('')
 const requesting = ref(false)
@@ -258,6 +264,7 @@ function resetForm(data) {
     expected_on: latest?.expected_on || null,
   })
   draftText.value = ''
+  attachments.value = []
   formRef.value?.clearValidate()
 }
 
@@ -293,6 +300,7 @@ watch([sheet, row, revision], () => {
   visible.value = false
   reqForm.content = ''
   draftText.value = ''
+  attachments.value = []
   load()
 }, { immediate: true })
 onBeforeUnmount(() => { reqVersion++ })
@@ -349,7 +357,7 @@ async function submit() {
   }
   saving.value = true
   try {
-    const res = await api.post(
+    const res = await submitFeedback(
       endpoint.value + '/execution',
       {
         revision: item.value.revision,
@@ -361,6 +369,7 @@ async function submit() {
         expected_on: form.expected_on || null,
         expected_progress_id: item.value.latest_progress_id,
       },
+      attachments.value,
     )
     item.value = res
     resetForm(res)

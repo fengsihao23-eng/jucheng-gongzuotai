@@ -325,26 +325,30 @@ def create_project(db: Session, data: dict, operator_id: int | None, source: str
 
 
 def project_detail(db: Session, proj: BizProject, p=None) -> dict:
+    from app.services.feedback_attachments import by_record
+
     T = today()
     fb = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == proj.id)
                     .order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50)).all()
+    attachments = by_record(db, BizProjectFeedback, (row.id for row in fb))
     money = contract_detail(db, proj.project_code)
     prof = profit_of(db, proj.project_code, T, p)
     d = project_brief(db, proj, T)
     d.update({
         "milestones": [ms_dict(m, T) for m in sorted(proj.milestones, key=lambda x: x.seq)],
         "money": money, "profit": prof,
-        "feedbacks": [feedback_dict(f) for f in fb],
+        "feedbacks": [feedback_dict(f, attachments[f.id]) for f in fb],
         "logs": milestone_logs(db, proj, limit=100),
         "can_edit": can_edit(p, proj), "can_key": bool(p and p.can("project:key")),
     })
     return d
 
 
-def feedback_dict(f: BizProjectFeedback) -> dict:
+def feedback_dict(f: BizProjectFeedback, attachments=None) -> dict:
     return {"id": f.id, "project_id": f.project_id, "feedback_date": f.feedback_date, "kind": f.kind,
             "content": f.content, "risk_level": f.risk_level, "reporter_id": f.reporter_id,
-            "reporter_name": _uname(f.reporter), "created_at": f.created_at}
+            "reporter_name": _uname(f.reporter), "created_at": f.created_at,
+            **({"attachments": attachments} if attachments is not None else {})}
 
 
 PROJECT_EDITABLE = ["name", "customer_name", "owner_id", "market_owner_id", "status", "budget_amount",

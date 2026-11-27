@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.audit import log_op, snapshot
 from app.core.db import get_db, get_or_404
 from app.core.deletion import DeletionIn, verify_deletion
@@ -147,11 +148,12 @@ def edit_key_task(project_code: str, task_id: int, body: KeyTaskIn, background: 
 
 
 @router.post("/projects/{project_code}/tasks/{task_id}/feedback")
-def key_task_feedback(project_code: str, task_id: int, body: KeyTaskFeedbackIn, background: BackgroundTasks,
-                      p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+def key_task_feedback(project_code: str, task_id: int, background: BackgroundTasks,
+                      p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                      submission: FeedbackPayload[KeyTaskFeedbackIn] = Depends(feedback_payload(KeyTaskFeedbackIn))):
     notices = []
-    result = keys.feedback(db, p, project_code, task_id, body, notice_ids=notices)
-    db.commit()
+    result = keys.feedback(db, p, project_code, task_id, submission.body, notice_ids=notices, uploads=submission.uploads)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
     return ok(result)
@@ -189,18 +191,21 @@ class FeedbackIn(BaseModel):
 
 
 @router.post("/feedback")
-def add_feedback(body: FeedbackIn, background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db)):
+def add_feedback(background: BackgroundTasks, p: Principal = MarketOrProject, db: Session = Depends(get_db),
+                 submission: FeedbackPayload[FeedbackIn] = Depends(feedback_payload(FeedbackIn))):
     """进展反馈：feedback:write 按钮；项目经理/工程师只能写自己可见（负责）的项目。"""
     if not p.can("feedback:write"):
         raise forbidden("无进展反馈权限")
+    body = submission.body
     proj = ps.get_project(db, body.project_code, p)
     notices = []
     f = ms.add_feedback(db, proj, body.model_dump(), p.id, notice_ids=notices)
-    db.commit()
+    attachments = submission.uploads.save(db, p, f)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
     db.refresh(f)
-    return ok(ps.feedback_dict(f))
+    return ok(ps.feedback_dict(f, attachments))
 
 
 @router.get("/feedback")

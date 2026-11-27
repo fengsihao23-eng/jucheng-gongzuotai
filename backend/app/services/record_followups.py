@@ -13,7 +13,7 @@ from app.core.response import BizError, bad_request, conflict, forbidden, not_fo
 from app.core.timeutil import now
 from app.models import (BizProject, BizProjectFeedback, ContractWorkbook, KeyProjectTaskUpdate,
                         RecordFollowup as Entry, RptReport, SysNotify, SysUser, WorkbookProjectFeedback)
-from app.services import notify_service, operations_scope, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
+from app.services import feedback_attachments, notify_service, operations_scope, record_followup_targets as targets, workbook_project_feedback as workbook_feedback
 
 NOTICE = "record_followup"
 
@@ -92,10 +92,12 @@ def _legacy_rows(db, record):
         fields = lambda row: ("blocked" if row.risk_level >= 2 else "doing", "", "", None)
     model = WorkbookProjectFeedback if kind == "workbook" else BizProjectFeedback
     mirrored = {key for key in db.scalars(_entries(record).with_only_columns(Entry.legacy_key).where(Entry.legacy_key.is_not(None)))}
+    rows = [(row, name) for row, name in db.execute(q.order_by(model.id.desc()).limit(100)) if f"{kind}-{row.id}" not in mirrored]
+    attachments = feedback_attachments.by_record(db, model, (row.id for row, _ in rows))
     return [{"key": f"{kind}-{row.id}", "action": "progress", "author": name or "历史成员", "created_at": row.created_at,
-             "content": row.content, "status": status, "problems": problems, "next_step": next_step, "next_due_on": due}
-            for row, name in db.execute(q.order_by(model.id.desc()).limit(100))
-            if f"{kind}-{row.id}" not in mirrored
+             "content": row.content, "status": status, "problems": problems, "next_step": next_step, "next_due_on": due,
+             "attachments": attachments[row.id]}
+            for row, name in rows
             for status, problems, next_step, due in [fields(row)]]
 
 
@@ -124,9 +126,16 @@ def view(db, p, record, *, before=None):
     if before:
         query = query.where(Entry.id < before)
     rows = db.execute(query.order_by(Entry.id.desc()).limit(101)).all()
-    history = [_out(row, a, r, response_id is not None, p.id) for row, a, r, response_id in rows[:100]]
     legacy = _legacy_rows(db, record)
     latest, revision = _latest_progress(db, record, legacy)
+    ids = [row.id for row, *_ in rows[:100]]
+    if latest and latest.get("id"):
+        ids.append(latest["id"])
+    attachments = feedback_attachments.by_record(db, Entry, ids)
+    history = [{**_out(row, a, r, response_id is not None, p.id), "attachments": attachments[row.id]}
+               for row, a, r, response_id in rows[:100]]
+    if latest and latest.get("id"):
+        latest["attachments"] = attachments[latest["id"]]
     outstanding = db.scalar(_entries(record).with_only_columns(func.count(Entry.id))
         .outerjoin(reply, reply.reply_to_id == Entry.id)
         .where(Entry.action == "request", reply.id.is_(None)))
@@ -323,7 +332,7 @@ def archive(db, p, record, body):
     return view(db, p, record)
 
 
-def write(db, p, record, body, *, notice_ids=None):
+def write(db, p, record, body, *, notice_ids=None, uploads=None):
     client_id = str(body.client_id)
     _lock(db, f"record-followup-submission:{p.id}:{client_id}")
     _lock(db, f"record-followup:{record.kind}:{record.key}")
@@ -367,6 +376,8 @@ def write(db, p, record, body, *, notice_ids=None):
         row.legacy_key = _mirror_progress(db, p, record, body, notice_ids=queued)
         row.created_at = now()
     db.flush()
+    if uploads:
+        uploads.save(db, p, row)
     wecom = _wecom_enabled(db, record)
     if recipient:
         queued.extend(_notify(db, [recipient], row, {"request": "收到新的跟进要求", "reply": "你的跟进要求收到回复",
@@ -390,7 +401,11 @@ def from_entry(db, p, ident):
     row = db.get(Entry, ident)
     if row is None:
         raise not_found("跟进记录")
+    return view(db, p, resolve_entry(db, p, row))
+
+
+def resolve_entry(db, p, row):
     record = targets.resolve(db, p, row.target_kind, row.reference)
     if record.key != row.target_key:
         raise not_found("业务记录")
-    return view(db, p, record)
+    return record

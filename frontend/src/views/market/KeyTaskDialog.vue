@@ -1,5 +1,5 @@
 <template>
-  <RecordDetailDialog v-model="visible" dialog-title="任务情况" :heading="item?.title" :subtitle="project.name"
+  <RecordDetailDialog ref="recordDialog" v-model="visible" dialog-title="任务情况" :heading="item?.title" :subtitle="project.name" :close-locked="saving"
     :status="item?.is_delayed ? '逾期未完成' : item?.status_text" :status-tone="item?.is_delayed ? 'down' : item?.status === 3 ? 'up' : 'brand'"
     :target="{ kind: 'key-task', id: item?.id }"
     :facts="item ? [{ label: '负责人', value: item.owner_name || '—' }, { label: '截止日期', value: item.plan_date || '—' },
@@ -27,6 +27,9 @@
       </div>
       <p v-else class="jc-small jc-muted">{{ item?.status === 3 ? '任务已完成，可在过程记录查看历次反馈。' : '可在过程记录查看任务反馈。' }}</p>
     </template>
+    <template v-if="canFeedback" #attachments>
+      <FeedbackAttachmentPicker v-model="attachments" :disabled="saving" />
+    </template>
     <template v-if="canFeedback" #footer>
       <el-button type="primary" :loading="saving" @click="submit">提交进展</el-button>
     </template>
@@ -39,6 +42,8 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
 import WecomDeliveryStatus from '@/components/WecomDeliveryStatus.vue'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
@@ -47,6 +52,7 @@ const props = defineProps({ modelValue: Boolean, taskId: Number, project: Object
 const emit = defineEmits(['update:modelValue', 'saved', 'edit'])
 const visible = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const item = ref(null), loading = ref(false), saving = ref(false), form = reactive({}), formRef = ref()
+const attachments = ref([]), recordDialog = ref()
 const taskLabel = computed(() => props.project.is_key ? '重点任务' : '任务')
 const taskPath = computed(() => `${props.tasksPath}/${props.taskId}`)
 const canFeedback = computed(() => item.value?.can_feedback && item.value.status !== 3 && !props.project.paused && props.project.status !== 5)
@@ -79,10 +85,12 @@ async function submit() {
   }
   saving.value = true
   try {
-    await api.post(`${taskPath.value}/feedback`, { ...form, completed_on: form.status === 3 ? form.completed_on : null,
-      expected_revision: item.value.revision })
+    await submitFeedback(`${taskPath.value}/feedback`, { ...form, completed_on: form.status === 3 ? form.completed_on : null,
+      expected_revision: item.value.revision }, attachments.value)
+    attachments.value = []
     ElMessage.success('进展已保存')
     await load()
+    await recordDialog.value?.reload()
     announceBusinessChange()
     emit('saved')
   } catch { /* 提交失败时保留已填写的反馈。 */ }
@@ -92,6 +100,7 @@ async function submit() {
 watch([visible, taskPath], ([open]) => {
   version++
   item.value = null
+  attachments.value = []
   if (open) load()
 }, { immediate: true })
 </script>

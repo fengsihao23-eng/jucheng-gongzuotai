@@ -113,7 +113,10 @@
                   <el-radio-button value="event">重点事件</el-radio-button>
                   <el-radio-button value="risk">风险</el-radio-button>
                 </el-radio-group>
-                <el-button type="primary" size="small" :loading="fbSaving" @click="addFeedback">提交</el-button>
+                <div class="jc-row feedback-actions">
+                  <FeedbackAttachmentPicker v-model="fbAttachments" :disabled="fbSaving" />
+                  <el-button type="primary" size="small" :loading="fbSaving" @click="addFeedback">提交</el-button>
+                </div>
               </div>
             </div>
             <ul class="feed">
@@ -123,6 +126,7 @@
                   <span class="jc-muted jc-num">{{ date(f.feedback_date) }}</span>
                 </div>
                 <p>{{ f.content }}</p>
+                <FeedbackAttachmentList :files="f.attachments" />
               </li>
             </ul>
             <el-empty v-if="!d.feedbacks.length" :image-size="60" description="暂无反馈" />
@@ -195,7 +199,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
 import ProjectReportSources from '@/components/ProjectReportSources.vue'
+import FeedbackAttachmentList from '@/components/records/FeedbackAttachmentList.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import RecordFeedbackButton from '@/components/records/RecordFeedbackButton.vue'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { useAuth } from '@/store/auth'
@@ -318,16 +325,19 @@ const remove = row => deleteRecord(nodeRemoval(row))
 // 反馈
 const emptyFeedback = () => ({ content: '', kind: 'progress', problems: '', next_step: '', next_due_on: null })
 const fb = reactive(emptyFeedback())
-const fbSaving = ref(false)
+const fbSaving = ref(false), fbAttachments = ref([])
 async function addFeedback() {
+  if (fbSaving.value) return
   if (!fb.content.trim()) return ElMessage.warning('请填写反馈内容')
   fbSaving.value = true
   try {
-    await api.post('/market/feedback', { project_code: code, ...fb, next_due_on: fb.next_step.trim() ? fb.next_due_on : null })
+    await submitFeedback('/market/feedback', { project_code: code, ...fb, next_due_on: fb.next_step.trim() ? fb.next_due_on : null },
+      fbAttachments.value)
     Object.assign(fb, emptyFeedback())
+    fbAttachments.value = []
     ElMessage.success('已提交')
     load()
-  } finally {
+  } catch { /* Keep the draft for retry. */ } finally {
     fbSaving.value = false
   }
 }
@@ -373,10 +383,11 @@ onMounted(() => {
 .duty { margin-top: 6px; color: var(--jc-ink-2); }
 .note { margin-top: 6px; padding: 6px 8px; background: var(--jc-surface-2); border-radius: 4px; color: var(--jc-ink-2); }
 .fb-form { padding-bottom: 12px; border-bottom: 1px solid var(--jc-line-2); margin-bottom: 4px; }
+.fb-form .between, .feedback-actions { flex-wrap: wrap; align-items: center; gap: 8px; }
 .feed { list-style: none; margin: 0; padding: 0; max-height: 380px; overflow: auto; }
-.feed li { padding: 10px 0; border-bottom: 1px solid var(--jc-line-2); }
-.feed li:last-child { border-bottom: none; }
-.feed li.risk p { color: var(--jc-down); }
+.feed > li { padding: 10px 0; border-bottom: 1px solid var(--jc-line-2); }
+.feed > li:last-child { border-bottom: none; }
+.feed > li.risk p { color: var(--jc-down); }
 .feed p { margin: 6px 0 0; font-size: 13px; line-height: 1.6; color: var(--jc-ink-2); }
 .chg { margin-right: 12px; }
 </style>

@@ -17,7 +17,7 @@
       </dl>
     </details>
   </section>
-  <el-dialog v-if="!readOnly" v-model="formOpen" title="填写项目进度" class="ops-progress-entry-dialog" width="min(700px, calc(100vw - 24px))" align-center append-to-body destroy-on-close :close-on-click-modal="false">
+  <el-dialog v-if="!readOnly" v-model="formOpen" title="填写项目进度" class="ops-progress-entry-dialog" width="min(700px, calc(100vw - 24px))" align-center append-to-body destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
     <p v-if="!active" class="form-hint">项目恢复进行中后可添加新的计划事项。</p>
     <p v-else-if="canPlan" class="form-hint">填了下一步和日期，就会生成一条负责人计划。已有事项请打开原记录反馈。</p>
     <el-form label-position="top" :disabled="saving" @submit.prevent="save">
@@ -29,11 +29,12 @@
           <el-form-item label="下一步计划"><el-input v-model="entry.next_plan" type="textarea" :rows="2" maxlength="6000" placeholder="下一步要做什么？" /></el-form-item>
           <el-form-item label="计划完成时间" :required="Boolean(entry.next_plan.trim())"><el-date-picker v-model="entry.next_due_date" type="date" value-format="YYYY-MM-DD" placeholder="选择计划完成日期" /></el-form-item>
         </template>
+        <FeedbackAttachmentPicker v-model="entry.attachments" :disabled="saving" />
         <el-button v-if="entries.length > 1" link @click="entries.splice(index, 1)" :aria-label="`移除第 ${index + 1} 条`">移除本条</el-button>
       </fieldset>
       <el-button :disabled="entries.length >= 20 || saving" plain @click="addEntry">＋ 再填一条</el-button>
     </el-form>
-    <template #footer><div class="form-footer"><el-button link type="primary" @click="withXiaoju">用小聚填写</el-button><div class="actions"><el-button @click="formOpen = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目进度</el-button></div></div></template>
+    <template #footer><div class="form-footer"><el-button link type="primary" :disabled="saving" @click="withXiaoju">用小聚填写</el-button><div class="actions"><el-button :disabled="saving" @click="formOpen = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存项目进度</el-button></div></div></template>
   </el-dialog>
   <el-dialog v-if="!readOnly" v-model="historyOpen" title="项目进度记录" class="ops-progress-history" width="min(1140px, calc(100vw - 24px))" align-center append-to-body destroy-on-close @closed="historyClosed">
     <div v-loading="loading" class="history-list">
@@ -54,6 +55,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedbackGroups } from '@/api/feedback'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import { useAssistant } from '@/store/assistant'
 import { datetime } from '@/utils/format'
 import { announceChange } from './shared'
@@ -68,7 +71,7 @@ const formOpen = ref(false), historyOpen = ref(false), saving = ref(false), load
 const history = ref([]), nextBefore = ref(null)
 const entries = ref([])
 let historyVersion = 0, entryKey = 0, afterHistoryClose
-const newEntry = () => ({ key: ++entryKey, progress: '', problems: '', next_plan: '', next_due_date: null })
+const newEntry = () => ({ key: ++entryKey, progress: '', problems: '', next_plan: '', next_due_date: null, attachments: [] })
 
 function closeHistory(after) { afterHistoryClose = after; historyOpen.value = false }
 function historyClosed() { const after = afterHistoryClose; afterHistoryClose = undefined; after?.() }
@@ -99,7 +102,8 @@ async function save() {
   }
   saving.value = true
   try {
-    const result = await api.post(`/operations/${props.project.id}/progress/entries`, { entries: payload, expected_owner_id: props.project.owner_id })
+    const result = await submitFeedbackGroups(`/operations/${props.project.id}/progress/entries`,
+      { entries: payload, expected_owner_id: props.project.owner_id }, entries.value.map(entry => entry.attachments))
     formOpen.value = false; emit('saved', result.items.at(-1)); announceChange()
     ElMessage.success(result.created_task_ids.length ? `已保存进度，新增 ${result.created_task_ids.length} 条负责人计划` : '项目进度已保存')
   } catch {} finally { saving.value = false }

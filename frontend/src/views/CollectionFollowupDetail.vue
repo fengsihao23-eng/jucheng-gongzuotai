@@ -7,7 +7,7 @@
       { label: '负责人', value: item.recipient_name || '—' },
       { label: '待回款金额', value: number(item.contract?.outstanding) + ' 元' },
       { label: '约定回款日期', value: item.payment_due_on || '待确认' },
-    ] : []" :history-entries="nativeHistory">
+    ] : []" :history-entries="nativeHistory" :close-locked="saving">
     <template #actions>
       <el-button v-if="item?.contract_link" @click="router.push({ path: item.contract_link.path, query: { revision: item.contract_link.revision } })">查看合同</el-button>
       <el-button v-if="removal" type="danger" plain @click="deleteRecord(removal)">删除跟进</el-button>
@@ -54,6 +54,9 @@
     </el-form>
     <el-empty v-else-if="!item.reply" :description="item.state === 'cancelled' ? '此要求已撤回' : '等待负责人回复'" :image-size="55" />
     </template>
+    <template v-if="item?.can_update" #attachments>
+      <FeedbackAttachmentPicker v-model="attachments" :disabled="saving" />
+    </template>
     <template v-if="item?.can_update" #footer>
       <el-button type="primary" :disabled="saving || !content.trim() || (needsReason && !problems.trim())" :loading="saving" @click="reply">
         {{ item.can_reply ? '回复跟进情况' : '提交跟进记录' }}
@@ -67,7 +70,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
 import RecordDetailDialog from '@/components/records/RecordDetailDialog.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import { announceBusinessChange } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
 import { deleteRecord, recordRemoval } from '@/composables/useRecordDeletion'
@@ -77,6 +82,7 @@ const emit = defineEmits(['update:modelValue'])
 const route = useRoute(), router = useRouter()
 const auth = useAuth()
 const item = ref(null), error = ref(''), content = ref(''), expectedOn = ref(''), loading = ref(false), saving = ref(false)
+const attachments = ref([])
 const nativeHistory = computed(() => (item.value?.reports || []).map(entry => ({ ...entry, key: `collection-progress-${entry.id}`,
   author: entry.author_name, action: 'progress', title: entry.stage_name, next_due_on: entry.expected_on })))
 const removal = computed(() => item.value &&
@@ -106,7 +112,7 @@ async function submit(action, body) {
   const id = generation
   saving.value = true
   try {
-    const next = await api.post(endpoint.value + '/' + action, body)
+    const next = await submitFeedback(endpoint.value + '/' + action, body, action === 'cancel' ? [] : attachments.value)
     if (id !== generation) return
     item.value = next
     announceBusinessChange()
@@ -114,6 +120,7 @@ async function submit(action, body) {
     problems.value = ''
     expectedOn.value = ''
     nextStep.value = ''
+    attachments.value = []
     ElMessage.success(action === 'reply' ? '已提交回复' : action === 'progress' ? '已保存跟进记录' : '已撤回要求')
   } catch { /* API displays the error */ }
   finally { saving.value = false }
@@ -126,7 +133,7 @@ async function withdraw() {
   catch { return }
   return submit('cancel', {})
 }
-watch(() => route.params.id, id => { if (id) { item.value = null; content.value = ''; problems.value = ''; expectedOn.value = ''; nextStep.value = ''; stage.value = 'contact'; load() } }, { immediate: true })
+watch(() => route.params.id, id => { if (id) { item.value = null; content.value = ''; problems.value = ''; expectedOn.value = ''; nextStep.value = ''; attachments.value = []; stage.value = 'contact'; load() } }, { immediate: true })
 onMounted(() => { timer = setInterval(() => { if (!document.hidden && !loading.value && !saving.value && item.value) load(true) }, 15000) })
 onBeforeUnmount(() => { generation++; clearInterval(timer) })
 </script>

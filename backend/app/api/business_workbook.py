@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Respons
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deps import Principal, client_ip, get_principal, require_menu
@@ -41,11 +42,13 @@ def project_tracking_history(view: TrackedView, sheet: str, row_number: int, rev
 
 
 @router.post("/{view}/rows/{sheet}/{row_number}/feedback")
-def record_project_feedback(view: TrackedView, sheet: str, row_number: int, body: ProjectFeedbackIn,
-                            p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+def record_project_feedback(view: TrackedView, sheet: str, row_number: int,
+                            p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                            submission: FeedbackPayload[ProjectFeedbackIn] = Depends(feedback_payload(ProjectFeedbackIn))):
     from app.services.workbook_project_feedback import history
-    result = history(db, p, view, sheet, row_number, body.revision, body=body)
-    db.commit()
+    body = submission.body
+    result = history(db, p, view, sheet, row_number, body.revision, body=body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok(result, headers=HEADERS)
 
 
@@ -231,11 +234,12 @@ def collection_item_execution(sheet: str, row_number: int, revision: str = '',
 
 
 @router.post('/collections/items/{sheet}/{row_number}/execution')
-def submit_collection_execution(sheet: str, row_number: int, body: CollectionExecutionIn,
-                                background: BackgroundTasks, p: Principal = Depends(get_principal),
-                                db: Session = Depends(get_db)):
-    notices = followups.submit_execution(db, p, sheet, row_number, body)
-    db.commit()
+def submit_collection_execution(sheet: str, row_number: int, background: BackgroundTasks,
+                                p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                                submission: FeedbackPayload[CollectionExecutionIn] = Depends(feedback_payload(CollectionExecutionIn))):
+    body = submission.body
+    notices = followups.submit_execution(db, p, sheet, row_number, body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(followups.deliver, notices)
     return ok(followups.execution_detail(db, p, sheet, row_number, body.revision), headers=HEADERS)
@@ -306,10 +310,11 @@ def collection_followup(followup_id: int, p: Principal = Depends(get_principal),
 
 
 @router.post('/collection-followups/{followup_id}/reply')
-def reply_collection_followup(followup_id: int, body: CollectionReplyIn, background: BackgroundTasks,
-                              p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    notices = followups.reply(db, p, followup_id, body)
-    db.commit()
+def reply_collection_followup(followup_id: int, background: BackgroundTasks,
+                              p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                              submission: FeedbackPayload[CollectionReplyIn] = Depends(feedback_payload(CollectionReplyIn))):
+    notices = followups.reply(db, p, followup_id, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(followups.deliver, notices)
     return ok(followups.thread(db, p, followup_id), headers=HEADERS)
@@ -323,10 +328,11 @@ def cancel_collection_followup(followup_id: int, p: Principal = Depends(get_prin
 
 
 @router.post('/collection-followups/{followup_id}/progress')
-def update_collection_progress(followup_id: int, body: CollectionReplyIn, background: BackgroundTasks,
-                               p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
-    notices = followups.progress(db, p, followup_id, body)
-    db.commit()
+def update_collection_progress(followup_id: int, background: BackgroundTasks,
+                               p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                               submission: FeedbackPayload[CollectionReplyIn] = Depends(feedback_payload(CollectionReplyIn))):
+    notices = followups.progress(db, p, followup_id, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(followups.deliver, notices)
     return ok(followups.thread(db, p, followup_id), headers=HEADERS)

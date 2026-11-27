@@ -8,7 +8,7 @@ from app.core.deps import build_principal
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import OpsSchoolVisit, OpsTask, OpsTaskDiscussion, OpsTaskNodeUpdate, SysUser
-from app.services import operations_service as ops, operations_policy as policy, operations_scope as scope
+from app.services import feedback_attachments, operations_service as ops, operations_policy as policy, operations_scope as scope
 
 CADENCES = {"daily": "每天反馈", "every_2_days": "每 2 天反馈", "every_3_days": "每 3 天反馈", "weekly": "每周反馈", "node": "按节点反馈"}
 
@@ -156,12 +156,13 @@ def school_visits(db, p, project_id, school_id):
     school_access(db, p, project_id, school_id)
     rows = db.execute(select(OpsSchoolVisit, SysUser.name).join(SysUser, OpsSchoolVisit.author_id == SysUser.id)
                       .where(OpsSchoolVisit.school_id == school_id).order_by(OpsSchoolVisit.occurred_on.desc(), OpsSchoolVisit.id.desc())).all()
+    attachments = feedback_attachments.by_record(db, OpsSchoolVisit, (row.id for row, _ in rows))
     return [{"id": r.id, "occurred_on": r.occurred_on, "created_at": r.created_at, "author": name,
              "content": r.content, "next_action": r.next_action, "next_contact_date": r.next_contact_date,
-             "status": r.status, "incomplete_reason": r.incomplete_reason} for r, name in rows]
+             "status": r.status, "incomplete_reason": r.incomplete_reason, "attachments": attachments[r.id]} for r, name in rows]
 
 
-def add_visit(db, p, project_id, school_id, body):
+def add_visit(db, p, project_id, school_id, body, *, uploads=None):
     project, school = school_access(db, p, project_id, school_id, write=True, lock=True)
     client_id = str(body.client_id) if body.client_id else None
     if client_id:
@@ -179,6 +180,8 @@ def add_visit(db, p, project_id, school_id, body):
                          **body.model_dump(exclude={"transition", "client_id"}))
     db.add(row)
     db.flush()
+    if uploads:
+        uploads.save(db, p, row)
     log_op(db, p.id, "operations.school.visit", "ops_school_visit", row.id,
            after={"school_id": school.id, "occurred_on": str(body.occurred_on), "status": row.status})
     return row

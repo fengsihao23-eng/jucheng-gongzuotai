@@ -416,7 +416,10 @@ def task_data(db, p, row, item, *, history=False, manageable=None):
     result["revision"] = digest({"task": ps._snap(item), "plan": snapshot(plan, ["requirements", "preparation_on", "cadence", "feedback_due_at", "problems", "next_step", "revision"]) if plan else None,
                                  "nodes": result["nodes"], "latest_feedback_id": last.id if last else None})
     if history:
-        result["history"] = [{"id": u.id, "feedback": ps.feedback_dict(f), "values": u.values} for u, f in updates]
+        from app.services.feedback_attachments import by_record
+
+        attachments = by_record(db, BizProjectFeedback, (f.id for _, f in updates))
+        result["history"] = [{"id": u.id, "feedback": ps.feedback_dict(f, attachments[f.id]), "values": u.values} for u, f in updates]
         result["notification_deliveries"] = notify_service.delivery_status(db,
             SysNotify.ref_type.in_((REF, GENERAL_REF)) & (func.split_part(SysNotify.ref_id, ":", 1) == str(item.id)),
             user_id=None if result["can_manage"] else p.id)
@@ -505,7 +508,7 @@ def create_project(db, p, body, *, is_key=True):
     return row, notices
 
 
-def feedback(db, p, code, task_id, body, *, notice_ids=None, is_key=True):
+def feedback(db, p, code, task_id, body, *, notice_ids=None, is_key=True, uploads=None):
     row = project(db, p, code, lock=True, is_key=is_key)
     active(db, row)
     item = task(db, row, task_id)
@@ -538,6 +541,8 @@ def feedback(db, p, code, task_id, body, *, notice_ids=None, is_key=True):
     text_body = f"任务「{item.node_name}」：{body.content}" + (f"\n完成阶段：{'、'.join(nodes[i].name for i in sorted(selected))}" if selected else "") + (f"\n存在问题：{body.problems}" if body.problems else "") + (f"\n下一步：{body.next_step}" if body.next_step else "")
     fb = market.add_feedback(db, row, {"content": text_body, "kind": "risk" if body.problems else "progress"}, p.id,
                              item=item, notice_ids=notice_ids)
+    if uploads:
+        uploads.save(db, p, fb)
     db.flush()
     db.add(Update(milestone_id=item.id, feedback_id=fb.id, values=body.model_dump(mode="json", exclude={"expected_revision"}), created_at=now()))
     db.flush()
@@ -585,11 +590,15 @@ def task_workspace(db, p, row, *, standard=None):
 def detail(db, p, code, period="", *, is_key=True):
     row = project(db, p, code, is_key=is_key)
     standard = standard_access(db, p, row)
-    fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id).order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50))
+    from app.services.feedback_attachments import by_record
+
+    fbs = db.scalars(select(BizProjectFeedback).where(BizProjectFeedback.project_id == row.id)
+                    .order_by(BizProjectFeedback.feedback_date.desc(), BizProjectFeedback.id.desc()).limit(50)).all()
+    attachments = by_record(db, BizProjectFeedback, (f.id for f in fbs))
     return {**brief(db, row, standard), **task_workspace(db, p, row, standard=standard),
             "content": row.remark or "", "revision": project_revision(row), "can_delete": standard and can_remove_project(p, row),
             "can_pause": standard and can_pause(p), "team": team(db, row),
-            "feedbacks": [ps.feedback_dict(f) for f in fbs], "money": ps.contract_detail(db, row.project_code) if standard else None,
+            "feedbacks": [ps.feedback_dict(f, attachments[f.id]) for f in fbs], "money": ps.contract_detail(db, row.project_code) if standard else None,
             "financials": financials(db, row, period) if standard else None}
 
 

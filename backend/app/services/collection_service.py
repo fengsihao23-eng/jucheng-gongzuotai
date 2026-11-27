@@ -10,7 +10,7 @@ from app.core.deps import build_principal
 from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, month_range, now, today, week_range
 from app.models import BizCollectionEntry, BizCollectionFollowup, BizContract, BizPayment, SysUser
-from app.services import notify_service
+from app.services import feedback_attachments, notify_service
 
 ZERO = Decimal("0")
 
@@ -135,6 +135,13 @@ def _item(db, p, contract_id, plan_key, *, lock=False):
     return c, row, plan
 
 
+def read_entry(db, p, entry):
+    followup = db.get(BizCollectionFollowup, entry.followup_id)
+    if not followup or not any(p.has_menu(menu) for menu in ("contracts", "receivables")):
+        raise not_found("回款跟进")
+    _item(db, p, followup.contract_id, followup.plan_key)
+
+
 def _eligible(db, c, u):
     if not u or u.status != 1 or u.is_deleted:
         return False
@@ -153,8 +160,11 @@ def detail(db, p, contract_id, plan_key):
         q = select(BizCollectionEntry, author.c.name, recipient.c.name).join(author, author.c.id == BizCollectionEntry.author_id)
         q = q.outerjoin(recipient, recipient.c.id == BizCollectionEntry.recipient_id).where(
             BizCollectionEntry.followup_id == row.id).order_by(BizCollectionEntry.id.desc()).limit(150)
+        rows = db.execute(q).all()
+        attachments = feedback_attachments.by_record(db, BizCollectionEntry, (item.id for item, _, _ in rows))
         entries = [{"id": item.id, "author": by, "recipient": to, "kind": item.kind, "content": item.content,
-                    "at": item.created_at, "expected_on": item.expected_on} for item, by, to in db.execute(q)]
+                    "at": item.created_at, "expected_on": item.expected_on, "attachments": attachments[item.id]}
+                   for item, by, to in rows]
     owner = db.get(SysUser, c.owner_id) if c.owner_id else None
     current = db.get(SysUser, row.reply_to_id) if row and row.reply_to_id else None
     candidates = []
@@ -169,7 +179,7 @@ def detail(db, p, contract_id, plan_key):
             "can_request": can_request(p), "can_note": can_request(p) or c.owner_id == p.id, "can_reply": bool(row and row.reply_to_id == p.id and row.requested_at and not row.replied_at)}
 
 
-def record(db, p, contract_id, plan_key, body):
+def record(db, p, contract_id, plan_key, body, *, uploads=None):
     c, row, plan = _item(db, p, contract_id, plan_key, lock=True)
     if body.kind == "request" and not can_request(p):
         raise forbidden("只有获授权的业务或财务人员可以催办")
@@ -199,6 +209,8 @@ def record(db, p, contract_id, plan_key, body):
                                created_at=stamp)
     db.add(entry)
     db.flush()
+    if uploads:
+        uploads.save(db, p, entry)
     if recipient and body.kind == "request":
         notify_service.send(db, [recipient], "collection_request", "有一笔回款需要反馈", f"{c.contract_no} · {row.label}：{body.content}",
                             link=f"/collections?contract={c.id}&plan={plan_key}", ref_type="collection_entry", ref_id=str(entry.id), wecom=False)

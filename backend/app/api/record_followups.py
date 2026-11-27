@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.db import get_db
 from app.core.deps import Principal, get_principal
 from app.core.response import ok
@@ -43,10 +44,11 @@ def recipients(record: Record, p: Actor, db: DB, keyword: Annotated[str, Query(m
 
 
 @router.post("/{kind}/{ident}")
-def add(record: Record, body: service.FollowupIn, background: BackgroundTasks, p: Actor, db: DB):
+def add(record: Record, background: BackgroundTasks, p: Actor, db: DB,
+        submission: FeedbackPayload[service.FollowupIn] = Depends(feedback_payload(service.FollowupIn))):
     notices = []
-    result = service.write(db, p, record, body, notice_ids=notices)
-    db.commit()
+    result = service.write(db, p, record, submission.body, notice_ids=notices, uploads=submission.uploads)
+    submission.uploads.commit(db)
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
     return ok(result, headers=HEADERS)

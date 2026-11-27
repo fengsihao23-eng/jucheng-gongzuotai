@@ -24,7 +24,7 @@
               <button v-if="row.task_id" type="button" class="expand" @click="emit('open-task', row.task_id)">打开事项</button>
             </th>
             <td class="desktop">{{ row.author_name }}</td>
-            <td class="progress-cell"><span>{{ value(row, 'progress') }}</span></td>
+            <td class="progress-cell"><span>{{ value(row, 'progress') }}</span><FeedbackAttachmentList :files="row.attachments" /></td>
             <td class="desktop"><span :class="{ absent: !row.problems }">{{ value(row, 'problems') }}</span></td>
             <td class="desktop"><span :class="{ absent: !row.next_plan }">{{ value(row, 'next_plan') }}</span></td>
             <td class="desktop"><time v-if="row.next_due_date" class="due" :datetime="row.next_due_date">{{ row.next_due_date }}</time><span v-else class="absent">—</span></td>
@@ -44,6 +44,7 @@
 import { recordRemoval } from '@/composables/useRecordDeletion'
 import { computed, ref } from 'vue'
 import { datetime } from '@/utils/format'
+import FeedbackAttachmentList from '@/components/records/FeedbackAttachmentList.vue'
 
 const props = defineProps({ entries: { type: Array, required: true }, canDelete: Boolean })
 const emit = defineEmits(['open-task', 'deleted'])

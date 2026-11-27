@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.audit import log_op
 from app.core.db import get_db
 from app.core.deletion import DeletionIn, verify_deletion
@@ -168,8 +169,11 @@ def project_task_detail(code: str, task_id: int, p: Principal = Depends(get_prin
     return ok(key_projects.task_data(db, p, row, key_projects.task(db, row, task_id), history=True))
 
 
-def _commit_task(db, background, result, notices):
-    db.commit()
+def _commit_task(db, background, result, notices, *, uploads=None):
+    if uploads is None:
+        db.commit()
+    else:
+        uploads.commit(db)
     if notices:
         background.add_task(notify_service.deliver_committed, notices)
     return ok(result)
@@ -191,11 +195,12 @@ def update_project_task(code: str, task_id: int, body: KeyTaskIn, background: Ba
 
 
 @router.post("/{code}/tasks/{task_id}/feedback")
-def project_task_feedback(code: str, task_id: int, body: KeyTaskFeedbackIn, background: BackgroundTasks,
-                          p: Principal = Depends(get_principal), db: Session = Depends(get_db)):
+def project_task_feedback(code: str, task_id: int, background: BackgroundTasks,
+                          p: Principal = Depends(get_principal), db: Session = Depends(get_db),
+                          submission: FeedbackPayload[KeyTaskFeedbackIn] = Depends(feedback_payload(KeyTaskFeedbackIn))):
     notices = []
-    result = key_projects.feedback(db, p, code, task_id, body, notice_ids=notices, is_key=False)
-    return _commit_task(db, background, result, notices)
+    result = key_projects.feedback(db, p, code, task_id, submission.body, notice_ids=notices, is_key=False, uploads=submission.uploads)
+    return _commit_task(db, background, result, notices, uploads=submission.uploads)
 
 
 class ProjectPatch(BaseModel):

@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Requ
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.db import get_db
 from app.core.deps import Principal, require_menu, require_recent_login
 from app.core.deletion import DeletionIn, verify_deletion
@@ -223,10 +224,11 @@ def restore_operation_task(task_id: int, request: Request, p: Principal = Menu, 
 
 
 @router.post("/tasks/{task_id}/feedback")
-def operation_feedback(task_id: int, body: FeedbackIn, p: Principal = Menu, db: Session = Depends(get_db)):
+def operation_feedback(task_id: int, p: Principal = Menu, db: Session = Depends(get_db),
+                       submission: FeedbackPayload[FeedbackIn] = Depends(feedback_payload(FeedbackIn))):
     """提交本人负责的任务反馈，保留节点完成记录、结果和下一步安排。"""
-    ops.feedback(db, p, task_id, body)
-    db.commit()
+    ops.feedback(db, p, task_id, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok(ops.task_detail(db, p, task_id))
 
 
@@ -341,18 +343,22 @@ def project_progress_history(project_id: int, before_id: int | None = Query(None
 
 
 @router.post("/{project_id}/progress")
-def record_project_progress(project_id: int, body: ProjectProgressIn, p: Principal = Menu, db: Session = Depends(get_db)):
+def record_project_progress(project_id: int, p: Principal = Menu, db: Session = Depends(get_db),
+                            submission: FeedbackPayload[ProjectProgressIn] = Depends(feedback_payload(ProjectProgressIn))):
     """仅保存项目情况说明；保留旧接口，不新增待跟进事项。新填写项目进度请使用 record_project_progress_entries。"""
-    result = ops.record_project_progress(db, p, project_id, body)
-    db.commit()
+    result = ops.record_project_progress(db, p, project_id, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok(result)
 
 
 @router.post("/{project_id}/progress/entries")
-def record_project_progress_entries(project_id: int, body: ProjectProgressEntriesIn, p: Principal = Menu, db: Session = Depends(get_db)):
+def record_project_progress_entries(project_id: int, p: Principal = Menu, db: Session = Depends(get_db),
+                                    submission: FeedbackPayload[ProjectProgressEntriesIn] = Depends(
+                                        feedback_payload(ProjectProgressEntriesIn, group_count=lambda body: len(body.entries)))):
     """一次填写一条或多条进度。每条同时给出下一步和计划日期时，新增一条归项目负责人的可跟踪计划；无计划则仅保存汇报。已有事项更新请用任务反馈。"""
-    result = ops.record_project_progress_entries(db, p, project_id, body.entries, body.expected_owner_id)
-    db.commit()
+    body = submission.body
+    result = ops.record_project_progress_entries(db, p, project_id, body.entries, body.expected_owner_id, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok(result)
 
 
@@ -539,9 +545,10 @@ def visits(project_id: int, school_id: int, p: Principal = Menu, db: Session = D
 
 
 @router.post("/{project_id}/schools/{school_id}/visits")
-def add_visit(project_id: int, school_id: int, body: SchoolVisitIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    row = followups.add_visit(db, p, project_id, school_id, body)
-    db.commit()
+def add_visit(project_id: int, school_id: int, p: Principal = Menu, db: Session = Depends(get_db),
+              submission: FeedbackPayload[SchoolVisitIn] = Depends(feedback_payload(SchoolVisitIn))):
+    row = followups.add_visit(db, p, project_id, school_id, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok({"id": row.id})
 
 

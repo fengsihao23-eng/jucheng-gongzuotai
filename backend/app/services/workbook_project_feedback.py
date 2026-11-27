@@ -5,10 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.core.audit import log_op
-from app.core.response import bad_request, conflict, forbidden, not_found
+from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import now, today
 from app.models import ContractWorkbook, SysUser, WorkbookProjectFeedback as Feedback
-from app.services import business_workbook as source
+from app.services import business_workbook as source, feedback_attachments
 
 ArchiveCategory = Literal["competitor", "canceled", "converted"]
 ArchiveFilter = ArchiveCategory | Literal["unarchived", ""]
@@ -74,7 +74,26 @@ def categorize(db, wb, view, sheets, rows, archive_filter=""):
     return result
 
 
-def history(db, p, view, sheet_id, row_number, revision, *, body=None):
+def read_progress(db, p, entry):
+    from app.services.record_followup_targets import workbook_sheet
+
+    for view in ("opportunities", "tender"):
+        try:
+            wb = source.active_source(db, p, view)
+        except BizError as exc:
+            if exc.code != 40301:
+                raise
+            continue
+        if not wb or wb.id != entry.workbook_id:
+            continue
+        sheet = workbook_sheet(wb, view, entry.sheet_id)
+        if sheet and any(row["row"] not in sheet.removed_rows and not row.get("parent") and
+                         tracking_key(view, row) == entry.row_key for row in sheet.rows.values()):
+            return
+    raise not_found("项目反馈")
+
+
+def history(db, p, view, sheet_id, row_number, revision, *, body=None, uploads=None):
     wb = source.active_source(db, p, view)
     if not wb:
         raise not_found("项目来源")
@@ -114,12 +133,16 @@ def history(db, p, view, sheet_id, row_number, revision, *, body=None):
                          **body.model_dump(exclude={"revision", "expected_latest_id"}))
         db.add(entry)
         db.flush()
+        if uploads:
+            uploads.save(db, p, entry)
         log_op(db, p.id, "projects.workbook.feedback", "workbook_project_feedback", entry.id,
                after={"project": record["name"], "status": entry.status, "sheet": sheet_id})
     rows = db.execute(entries).all()
     state = archive_state(rows[0][0] if rows else None, can_write)
+    attachments = feedback_attachments.by_record(db, Feedback, (row.id for row, _ in rows))
     return {"owner": record.get("owner"), "can_write": bool(key and can_write and not state["archive"]),
             "ambiguous": not key, "today": today(), **state,
             "items": [{"id": r.id, "author": author, "created_at": r.created_at, "status": r.status,
-                       "content": r.content, "problems": r.problems, "next_step": r.next_step, "next_due_on": r.next_due_on}
+                       "content": r.content, "problems": r.problems, "next_step": r.next_step, "next_due_on": r.next_due_on,
+                       "attachments": attachments[r.id]}
                       for r, author in rows]}

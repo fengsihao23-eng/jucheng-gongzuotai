@@ -10,6 +10,7 @@ from app.core.response import BizError, not_found, ok
 from app.core.security import verify_file_sig
 from app.core.storage import file_brief, file_path
 from app.models import SysFile
+from app.services.feedback_attachments import CATEGORY as FEEDBACK_ATTACHMENTS
 from app.services.intake_access import needs_file_access, require_file_access
 
 router = APIRouter(prefix="/files", tags=["文件"])
@@ -21,7 +22,8 @@ def file_info(file_id: int, p: Principal = Depends(get_principal), db: Session =
     if not f:
         raise not_found("文件")
     require_file_access(db, p, f)
-    return ok(file_brief(f))
+    headers = {"Cache-Control": "private, no-store"} if f.category == FEEDBACK_ATTACHMENTS else None
+    return ok(file_brief(f), headers=headers)
 
 
 @router.get("/{file_id}/download")
@@ -39,4 +41,5 @@ def download(file_id: int, exp: int, sig: str, request: Request, db: Session = D
     log_op(db, actor_id, "file.download", f.category, f.id, after={"filename": f.filename, "version": f.version},
            ip=client_ip(request))
     db.commit()
-    return FileResponse(file_path(f), media_type=f.content_type, filename=f.filename)
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"} if f.category == FEEDBACK_ATTACHMENTS else None
+    return FileResponse(file_path(f), media_type=f.content_type, filename=f.filename, headers=headers)

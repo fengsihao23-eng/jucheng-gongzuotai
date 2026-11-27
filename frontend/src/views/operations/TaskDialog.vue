@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" class="ops-task-dialog" title="任务详情" width="min(1050px, calc(100vw - 40px))" align-center append-to-body destroy-on-close :close-on-click-modal="false">
+  <el-dialog v-model="visible" class="ops-task-dialog" title="任务详情" width="min(1050px, calc(100vw - 40px))" align-center append-to-body destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
     <div v-loading="loading" class="task-page">
       <el-empty v-if="unavailable && !loading" description="无法读取这项任务，请检查访问权限或重试。"><el-button @click="load()">重试</el-button></el-empty>
       <template v-if="task && !unavailable">
@@ -40,7 +40,7 @@
               <h3>阶段节点 <small>{{ task.nodes.filter(n => n.completed_at).length }} / {{ task.nodes.length }} 已完成</small></h3>
               <details v-for="(node, index) in task.nodes" :key="node.id" class="node-detail">
                 <summary>{{ index + 1 }}. {{ node.name }} <small>{{ node.completed_at ? '已完成 · ' + datetime(node.completed_at) : (node.overdue ? '逾期 · ' : '') + node.due_date }}</small></summary>
-                <div v-for="u in task.updates.filter(u => u.node_id === node.id)" :key="u.id" class="node-entry"><small>{{ datetime(u.created_at) }} · {{ u.author_name }}</small><p class="plain">{{ u.content }}</p></div>
+                <div v-for="u in task.updates.filter(u => u.node_id === node.id)" :key="u.id" class="node-entry"><small>{{ datetime(u.created_at) }} · {{ u.author_name }}</small><p class="plain">{{ u.content }}</p><FeedbackAttachmentList :files="u.attachments" /></div>
                 <p v-if="!task.updates.some(u => u.node_id === node.id)" class="jc-muted jc-small">暂无单独登记的节点进展；原有记录仍保留在任务过程记录中。</p>
                 <el-button v-if="task.can_feedback" link type="primary" @click="form.node_id = node.id">反馈此节点</el-button>
               </details>
@@ -72,13 +72,16 @@
           <p class="plain">{{ u.content }}</p>
           <p v-if="u.reply_to_id" class="jc-small jc-muted">回复要求 #{{ u.reply_to_id }}</p>
           <p v-if="u.next_step" class="plain jc-small jc-muted">下一步：{{ u.next_step }}</p>
+          <FeedbackAttachmentList :files="u.attachments" />
         </el-timeline-item>
       </el-timeline>
       <p v-else class="jc-muted">暂无过程记录</p>
       <WecomDeliveryStatus :rows="task?.notification_deliveries" />
     </el-dialog>
     <template v-if="!archived && !unavailable && (task?.can_feedback || task?.can_review || task?.delay_status)" #footer>
-      <div class="task-footer"><el-button @click="visible = false">关闭</el-button>
+      <div class="task-footer">
+        <FeedbackAttachmentPicker v-if="task.can_feedback && !task.can_review" v-model="attachments" :disabled="saving" />
+        <el-button :disabled="saving" @click="visible = false">关闭</el-button>
         <el-button v-if="task.can_review" type="danger" plain :disabled="saving || draftStale" @click="review('reject')">退回修改</el-button>
         <el-button v-if="task.can_review" type="primary" :loading="saving" :disabled="draftStale" @click="review('approve')">审核通过</el-button>
         <el-button v-else-if="task.can_feedback" type="primary" :loading="saving" :disabled="drafting || draftStale" @click="submit">提交进展</el-button>
@@ -91,6 +94,9 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
+import FeedbackAttachmentList from '@/components/records/FeedbackAttachmentList.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import WecomDeliveryStatus from '@/components/WecomDeliveryStatus.vue'
 import { useAssistant } from '@/store/assistant'
 import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
@@ -116,6 +122,7 @@ const timeline = computed(() => {
 })
 const hasHistory = computed(() => !!(timeline.value.length || task.value?.notification_deliveries?.length))
 const drafting = ref(false), formRef = ref(), reviewComment = ref(''), formRevision = ref(null)
+const attachments = ref([])
 const form = reactive({ content: '', next_step: '', status: 'doing', completed_node_ids: [], incomplete_reason: '', node_id: null })
 const remainingNodes = computed(() => task.value?.nodes.filter(n => !n.completed_at) || [])
 const progress = computed(() => task.value && taskProgress(task.value))
@@ -139,14 +146,14 @@ async function load(background = false) {
     if (current !== version || !visible.value) return
     if (props.projectId && result.project_id !== props.projectId) { historyOpen.value = false; task.value = null; unavailable.value = true; return }
     if (task.value?.revision > result.revision) return
-    const keepDraft = task.value && (JSON.stringify(form) !== baseline || reviewComment.value.trim())
+    const keepDraft = task.value && (JSON.stringify(form) !== baseline || reviewComment.value.trim() || attachments.value.length)
     task.value = result; unavailable.value = false
     if (!keepDraft) resetForm(result)
   } catch (err) {
     if (current === version && (!background || err.code === 40301 || err.code === 40401 || !task.value)) { historyOpen.value = false; task.value = null; unavailable.value = true }
   } finally { if (current === version) loading.value = false }
 }
-watch(() => [visible.value, props.taskId], () => { version++; historyOpen.value = false; task.value = null; unavailable.value = false; load() }, { immediate: true })
+watch(() => [visible.value, props.taskId], () => { version++; historyOpen.value = false; task.value = null; unavailable.value = false; attachments.value = []; load() }, { immediate: true })
 useBusinessRefresh(() => load(true), { interval: 12000, enabled: () => visible.value })
 
 function updateTitle(update) {
@@ -170,11 +177,13 @@ async function save(kind, body, message, revision = formRevision.value) {
   const feedbackWasCurrent = !draftStale.value
   saving.value = true
   try {
-    const result = await api.post(`/operations/tasks/${id}/${kind}`, { ...body, expected_revision: revision })
+    const result = await submitFeedback(`/operations/tasks/${id}/${kind}`, { ...body, expected_revision: revision },
+      kind === 'feedback' ? attachments.value : [])
     if (visible.value && task.value?.id === id) {
       task.value = result
       if (!delayAction) resetForm(result)
       else if (feedbackWasCurrent) formRevision.value = result.revision
+      if (kind === 'feedback') attachments.value = []
     }
     ElMessage.success(message); announceChange()
     return true

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
+from app.api.feedback_payload import FeedbackPayload, feedback_payload
 from app.core.db import get_db
 from app.core.deps import Principal, require_menu
 from app.core.response import ok
@@ -136,7 +137,8 @@ def item(contract_id: int, plan_key: int, p: Principal = Menu, db: Session = Dep
 
 
 @router.post("/{contract_id}/{plan_key}")
-def follow_up(contract_id: int, plan_key: int, body: FollowupIn, p: Principal = Menu, db: Session = Depends(get_db)):
-    out = service.record(db, p, contract_id, plan_key, body)
-    db.commit()
+def follow_up(contract_id: int, plan_key: int, p: Principal = Menu, db: Session = Depends(get_db),
+              submission: FeedbackPayload[FollowupIn] = Depends(feedback_payload(FollowupIn))):
+    out = service.record(db, p, contract_id, plan_key, submission.body, uploads=submission.uploads)
+    submission.uploads.commit(db)
     return ok(out)

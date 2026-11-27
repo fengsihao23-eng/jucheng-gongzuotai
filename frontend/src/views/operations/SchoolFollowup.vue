@@ -28,8 +28,11 @@
         </TaskFeedbackForm>
       </div>
       <template #footer>
-        <el-button :disabled="saving" @click="open = false">关闭</el-button>
-        <el-button type="primary" :loading="saving" :disabled="drafting" @click="save">提交进展</el-button>
+        <div class="visit-actions">
+          <FeedbackAttachmentPicker v-model="attachments" :disabled="saving" />
+          <el-button :disabled="saving" @click="open = false">关闭</el-button>
+          <el-button type="primary" :loading="saving" :disabled="drafting" @click="save">提交进展</el-button>
+        </div>
       </template>
     </el-dialog>
     <el-timeline v-if="items.length" class="visit-timeline">
@@ -40,6 +43,7 @@
         <p v-if="visit.incomplete_reason" class="plain"><b>未完成原因</b> {{ visit.incomplete_reason }}</p>
         <p v-if="visit.next_action" class="plain"><b>下一步</b> {{ visit.next_action }}</p>
         <p v-if="visit.next_contact_date" class="jc-small jc-muted">下次跟进 {{ visit.next_contact_date }}</p>
+        <FeedbackAttachmentList :files="visit.attachments" />
         <small class="jc-muted">录入时间 {{ datetime(visit.created_at) }}</small>
       </el-timeline-item>
     </el-timeline>
@@ -51,6 +55,9 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
+import FeedbackAttachmentList from '@/components/records/FeedbackAttachmentList.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import { useAuth } from '@/store/auth'
 import { recordRemoval } from '@/composables/useRecordDeletion'
 import { datetime } from '@/utils/format'
@@ -62,9 +69,11 @@ const emit = defineEmits(['saved'])
 const auth = useAuth()
 const items = ref([]), open = ref(false), saving = ref(false), drafting = ref(false), formRef = ref()
 const form = reactive({}), stageAtOpen = ref(null)
+const attachments = ref([])
 const endpoint = computed(() => `/operations/${props.project.id}/schools/${props.school.id}/visits`)
 const canTransition = computed(() => props.project.can_manage && !['won', 'operating'].includes(stageAtOpen.value))
 let request = 0, submission
+watch(attachments, () => { submission = null })
 
 const visitRemoval = row => (props.project.can_manage || auth.hasDeleteGrant) &&
   recordRemoval('operation-visit', row.id, row.occurred_on, async () => { await load(); emit('saved') },
@@ -76,6 +85,7 @@ function start() {
     next_contact_date: null, target_stage: null,
   })
   stageAtOpen.value = props.school.stage
+  attachments.value = []
   submission = null
   open.value = true
 }
@@ -105,9 +115,10 @@ async function save() {
     }
     const key = JSON.stringify(payload)
     if (submission?.key !== key) submission = { key, id: crypto.randomUUID() }
-    await api.post(url, { ...payload, client_id: submission.id })
+    await submitFeedback(url, { ...payload, client_id: submission.id }, attachments.value)
     announceChange()
     if (url !== endpoint.value) return
+    attachments.value = []
     open.value = false
     await load()
     emit('saved')
@@ -125,5 +136,7 @@ async function save() {
 .visit-form :deep(.el-select) { width: 100%; }
 .visit-timeline { padding: 4px 0 0; }
 .visit-timeline p { margin: 6px 0; }
+.visit-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.visit-actions .el-button + .el-button { margin-left: 0; }
 .plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

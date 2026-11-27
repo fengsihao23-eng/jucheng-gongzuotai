@@ -216,6 +216,8 @@ def test_monthly_plans_use_source_totals_and_merged_anchor_once(db, client, logi
 
 
 def test_progress_history_contract_context_and_notifications(db, client, login, collection_source, monkeypatch):
+    import json
+
     from app.services import collection_plans
 
     wb, recipient_id = collection_source
@@ -233,9 +235,14 @@ def test_progress_history_contract_context_and_notifications(db, client, login, 
     body = {'stage': 'approval', 'content': '客户已经递交付款审批', 'expected_on': '2026-12-05', 'expected_report_id': revision}
     assert client.post(endpoint + '/progress', json=body, headers=manager).status_code == 403
     assert client.post(endpoint + '/progress', json=body, headers=third).status_code == 404
-    updated = data(client.post(endpoint + '/progress', json=body, headers=recipient))
+    contents = b'\x00\xffpayment review notes'
+    updated = data(client.post(endpoint + '/progress', data={'payload': json.dumps(body)},
+        files={'files': ('付款审批留档.原件', contents, 'application/octet-stream')}, headers=recipient))
     assert [r['stage'] for r in updated['reports']] == ['contact', 'approval']
     assert updated['reports'][1]['expected_on'] == '2026-12-05'
+    [attachment] = updated['reports'][1]['attachments']
+    assert client.get(attachment['url'], headers=manager).content == contents
+    assert client.get(attachment['url'], headers=third).status_code == 404
     assert client.post(endpoint + '/progress', json=body, headers=recipient).status_code == 409
     final = data(client.post(endpoint + '/progress', json={**body, 'stage': 'reported_paid', 'content': '客户反馈已付款，等待核对',
         'expected_report_id': updated['reports'][-1]['id']}, headers=recipient))

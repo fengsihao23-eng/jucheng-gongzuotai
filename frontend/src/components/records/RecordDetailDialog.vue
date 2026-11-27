@@ -2,7 +2,7 @@
   <el-dialog v-model="visible" :title="dialogTitle || data?.record.label || title || '记录详情'"
     class="record-detail-dialog" width="min(1050px, calc(100vw - 40px))"
     align-center append-to-body destroy-on-close :close-on-click-modal="false"
-    :close-on-press-escape="!closeLocked" :show-close="!closeLocked" @close="emit('close')" @closed="emit('closed')">
+    :close-on-press-escape="!locked" :show-close="!locked" @close="emit('close')" @closed="emit('closed')">
     <div class="record-page">
       <template v-if="recordTarget">
         <header class="record-head">
@@ -104,6 +104,7 @@
                 <p class="record-text">{{ latest.content }}</p>
                 <p v-if="latest.problems" class="record-text jc-down">阻碍 · {{ latest.problems }}</p>
                 <p v-if="latest.next_step" class="record-text">下一步 · {{ latest.next_step }}</p>
+                <FeedbackAttachmentList :files="latest.attachments" />
               </template>
               <p v-else class="jc-muted jc-small">暂无进展反馈。</p>
               <WorkbookProjectArchive v-if="data.archive || data.can_archive || (data.can_feedback && 'can_archive' in data && outcome === 'done')" ref="archiveAction"
@@ -122,7 +123,10 @@
     </div>
     <template #footer>
       <div class="record-actions record-footer">
-        <el-button :disabled="closeLocked" @click="visible = false">关闭</el-button>
+        <slot name="attachments">
+          <FeedbackAttachmentPicker v-if="data?.can_feedback && !$slots.progress" v-model="attachments" :disabled="!!saving" />
+        </slot>
+        <el-button :disabled="locked" @click="visible = false">关闭</el-button>
         <slot name="footer" />
         <el-button v-if="data?.can_feedback && !$slots.progress" type="primary" :loading="saving === 'progress'"
           :disabled="!progressValid || !!saving" @click="sendProgress">提交进展</el-button>
@@ -140,6 +144,7 @@
         <p class="record-text">{{ item.content }}</p>
         <p v-if="item.problems" class="record-text jc-down">阻碍 · {{ item.problems }}</p>
         <p v-if="item.next_step" class="record-text">下一步 · {{ item.next_step }} {{ item.next_due_on || '' }}</p>
+        <FeedbackAttachmentList :files="item.attachments" />
         <el-button v-if="item.can_reply" link type="primary" @click="beginReply(item); historyOpen = false">回复这条要求</el-button>
       </el-timeline-item>
     </el-timeline>
@@ -154,9 +159,12 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
 import { announceBusinessChange, useBusinessRefresh } from '@/composables/useBusinessRefresh'
 import { datetime } from '@/utils/format'
 import WorkbookProjectArchive from '@/components/WorkbookProjectArchive.vue'
+import FeedbackAttachmentList from './FeedbackAttachmentList.vue'
+import FeedbackAttachmentPicker from './FeedbackAttachmentPicker.vue'
 
 const props = defineProps({ modelValue: Boolean, title: String, dialogTitle: String, heading: String, subtitle: String,
   status: String, statusTone: { type: String, default: 'brand' }, facts: Array, historyEntries: Array,
@@ -170,6 +178,8 @@ const endpoint = computed(() => recordTarget.value && `/record-followups/${recor
 const params = computed(() => ({ sheet: recordTarget.value?.sheet || undefined, revision: recordTarget.value?.revision || undefined }))
 const identity = computed(() => [endpoint.value, params.value.sheet, params.value.revision].join('|'))
 const data = ref(null), error = ref(''), saving = ref(''), historyOpen = ref(false), moreLoading = ref(false)
+const attachments = ref([])
+const locked = computed(() => props.closeLocked || (saving.value === 'progress' && !!attachments.value.length))
 const previous = ref([]), previousBefore = ref(null), finding = ref(false), people = ref([]), replyTo = ref(null)
 const discussion = reactive({ kind: 'note', recipient: null, content: '' })
 const progress = reactive({ content: '', problems: '', next_step: '', next_due_on: '' })
@@ -198,6 +208,7 @@ const discussionValid = computed(() => !!discussion.content.trim() && (replyTo.v
 const progressValid = computed(() => !!progress.content.trim() && (outcome.value === 'done' || ((!blocked.value || !!progress.problems.trim()) && (!progress.next_due_on || !!progress.next_step.trim()))))
 let version = 0, peopleVersion = 0
 const retry = { discussion: null, progress: null }
+watch(attachments, () => { retry.progress = null })
 let draftRevision = null
 watch(() => progress.content, content => {
   if (content.trim() && draftRevision === null) draftRevision = data.value?.progress_revision ?? null
@@ -215,6 +226,7 @@ function reset() {
   people.value = []
   Object.assign(discussion, { kind: 'note', recipient: null, content: '' })
   Object.assign(progress, { content: '', problems: '', next_step: '', next_due_on: '' })
+  attachments.value = []
   archiveRequested.value = visible.value && props.archiveOnOpen
   outcome.value = archiveRequested.value ? 'done' : 'pending'
   blocked.value = false
@@ -290,7 +302,8 @@ async function save(form, body, message) {
   saving.value = form
   version++
   try {
-    const result = await api.post(endpoint.value + (query ? '?' + query : ''), { ...body, client_id: uuidFor(form, body) })
+    const url = endpoint.value + (query ? '?' + query : '')
+    const result = await submitFeedback(url, { ...body, client_id: uuidFor(form, body) }, form === 'progress' ? attachments.value : [])
     if (key !== identity.value || !visible.value) return false
     data.value = result
     retry[form] = null
@@ -328,6 +341,7 @@ async function sendProgress() {
     expected_progress: draftRevision ?? data.value.progress_revision }
   if (await save('progress', body, '进展已提交')) {
     Object.assign(progress, { content: '', problems: '', next_step: '', next_due_on: '' })
+    attachments.value = []
     outcome.value = 'pending'
     blocked.value = false
   }

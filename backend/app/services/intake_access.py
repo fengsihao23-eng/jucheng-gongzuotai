@@ -5,9 +5,10 @@ from sqlalchemy.orm import aliased
 
 from app.core.response import not_found
 from app.models import CleanJob, ImportBatch, KbDocument, SysFile, SysUser
+from app.services import feedback_attachments
 
 PROTECTED_FILE_CATEGORIES = {"import", "kb", "clean", "clean_report", "project_finance_source",
-                             "general_project_report", "project_team_report"}
+                             "general_project_report", "project_team_report", feedback_attachments.CATEGORY}
 PROJECT_REPORT_PATHS = tuple(f"report/{name}/" for name in ("market_weekly", "market_monthly", "general_weekly",
     "general_monthly", "project_weekly", "weekly_profit", "project_operation", "company_weekly"))
 
@@ -77,6 +78,8 @@ def require_file_access(db, p, file):
     """旧版本原件沿用当前文档权限；撤销共享后旧签名也不能绕过权限。"""
     if not needs_file_access(file):
         return
+    if file.category == feedback_attachments.CATEGORY:
+        return feedback_attachments.require_access(db, p, file)
     allowed = False
     if file.category == "project_finance_source":
         from app.models import FinProjectReport

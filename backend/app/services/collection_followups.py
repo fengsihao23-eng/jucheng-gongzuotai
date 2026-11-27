@@ -8,7 +8,7 @@ from sqlalchemy.orm import defer
 from app.core.audit import log_op
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.core.response import bad_request, conflict, forbidden, not_found
+from app.core.response import BizError, bad_request, conflict, forbidden, not_found
 from app.core.timeutil import now, today, utcnow
 from app.integration import llm
 from app.models import (
@@ -18,7 +18,7 @@ from app.models import (
     WorkbookCollectionProgress as Progress,
     WorkbookCollectionRequest as Followup,
 )
-from app.services import business_workbook as source, dict_service
+from app.services import business_workbook as source, dict_service, feedback_attachments
 from app.services.collection_service import can_request
 
 NOTICE_REQUEST = 'workbook_collection_request'
@@ -244,6 +244,22 @@ def _get(db, p, ident, *, lock=False):
     return row
 
 
+def read_progress(db, p, progress):
+    try:
+        _get(db, p, progress.request_id)
+        return
+    except BizError as exc:
+        if exc.code != 40401:
+            raise
+    request = db.get(Followup, progress.request_id)
+    workbook = _current(db, p, "", allow_empty_revision=True)
+    if request and workbook.id == request.workbook_id:
+        for sheet in source.collection_sheets(workbook):
+            if sheet.id == request.sheet_id and any(request.row_key in _keys(sheet.rows[item['row']].get('record')) for item in sheet.items):
+                return
+    raise not_found('回款跟进')
+
+
 def thread(db, p, ident):
     row = _get(db, p, ident)
     names = dict(db.execute(select(SysUser.id, SysUser.name).where(SysUser.id.in_((row.author_id, row.recipient_id)))).all())
@@ -268,9 +284,10 @@ def thread(db, p, ident):
                     contract_link = {'path': f"/collections/items/{sheet.id}/{item['row']}/report", 'revision': wb.revision}
     reports = list(db.scalars(select(Progress).where(Progress.request_id == ident).order_by(Progress.id)))
     author_names = dict(db.execute(select(SysUser.id, SysUser.name).where(SysUser.id.in_([r.author_id for r in reports]))).all()) if reports else {}
+    attachments = feedback_attachments.by_record(db, Progress, (report.id for report in reports))
     timeline = [{'id': report.id, 'stage': report.stage, 'stage_name': STAGES[report.stage], 'content': report.content,
                  'problems': report.problems, 'created_at': report.created_at, 'author_name': author_names.get(report.author_id),
-                 'expected_on': report.expected_on, 'next_step': report.next_step} for report in reports]
+                 'expected_on': report.expected_on, 'next_step': report.next_step, 'attachments': attachments[report.id]} for report in reports]
     stage = reports[-1].stage if reports else None
     deliveries = {n.msg_type: {'status': n.send_status, 'sent_at': n.sent_at}
         for n in db.scalars(select(SysNotify).where(SysNotify.ref_type == REF_TYPE, SysNotify.ref_id == str(ident),
@@ -289,7 +306,7 @@ def thread(db, p, ident):
             'progress_delivery': deliveries.get(NOTICE_PROGRESS)}
 
 
-def reply(db, p, ident, body):
+def reply(db, p, ident, body, *, uploads=None):
     row = _get(db, p, ident, lock=True)
     if row.recipient_id != p.id:
         raise forbidden('只有指定负责人可回复')
@@ -303,14 +320,17 @@ def reply(db, p, ident, body):
     problems = getattr(body, 'problems', None)
     if stage != 'reported_paid' and not problems and request_payment_due(db, row):
         raise bad_request('回款已到期，请填写未收原因')
-    db.add(Progress(request_id=row.id, author_id=p.id, stage=stage, content=body.content,
-                    problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now()))
+    entry = Progress(request_id=row.id, author_id=p.id, stage=stage, content=body.content,
+                     problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now())
+    db.add(entry)
+    if uploads:
+        uploads.save(db, p, entry)
     notices = _notify(db, row, db.get(SysUser, row.author_id), NOTICE_REPLY) if row.author_id != p.id else []
     log_op(db, p.id, 'collections.reply_followup', REF_TYPE, row.id)
     return notices
 
 
-def progress(db, p, ident, body):
+def progress(db, p, ident, body, *, uploads=None):
     row = _get(db, p, ident, lock=True)
     if row.recipient_id != p.id:
         raise forbidden('只有指定跟进人可以填写进度')
@@ -330,8 +350,11 @@ def progress(db, p, ident, body):
         raise bad_request('回款已到期，请填写未收原因')
     if body.expected_on:
         row.expected_on = body.expected_on
-    db.add(Progress(request_id=ident, author_id=p.id, stage=body.stage, content=body.content,
-                    problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now()))
+    entry = Progress(request_id=ident, author_id=p.id, stage=body.stage, content=body.content,
+                     problems=problems, expected_on=body.expected_on, next_step=body.next_step, created_at=now())
+    db.add(entry)
+    if uploads:
+        uploads.save(db, p, entry)
     log_op(db, p.id, 'collections.progress', REF_TYPE, row.id, after={'stage': body.stage})
     return _notify(db, row, db.get(SysUser, row.author_id), NOTICE_PROGRESS) if row.author_id != p.id else []
 
@@ -361,6 +384,7 @@ def execution_detail(db, p, sheet_id, row_number, revision=''):
     records = list(db.scalars(_row_query(wb, sheet_id, keys).order_by(Followup.id.asc()))) if keys else []
     req_ids = [r.id for r in records]
     progs = list(db.scalars(select(Progress).where(Progress.request_id.in_(req_ids)).order_by(Progress.id.asc()))) if req_ids else []
+    attachments = feedback_attachments.by_record(db, Progress, (progress.id for progress in progs))
 
     user_ids = {uid for r in records for uid in (r.author_id, r.recipient_id)} | {pr.author_id for pr in progs}
     users = dict(db.execute(select(SysUser.id, SysUser.name).where(SysUser.id.in_(user_ids))).all()) if user_ids else {}
@@ -393,6 +417,7 @@ def execution_detail(db, p, sheet_id, row_number, revision=''):
             'expected_on': str(pr.expected_on) if pr.expected_on else None,
             'author_name': users.get(pr.author_id) or '跟进人',
             'created_at': pr.created_at,
+            'attachments': attachments[pr.id],
         })
     updates.sort(key=lambda u: u['created_at'], reverse=True)
 
@@ -496,7 +521,7 @@ def execution_detail(db, p, sheet_id, row_number, revision=''):
     }
 
 
-def submit_execution(db, p, sheet_id, row_number, body):
+def submit_execution(db, p, sheet_id, row_number, body, *, uploads=None):
     """Record execution progress and existing problems directly on a collection item."""
     wb = _current(db, p, body.revision, lock=True)
     item, keys = _sheet_item(wb, sheet_id, row_number)
@@ -572,6 +597,8 @@ def submit_execution(db, p, sheet_id, row_number, body):
     )
     db.add(prog)
     db.flush()
+    if uploads:
+        uploads.save(db, p, prog)
     log_op(db, p.id, 'collections.execution_feedback', REF_TYPE, target.id,
            after={'stage': stage, 'has_problem': bool(problems), 'progress_id': prog.id})
     return notices

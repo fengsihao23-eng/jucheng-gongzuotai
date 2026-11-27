@@ -26,13 +26,17 @@
         <el-form-item :label="form.kind === 'request' ? '需要反馈什么' : '反馈内容'">
           <el-input v-model="form.content" type="textarea" :rows="3" maxlength="1600" show-word-limit />
         </el-form-item>
-        <el-button type="primary" :disabled="!form.content.trim() || (form.kind === 'request' && !form.recipient_id)" :loading="saving" @click="save">保存</el-button>
+        <div class="jc-row wrap">
+          <FeedbackAttachmentPicker v-if="form.kind !== 'request'" v-model="attachments" :disabled="saving" />
+          <el-button type="primary" :disabled="!form.content.trim() || (form.kind === 'request' && !form.recipient_id)" :loading="saving" @click="save">保存</el-button>
+        </div>
       </el-form>
       <h4 class="mt-16">跟进记录</h4>
       <el-timeline v-if="detail.entries.length">
         <el-timeline-item v-for="entry in detail.entries" :key="entry.id" :timestamp="datetime(entry.at)">
           <b>{{ entry.author }} · {{ actions[entry.kind] }}{{ entry.recipient ? ' → ' + entry.recipient : '' }}</b>
           <p class="plain">{{ entry.content }}</p><p v-if="entry.expected_on" class="jc-small jc-muted">预计回款 {{ entry.expected_on }}</p>
+          <FeedbackAttachmentList :files="entry.attachments" />
         </el-timeline-item>
       </el-timeline>
       <el-empty v-else description="暂无跟进记录" :image-size="55" />
@@ -109,6 +113,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api/client'
+import { submitFeedback } from '@/api/feedback'
+import FeedbackAttachmentList from '@/components/records/FeedbackAttachmentList.vue'
+import FeedbackAttachmentPicker from '@/components/records/FeedbackAttachmentPicker.vue'
 import { useAuth } from '@/store/auth'
 import { datetime, money } from '@/utils/format'
 
@@ -130,6 +137,7 @@ const board = ref({ totals: [], owners: [], items: [], total: 0 })
 const labels = computed(() => ({ all: '应收余额', before: filters.year + ' 年以前', current: filters.year + ' 年', future: filters.year + ' 年以后', undated: '未定日期' }))
 const page = ref(1), loading = ref(false)
 const detail = ref(null), detailLoading = ref(false), saving = ref(false)
+const attachments = ref([])
 const selection = ref(null), form = reactive({ kind: 'note', content: '', recipient_id: null, expected_on: null })
 let loadId = 0, detailId = 0
 function refresh() { page.value = 1; return load() }
@@ -145,6 +153,7 @@ async function load() {
 }
 function endpoint(row) { return '/collections/' + row.contract_id + '/' + row.plan_key }
 function resetForm(row) {
+  attachments.value = []
   Object.assign(form, { kind: row.can_reply ? 'reply' : row.can_note ? 'note' : 'request', content: '', recipient_id: row.reply_to_id, expected_on: row.expected_on })
 }
 async function open(row) {
@@ -161,11 +170,12 @@ function clearDetail() {
   if (route.query.contract) router.replace({ query: {} })
 }
 async function save() {
+  if (saving.value) return
   saving.value = true
   const current = detailId, selected = selection.value
   try {
-    const result = await api.post(endpoint(selected), { kind: form.kind, content: form.content, expected_on: form.expected_on || null,
-      recipient_id: form.kind === 'request' ? form.recipient_id : null })
+    const result = await submitFeedback(endpoint(selected), { kind: form.kind, content: form.content, expected_on: form.expected_on || null,
+      recipient_id: form.kind === 'request' ? form.recipient_id : null }, form.kind === 'request' ? [] : attachments.value)
     if (current === detailId) { detail.value = result; resetForm(result) }
     ElMessage.success('跟进已保存'); load()
   } catch {} finally { saving.value = false }

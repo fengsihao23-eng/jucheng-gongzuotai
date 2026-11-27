@@ -79,7 +79,7 @@ export const api = {
       }
     }
     const cd = resp.headers['content-disposition'] || ''
-    const m = cd.match(/filename\*=UTF-8''([^;]+)/) || cd.match(/filename="?([^";]+)"?/)
+    const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/)
     const name = filename || (m ? decodeURIComponent(m[1]) : 'download')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(resp.data)

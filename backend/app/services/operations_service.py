@@ -10,8 +10,8 @@ from app.core.response import bad_request, conflict, forbidden, not_found
 from app.core.timeutil import TZ, now, today
 from app.models import (OpsEquipment, OpsImportBatch, OpsIncome, OpsMember, OpsOutreachGoal, OpsProduct, OpsProject, OpsProjectIncome,
                         OpsProjectProgress, OpsSchool, OpsSchoolRegion, OpsSchoolVisit,
-                        OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskReview, OpsTaskUpdate, SysUser)
-from app.services import notify_service, operations_deadlines as deadlines, operations_policy as policy, task_feedback_deadlines
+                        OpsTask, OpsTaskAudience, OpsTaskNode, OpsTaskPolicy, OpsTaskReview, OpsTaskUpdate, SysUser)
+from app.services import feedback_attachments, notify_service, operations_deadlines as deadlines, operations_policy as policy, task_feedback_deadlines
 from app.services import operations_followup as followups
 from app.services import operations_scope as content_scope
 from app.services.operations_notifications import PROJECT_ASSIGNMENT, TASK_ASSIGNMENT
@@ -186,31 +186,44 @@ def visible_progress(p, project_id):
             OpsProjectProgress.task_id.in_(select(OpsTask.id).where(OpsTask.project_id == project_id, policy.task_access(p)))))
 
 
-def project_progress(db, p, project_id, before_id=None):
+def _progress_query(db, p, project_id):
     project = get_project(db, p, project_id)
     content_scope.require(db, p, project, "progress")
     if not has_project_content(db, p, project):
         raise forbidden("仅项目成员可查看项目进度")
-    query = visible_progress(p, project_id)
+    return visible_progress(p, project_id)
+
+
+def read_progress(db, p, project_id, *, entry_id):
+    if db.scalar(_progress_query(db, p, project_id).with_only_columns(OpsProjectProgress.id)
+                 .where(OpsProjectProgress.id == entry_id)) is None:
+        raise not_found("项目进度")
+
+
+def project_progress(db, p, project_id, before_id=None):
+    query = _progress_query(db, p, project_id)
     if before_id is not None:
         query = query.where(OpsProjectProgress.id < before_id)
     rows = db.scalars(query.order_by(OpsProjectProgress.id.desc()).limit(26)).all()
-    return {"items": [progress_dict(row) for row in rows[:25]], "next_before_id": rows[24].id if len(rows) > 25 else None}
+    attachments = feedback_attachments.by_record(db, OpsProjectProgress, (row.id for row in rows[:25]))
+    return {"items": [{**progress_dict(row), "attachments": attachments[row.id]} for row in rows[:25]],
+            "next_before_id": rows[24].id if len(rows) > 25 else None}
 
 
-def record_project_progress(db, p, project_id, body):
+def record_project_progress(db, p, project_id, body, *, uploads=None):
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
     content_scope.require(db, p, project, "progress")
-    return _save_project_progress(db, p, project, body)
+    return _save_project_progress(db, p, project, body, uploads=uploads)
 
 
-def _save_project_progress(db, p, project, body, task_id=None):
+def _save_project_progress(db, p, project, body, task_id=None, *, uploads=None, group=0):
     row = OpsProjectProgress(project_id=project.id, author_id=p.id, created_at=now())
-    return progress_dict(_write(db, p, row, {**body.model_dump(), "task_id": task_id}, PROJECT_PROGRESS_FIELDS))
+    _write(db, p, row, {**body.model_dump(), "task_id": task_id}, PROJECT_PROGRESS_FIELDS)
+    return {**progress_dict(row), "attachments": uploads.save(db, p, row, group=group) if uploads else []}
 
 
-def record_project_progress_entries(db, p, project_id, entries, expected_owner_id=None):
+def record_project_progress_entries(db, p, project_id, entries, expected_owner_id=None, *, uploads=None):
     """Record the report and its dated work items once, in the same transaction."""
     project = get_project(db, p, project_id, lock=True)
     manage(db, p, project)
@@ -222,9 +235,9 @@ def record_project_progress_entries(db, p, project_id, entries, expected_owner_i
             raise conflict("项目负责人已变更，请核对后重新填写")
         user(db, project.owner_id)
     saved, created = [], []
-    for entry in entries:
+    for index, entry in enumerate(entries):
         plan = _create_project_plan(db, p, project, entry) if can_plan and entry.next_due_date else None
-        saved.append(_save_project_progress(db, p, project, entry, plan.id if plan else None))
+        saved.append(_save_project_progress(db, p, project, entry, plan.id if plan else None, uploads=uploads, group=index))
         if plan:
             created.append(plan.id)
     return {"project_id": project.id, "items": saved, "created_task_ids": created}
@@ -595,7 +608,7 @@ def effective_task_progress(task, reported=None):
     return min(99, max(task.progress if reported is None else reported, node_progress))
 
 
-def feedback(db, p, task_id, body):
+def feedback(db, p, task_id, body, *, uploads=None):
     task = get_task(db, p, task_id, lock=True)
     project = get_project(db, p, task.project_id, lock=True)
     active(project)
@@ -639,6 +652,8 @@ def feedback(db, p, task_id, body):
         from app.models import OpsTaskNodeUpdate
         db.flush()
         db.add(OpsTaskNodeUpdate(update_id=event.id, node_id=body.node_id))
+    if uploads:
+        uploads.save(db, p, event)
     log_op(db, p.id, "operations.task.feedback", "ops_task", task.id, before=before, after=snapshot(task, TASK_FIELDS))
     recipients = {project.owner_id, task.creator_id} - {p.id}
     _notify(db, recipients, project, task, "运营任务有新进展", f"{task.title} · {STATUS_LABELS[task.status]}\n{content[:500]}")
@@ -679,18 +694,28 @@ def task_dict(db, p, project, task, updates=None, viewer_role=None, delay=None, 
             **({"updates": updates} if updates is not None else {})}
 
 
-def task_detail(db, p, task_id, *, archived=False):
-    from app.services.operations_notifications import delivery_status
+def read_task(db, p, task_id, *, archived=None):
+    if archived is None:
+        archived = db.scalar(select(OpsTaskPolicy.archived_at).where(OpsTaskPolicy.task_id == task_id)) is not None
     task = get_task(db, p, task_id, archived=archived)
     project = get_project(db, p, task.project_id)
     if archived and not policy.can_archive(db, p, project):
         raise forbidden("仅获作废管理权限的人员可查看作废任务")
+    return task, project
+
+
+def task_detail(db, p, task_id, *, archived=False):
+    from app.services.operations_notifications import delivery_status
+
+    task, project = read_task(db, p, task_id, archived=archived)
     updates = [{"id": u.id, "kind": u.kind, "author_name": u.author.name, "created_at": u.created_at,
                 **snapshot(u, ["content", "next_step", "status", "progress"])} for u in db.scalars(
                     select(OpsTaskUpdate).where(OpsTaskUpdate.task_id == task.id).order_by(OpsTaskUpdate.id.desc()))]
     links = followups.node_links(db, [u["id"] for u in updates])
+    attachments = feedback_attachments.by_record(db, OpsTaskUpdate, (u["id"] for u in updates if u["kind"] == "feedback"))
     for u in updates:
         u["node_id"] = links.get(u["id"])
+        u["attachments"] = attachments[u["id"]]
     reviews = [{"id": r.id, "reviewer_name": r.reviewer.name, "created_at": r.created_at,
                 **snapshot(r, ["stage", "decision", "comment", "task_revision"])} for r in db.scalars(
                     select(OpsTaskReview).where(OpsTaskReview.task_id == task_id).order_by(OpsTaskReview.id))]
