@@ -5,11 +5,12 @@
         <p class="source">
           <span>{{ report?.source_mode === 'mock' ? '企业微信项目工单 · 联调数据' : '企业微信 · 项目工单审批' }}</span>
           <span v-if="report?.last_synced_at">最近同步 {{ timestamp(report.last_synced_at) }}</span>
+          <span v-if="report">每 30 秒自动刷新</span>
         </p>
       </template>
       <el-date-picker v-model="month" type="month" format="YYYY 年 MM 月" value-format="YYYY-MM"
                       aria-label="统计月份" :clearable="false" style="width: 164px" @change="changeMonth" />
-      <el-button :icon="Refresh" :loading="loading" @click="load">刷新统计</el-button>
+      <el-button :icon="Refresh" :loading="loading" @click="load()">刷新统计</el-button>
     </PageHeader>
 
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" class="mt-16" />
@@ -70,7 +71,7 @@
       </template>
       <div class="filters">
         <el-input v-model.trim="keyword" clearable class="search" aria-label="搜索工单"
-                  placeholder="审批编号、主题或项目" maxlength="100" @change="reloadDetails" />
+                  placeholder="审批编号、主题或项目" maxlength="100" @change="search" />
         <el-select v-if="report?.after_sales" v-model="owner" clearable filterable class="filter-control"
                    aria-label="工单负责人" placeholder="全部负责人" @change="reloadDetails">
           <el-option v-for="person in report.owners" :key="person.id" :label="person.name" :value="person.id" />
@@ -99,8 +100,8 @@
         </el-table-column>
       </el-table>
       <div v-if="report?.total > pageSize" class="pagination">
-        <el-pagination v-model:current-page="page" :page-size="pageSize" :total="report.total"
-                       :pager-count="5" layout="prev, pager, next" @current-change="load" />
+        <el-pagination :current-page="page" :page-size="pageSize" :total="report.total"
+                       :pager-count="5" layout="prev, pager, next" @update:current-page="changePage" />
       </div>
     </Panel>
 
@@ -141,6 +142,7 @@
 import { onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import api from '@/api/client'
+import { useBusinessRefresh } from '@/composables/useBusinessRefresh'
 
 const timeZone = 'Asia/Shanghai'
 const monthFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone, year: 'numeric', month: '2-digit' })
@@ -181,34 +183,61 @@ const loading = ref(false)
 const error = ref('')
 const selected = ref(null)
 const details = ref(null)
+let appliedKeyword = ''
 let requestNumber = 0
 
-async function load() {
+async function load(background = false) {
   const request = ++requestNumber
-  loading.value = true
-  error.value = ''
+  if (!background) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const data = await api.get('/technical-orders', {
       month: month.value, owner: owner.value || undefined, stage: stage.value || undefined,
-      keyword: keyword.value || undefined, page: page.value, page_size: pageSize,
+      keyword: appliedKeyword || undefined, page: page.value, page_size: pageSize,
     }, { silent: true })
     if (request !== requestNumber) return
     report.value = data
+    error.value = ''
     const last = Math.max(1, Math.ceil(data.total / pageSize))
     if (page.value > last) {
       page.value = last
-      return load()
+      return load(background)
     }
+    if (selected.value) await refreshSelected(data.items, request)
   } catch (err) {
-    if (request === requestNumber) error.value = err.message
+    if (request === requestNumber && (!background || !report.value)) error.value = err.message
   } finally {
     if (request === requestNumber) loading.value = false
   }
 }
 
+async function refreshSelected(items, request) {
+  const number = selected.value.sp_no
+  let latest = items.find(row => row.sp_no === number)
+  if (!latest) {
+    // 工单状态变化后可能移出当前筛选或分页，明细仍按审批编号更新。
+    const result = await api.get('/technical-orders', { month: month.value, keyword: number }, { silent: true })
+    latest = result.items.find(row => row.sp_no === number)
+  }
+  if (request === requestNumber && selected.value?.sp_no === number) selected.value = latest || null
+}
+
+function changePage(value) {
+  if (page.value === value) return
+  page.value = value
+  load()
+}
+
 function reloadDetails() {
   page.value = 1
   load()
+}
+
+function search() {
+  appliedKeyword = keyword.value
+  reloadDetails()
 }
 
 function changeMonth() {
@@ -224,6 +253,7 @@ function showOwner(id) {
 }
 
 onMounted(load)
+useBusinessRefresh(() => load(true), { interval: 30000, enabled: () => !loading.value && !document.hidden })
 </script>
 
 <style scoped>
